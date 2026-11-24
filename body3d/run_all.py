@@ -108,7 +108,8 @@ def main(argv=None):
                 run([py, S('face_landmarks.py'), f, dst], work, log)
 
     def step_bake():
-        rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work],
+        rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work,
+                  '--view-overlay-dir', os.path.join(out, 'view_overlays')],
                  work, log, ok_codes=(0, 1), show_output=True)
         if rc and not a.force:
             raise RuntimeError('烘焙前頭部檢查有 FAIL（見 run_all.log）。修正照片，或加 --force 繼續')
