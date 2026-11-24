@@ -72,7 +72,7 @@ python body3d/verify_glb.py ./output-next/body_rigged.glb --expect-unlit
 
 ### 跑 33 張原圖的同姿勢對照
 
-在 repo 根目錄使用 Node.js 20 以上執行 [`scripts/compare_turnaround.mjs`](scripts/compare_turnaround.mjs)。腳本以 Three.js 載入無光照 GLB，使用 `cams33.json` 裡每張原圖的正交或透視相機投影。主環、俯角、仰角與頂視保留 T-pose，頭部特寫只將手臂放下，保持頭部、軀幹及世界座標固定。圖像以軟體光柵化輸出。
+在 repo 根目錄使用 Node.js 20 以上執行 [`scripts/compare_turnaround.mjs`](scripts/compare_turnaround.mjs)。腳本以 Three.js 載入無光照 GLB，使用 `cams33.json` 裡每張原圖的正交或透視相機投影。主環、俯角、仰角與頂視保留 T-pose，頭部特寫只將手臂放下，保持頭部、軀幹及世界座標固定。圖像以軟體光柵化輸出。 有原始拍攝或生成的可重現相機設定時，優先將視角、投影、焦距或正交尺度及構圖寫入相機表。若手上只有影像，在 Issue 標明使用的是估計校準參數。
 
 ```sh
 npm install --no-save --package-lock=false three@0.180.0 sharp
