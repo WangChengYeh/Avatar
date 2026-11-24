@@ -15,13 +15,14 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
    7 mesh      Marching cubes + 平滑 + 減面 → body33s.ply（mesh33s.py）
    8 headreg   頭部特寫相機對位（headreg33.py）
    9 face      MediaPipe 臉部特徵點（face_landmarks.py，選用）
-  10 uv        Blender 展 UV（bl_uv33s.py）
-  11 bake      頭部投影重疊檢查、多視角貼圖烘焙（bake33.py）
-  12 export    Blender 匯出有貼圖的 GLB + 預覽圖（bl_export.py）
-  13 joints    從網格量測關節位置（joints.py）
-  14 rig       Blender 建 22 根骨頭、自動權重、匯出（rig.py）
-  15 unlit     材質標為 KHR_materials_unlit（glb_unlit.py）
-  16 verify    verify_glb.py 驗證兩個 GLB（有 FAIL 時結束碼 1）
+  10 face3d    用臉部特徵點對齊 3/4 頭部特寫相機、補出鼻子 / 眼窩（face33.py，選用）
+  11 uv        Blender 展 UV（bl_uv33s.py）
+  12 bake      頭部投影重疊檢查、多視角貼圖烘焙（bake33.py）
+  13 export    Blender 匯出有貼圖的 GLB + 預覽圖（bl_export.py）
+  14 joints    從網格量測關節位置（joints.py）
+  15 rig       Blender 建 22 根骨頭、自動權重、匯出（rig.py）
+  16 unlit     材質標為 KHR_materials_unlit（glb_unlit.py）
+  17 verify    verify_glb.py 驗證兩個 GLB（有 FAIL 時結束碼 1）
 
 輸出（OUT_DIR）:
     {name}_rigged.glb        無光照材質（照片已含光影，建議用這個）
@@ -29,12 +30,12 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
     v2_*.png                 Blender 預覽圖
     turnaround_report.png    照片檢查報告；work/ 內是中間檔
 """
-import argparse, os, shutil, subprocess, sys, time
+import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.3.0'
+__version__ = '2.5.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
-STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'uv', 'bake', 'export',
+STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
          'joints', 'rig', 'unlit', 'verify']
 
 
@@ -52,15 +53,24 @@ def run(cmd, cwd, log, ok_codes=(0,), show_output=False):
     with open(log, 'a+') as f:
         f.write('\n$ ' + ' '.join(cmd) + '\n'); f.flush()
         start = f.tell()
-        p = subprocess.run(cmd, cwd=cwd, stdout=f, stderr=subprocess.STDOUT)
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=f, stderr=subprocess.STDOUT)
+        peak = None
+        if hasattr(os, 'wait4'):                      # peak memory of this step (the child and what it waited for)
+            _, status, ru = os.wait4(p.pid, 0)
+            rc = os.waitstatus_to_exitcode(status); p.returncode = rc
+            peak = ru.ru_maxrss / (1 if sys.platform == 'darwin' else 1 / 1024) / 2 ** 30   # macOS: bytes, Linux: KiB
+        else:
+            rc = p.wait()
         if show_output:
             f.seek(start)
             print(f.read(), end='', flush=True)
-    print(f'     ({time.time() - t:.0f} s, exit {p.returncode})', flush=True)
-    if p.returncode not in ok_codes:
+        msg = f'({time.time() - t:.0f} s, exit {rc}' + (f', peak memory {peak:.2f} GiB' if peak is not None else '') + ')'
+        f.write(f'STEP {os.path.basename(cmd[-1] if cmd[-1].endswith(".py") else cmd[1] if len(cmd) > 1 else cmd[0])} {msg}\n')
+    print(f'     {msg}', flush=True)
+    if rc not in ok_codes:
         tail = open(log, errors='replace').read().splitlines()[-25:]
-        raise RuntimeError(f'步驟失敗（exit {p.returncode}），log: {log}\n' + '\n'.join(tail))
-    return p.returncode
+        raise RuntimeError(f'步驟失敗（exit {rc}），log: {log}\n' + '\n'.join(tail))
+    return rc
 
 
 def main(argv=None):
@@ -87,11 +97,14 @@ def main(argv=None):
     def need_blender():
         if not blender:
             raise RuntimeError('找不到 Blender（4.2 以上）。用 --blender 指定路徑或設定環境變數 BLENDER')
-        return [blender, '-b', '--factory-startup', '--python']
+        # --python-exit-code 1: an exception in the Blender script must fail the step (Blender exits 0 otherwise)
+        return [blender, '-b', '--factory-startup', '--python-exit-code', '1', '--python']
 
     def step_check():
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--pose', a.pose,
                   '--out', os.path.join(out, 'turnaround_report.png')], out, log, ok_codes=(0, 1))
+        # the camera steps trust the nominal angles (±3°) only for photos that passed the strict check
+        json.dump(dict(passed=rc == 0), open(os.path.join(work, 'check_status.json'), 'w'))
         if rc and not a.force:
             raise RuntimeError('照片檢查有 FAIL（見 run_all.log / turnaround_report.png）。修正照片，或加 --force 繼續')
         if rc:
@@ -139,9 +152,11 @@ def main(argv=None):
         'arms': lambda: run([py, S('arms33.py'), '0.20'], work, log),
         'round': lambda: run([py, S('round33.py'), 'occ33b.npy', 'occ33c.npy', '3'], work, log),
         'legs': lambda: run([py, S('legs33.py'), 'occ33c.npy', 'occ33d.npy'], work, log),
-        'mesh': lambda: run([py, S('mesh33s.py'), 'occ33d.npy', 'body33s.ply'], work, log),
+        'mesh': lambda: (os.path.exists(os.path.join(work, 'body33s_noface.ply')) and os.remove(os.path.join(work, 'body33s_noface.ply')),
+                         run([py, S('mesh33s.py'), 'occ33d.npy', 'body33s.ply'], work, log)),
         'headreg': lambda: run([py, S('headreg33.py')], work, log),
         'face': step_face,
+        'face3d': lambda: run([py, S('face33.py'), img], work, log),
         'uv': lambda: run(need_blender() + [S('bl_uv33s.py'), '--', work], work, log),
         'bake': step_bake,
         'export': step_export,

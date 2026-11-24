@@ -12,6 +12,9 @@ verify_glb.py — 用純 Python 驗證附骨架的人物 GLB（取代 three.js �
   幾何    高度 ≈ 1.65 m、Y 朝上、腳在地面、Head 在上方、LeftHand 在 +X 且水平（T-pose）、腳尖朝 +Z
   材質    每個材質有 baseColorTexture，貼圖能解碼（尺寸）；--expect-unlit 時檢查 KHR_materials_unlit
   擺姿勢  以 numpy 做線性蒙皮（LBS）：LeftArm 繞世界 Z 軸往下轉 70°，左手指尖要往下移動；所有頂點為有限值
+  頭部渲染 純 Python 把有貼圖的頭部從正面 / 左右 45° / 左右側面算繪成 512x512（--renders 資料夾可存圖），
+         在皮膚區域找「又細又長的暗線」（比周圍皮膚暗很多、寬 ≤ 6 px、長 ≥ 5 cm，直的彎的都算）：
+         貼圖黑條、對位錯開的接縫會被抓到；睫毛（~3 cm）、嘴線（~4.5 cm）、鼻孔較短，眉毛不夠黑，不算
   驗證器  若有 Node.js 與 npm 套件 gltf-validator，另外跑 Khronos glTF Validator（0 錯誤才算通過）
 
 結束碼: 有 FAIL 回傳 1，否則 0。
@@ -20,7 +23,7 @@ verify_glb.py — 用純 Python 驗證附骨架的人物 GLB（取代 three.js �
 import argparse, json, os, shutil, struct, subprocess, sys, tempfile
 import numpy as np
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 REQ = ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand',
        'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand', 'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase',
        'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase']
@@ -148,7 +151,7 @@ def run_validator(path, rep):
     rep(level, 'Khronos 驗證器', f"{r['e']} 個錯誤、{r['w']} 個警告" + ('；' + '；'.join(r['m'][:5]) if r['m'] else ''))
 
 
-def verify(path, expect_unlit=False, height=1.65, validator=True):
+def verify(path, expect_unlit=False, height=1.65, validator=True, render_dir=None):
     rep = Report()
     print(f'verify_glb {__version__}: {path}')
     # ---- format
@@ -196,7 +199,9 @@ def verify(path, expect_unlit=False, height=1.65, validator=True):
             prims.append(dict(pos=accessor(gl, bin_, at['POSITION']).astype(np.float64),
                               j=accessor(gl, bin_, at['JOINTS_0']).astype(np.int64),
                               w=accessor(gl, bin_, at['WEIGHTS_0']).astype(np.float64),
-                              node=i, extra=[k for k in at if k.startswith('JOINTS_') and k != 'JOINTS_0'], mat=p.get('material')))
+                              node=i, extra=[k for k in at if k.startswith('JOINTS_') and k != 'JOINTS_0'], mat=p.get('material'),
+                              uv=accessor(gl, bin_, at['TEXCOORD_0']).astype(np.float64) if 'TEXCOORD_0' in at else None,
+                              tri=accessor(gl, bin_, p['indices']).reshape(-1, 3).astype(np.int64) if 'indices' in p else None))
     if not prims:
         return rep
     nv = sum(len(p['pos']) for p in prims)
@@ -208,7 +213,7 @@ def verify(path, expect_unlit=False, height=1.65, validator=True):
     rep('FAIL' if unnorm else 'PASS', '權重加總', f'{unnorm} 個頂點加總 ≠ 1' if unnorm else
         f'所有頂點權重加總 = 1；每個頂點最多 {maxinf} 根骨頭影響' + ('（有 JOINTS_1，超過 4 根）' if any(p['extra'] for p in prims) else ''))
     # ---- rest-pose geometry (world space, skinned with the rest skeleton)
-    def skin_positions(Wm):
+    def skin_positions(Wm, split=False):
         out = []
         for p in prims:
             mesh_w = Wm[p['node']] if p['node'] in Wm else np.eye(4)
@@ -218,7 +223,7 @@ def verify(path, expect_unlit=False, height=1.65, validator=True):
             for c in range(4):
                 acc += p['w'][:, c:c + 1] * np.einsum('nij,nj->ni', J[p['j'][:, c]], P)
             out.append(acc[:, :3])
-        return np.concatenate(out)
+        return out if split else np.concatenate(out)
     rest = skin_positions(W)
     lo, hi = rest.min(0), rest.max(0); size = hi - lo
     rep('PASS' if abs(size[1] - height) < 0.05 * height else 'WARN', '尺寸', f'高 {size[1]:.3f} m、寬 {size[0]:.3f} m、厚 {size[2]:.3f} m（Y 朝上）')
@@ -273,9 +278,109 @@ def verify(path, expect_unlit=False, height=1.65, validator=True):
     foot = int(np.argmin(rest[:, 1]))
     rep('PASS' if moved_other[foot] < 1e-4 else 'FAIL', '只有手臂動', f'腳底頂點移動 {moved_other[foot] * 1000:.2f} mm（應為 0）')
     rep('PASS' if finite else 'FAIL', '數值', '變形後所有頂點都是有限數值' if finite else '變形後出現 NaN / Inf')
+    # ---- textured head renders: long straight dark lines on the skin (texture stripes, misregistered seams)
+    if cv2 is not None:
+        texs = {}
+        for k, m in enumerate(mats):
+            bct = m.get('pbrMetallicRoughness', {}).get('baseColorTexture')
+            if bct is not None:
+                img = gl['images'][gl['textures'][bct['index']]['source']]
+                bv = gl['bufferViews'][img['bufferView']]
+                texs[k] = cv2.imdecode(np.frombuffer(bin_, np.uint8, bv['byteLength'], bv.get('byteOffset', 0)), cv2.IMREAD_COLOR)
+        parts = skin_positions(W, split=True)
+        neck_y = jp['Neck'][1]
+        lines_px, imgs = head_stripe_check(prims, parts, texs, neck_y)
+        if render_dir:
+            os.makedirs(render_dir, exist_ok=True)
+            for nm, im in imgs.items():
+                cv2.imwrite(os.path.join(render_dir, f'head_{nm}.png'), im)
+        worst = max(lines_px.values()) if lines_px else 0
+        lvl = 'PASS' if worst <= STRIPE_WARN else 'WARN' if worst <= STRIPE_FAIL else 'FAIL'
+        rep(lvl, '頭部貼圖條紋', '皮膚上又細又長的暗線（像素）：' + '、'.join(f'{k} {v}' for k, v in lines_px.items()) +
+            f'（應 ≤ {STRIPE_WARN}，> {STRIPE_FAIL} 判 FAIL）' + (f'；渲染圖 {render_dir}' if render_dir else '') +
+            ('' if lvl == 'PASS' else ' → 頭部貼圖有黑條 / 接縫：看渲染圖位置，檢查對應的頭部特寫照片與烘焙'))
     if validator:
         run_validator(path, rep)
     return rep
+
+
+STRIPE_WARN, STRIPE_FAIL = 60, 200        # pixels of thin, long dark lines on the skin per 512 px head render
+HEAD_VIEWS = {'front': 0, 'left45': 45, 'right45': -45, 'left90': 90, 'right90': -90}
+
+
+def head_stripe_check(prims, parts, texs, neck_y, size=512, seg=70):
+    """render the textured head (point splatting + z-buffer) from 5 views and measure long straight dark lines on
+    the skin. Returns ({view: pixels}, {view: image})."""
+    import cv2
+    rng = np.random.default_rng(0)
+    pts, cols = [], []
+    for p, P in zip(prims, parts):
+        if p['tri'] is None or p['uv'] is None or p['mat'] not in texs:
+            continue
+        tri = p['tri']; keep = (P[tri][:, :, 1] > neck_y - 0.02).all(1) & (np.abs(P[tri][:, :, 0]) < 0.15).all(1)   # head, not the T-pose arms
+        tri = tri[keep]
+        if not len(tri):
+            continue
+        tex = texs[p['mat']]; th_, tw_ = tex.shape[:2]
+        A, B, C = P[tri[:, 0]], P[tri[:, 1]], P[tri[:, 2]]
+        area = 0.5 * np.linalg.norm(np.cross(B - A, C - A), axis=1)
+        nsamp = np.clip((area / area.sum() * 1_500_000).astype(int), 1, 400)
+        ti = np.repeat(np.arange(len(tri)), nsamp)
+        r1, r2 = rng.random(len(ti)), rng.random(len(ti)); sq = np.sqrt(r1)
+        b0, b1, b2 = 1 - sq, sq * (1 - r2), sq * r2
+        t3 = tri[ti]
+        pts.append(b0[:, None] * P[t3[:, 0]] + b1[:, None] * P[t3[:, 1]] + b2[:, None] * P[t3[:, 2]])
+        uvp = b0[:, None] * p['uv'][t3[:, 0]] + b1[:, None] * p['uv'][t3[:, 1]] + b2[:, None] * p['uv'][t3[:, 2]]
+        cols.append(tex[np.clip((uvp[:, 1] * th_).astype(int), 0, th_ - 1), np.clip((uvp[:, 0] * tw_).astype(int), 0, tw_ - 1)])
+    if not pts:
+        return {}, {}
+    X = np.concatenate(pts); Cc = np.concatenate(cols)
+    ctr = (X.min(0) + X.max(0)) / 2; ext = (X.max(0) - X.min(0)).max()
+    out, imgs = {}, {}
+    for nm, ph in HEAD_VIEWS.items():
+        a_ = np.radians(ph)
+        r = np.array([np.cos(a_), 0, -np.sin(a_)]); f = np.array([np.sin(a_), 0, np.cos(a_)])
+        s_ = 0.92 * size / ext
+        cx = ((X - ctr) @ r * s_ + size / 2).astype(int); cy = (size / 2 - (X[:, 1] - ctr[1]) * s_).astype(int)
+        ok = (cx >= 0) & (cx < size) & (cy >= 0) & (cy < size)
+        pix = cy[ok] * size + cx[ok]; dep = (X[ok] @ f)
+        order = np.lexsort((-dep, pix)); pix_s = pix[order]
+        first = np.r_[True, pix_s[1:] != pix_s[:-1]]
+        img = np.full((size * size, 3), 255, np.uint8); fill = np.zeros(size * size, np.uint8)
+        img[pix_s[first]] = Cc[ok][order][first]; fill[pix_s[first]] = 1
+        img = img.reshape(size, size, 3); fill = fill.reshape(size, size)
+        sil = cv2.morphologyEx(fill, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        holes = (sil > 0) & (fill == 0)
+        if holes.any():                                      # close the small gaps between splats
+            img = np.where(holes[..., None], cv2.medianBlur(img, 5), img)
+        img[sil == 0] = 255
+        imgs[nm] = img
+        # long straight dark lines on the skin
+        L = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)[..., 0].astype(np.int16)
+        med = cv2.medianBlur(img, 31)
+        hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
+        skin = ((hsv[..., 0] < 25) | (hsv[..., 0] > 165)) & (hsv[..., 1] > 12) & (hsv[..., 1] < 180) & (hsv[..., 2] > 110)
+        skin &= cv2.erode(sil, np.ones((9, 9), np.uint8)) > 0
+        Lmed = cv2.cvtColor(med, cv2.COLOR_BGR2LAB)[..., 0].astype(np.int16)
+        dark = ((L < Lmed - 60) & (L < 70) & skin).astype(np.uint8)
+        # thin and long dark structures (a straight texture line is curved once it wraps around the head):
+        # mean width <= 6 px and length >= 5 cm. Lashes (~3 cm), the mouth line (~4.5 cm) and nostrils are shorter.
+        min_len = 0.05 * s_
+        n_, lb, st, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
+        longl = np.zeros_like(dark)
+        for q in range(1, n_):
+            x_, y_, w_, h_, area = st[q]
+            if area < 10:
+                continue
+            comp = (lb[y_:y_ + h_, x_:x_ + w_] == q).astype(np.uint8)
+            length = np.hypot(w_, h_)
+            width = 2 * cv2.distanceTransform(comp, cv2.DIST_L2, 3).max()
+            if length >= min_len and width <= 6 and area >= 2 * min_len:   # thin everywhere, long, not a speck
+                longl[y_:y_ + h_, x_:x_ + w_] |= comp
+        out[nm] = int(longl.sum())
+        if out[nm]:
+            imgs[nm] = img.copy(); imgs[nm][longl > 0] = (0, 0, 255)
+    return out, imgs
 
 
 def main():
@@ -284,9 +389,10 @@ def main():
     ap.add_argument('--expect-unlit', action='store_true')
     ap.add_argument('--height', type=float, default=1.65)
     ap.add_argument('--no-validator', action='store_true')
+    ap.add_argument('--renders', help='把頭部渲染圖存到這個資料夾（條紋會標紅）')
     ap.add_argument('--version', action='version', version=f'verify_glb {__version__}')
     a = ap.parse_args()
-    rep = verify(a.glb, a.expect_unlit, a.height, not a.no_validator)
+    rep = verify(a.glb, a.expect_unlit, a.height, not a.no_validator, a.renders)
     nF, nW = rep.count('FAIL'), rep.count('WARN')
     print(f'\n總結: {nF} 個 FAIL, {nW} 個 WARN, {rep.count("PASS")} 個 PASS')
     sys.exit(1 if nF else 0)

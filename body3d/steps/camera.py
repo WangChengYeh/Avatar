@@ -56,9 +56,27 @@ def depth(P, c):
 # nominal angles of the rings and how far registration may move them: a silhouette alone cannot separate tilt,
 # camera distance and scale, so without limits the fit trades one for the other and the texture lands wrong
 NOMINAL_TH = {'main': 0.0, 'el30': 30.0, 'low20': -20.0, 'top': 90.0, 'head': 0.0}
-import os as _os
-MAX_DPHI = float(_os.environ.get('BODY3D_MAX_DPHI', 10.0))   # same tolerance as the photo checker (±10°)
-MAX_DTH = float(_os.environ.get('BODY3D_MAX_DTH', 16.0))
+import json as _json, os as _os
+
+
+def _limits():
+    """How far registration may move phi / th from the nominal angles.
+    Photos that passed the strict photo check (run_all writes check_status.json in the work dir): the checker has
+    verified the angles (sections 4 / 8 within ±6°, perspective 10b, ring ratios 10c), so the nominal angles are
+    trusted: ±3°. Otherwise (--force past FAILs, or no check): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
+    pin the tilt: on perfect photos free fitting turns 30° into 16–27°.
+    Environment variables BODY3D_MAX_DPHI / BODY3D_MAX_DTH override both."""
+    passed = False
+    if _os.path.exists('check_status.json'):
+        try:
+            passed = bool(_json.load(open('check_status.json')).get('passed'))
+        except ValueError:
+            passed = False
+    dp, dt = (3.0, 3.0) if passed else (10.0, 16.0)
+    return float(_os.environ.get('BODY3D_MAX_DPHI', dp)), float(_os.environ.get('BODY3D_MAX_DTH', dt)), passed
+
+
+MAX_DPHI, MAX_DTH, CHECK_PASSED = _limits()
 
 
 def nominal(name, kind):

@@ -55,11 +55,13 @@ def test_wrong_angle_fails(broken):
     assert any('90°' in l for l in fails)
 
 
-def test_flipped_copy_warns(broken):
-    """把右側圖左右翻轉當成左側：第 6b 項要指出翻轉複製"""
+def test_flipped_copy_fails_in_ai_mode_warns_in_photo_mode(broken):
+    """把右側圖左右翻轉當成左側：第 6b 項指出翻轉複製；AI 模式（預設）FAIL，photo 模式 WARN"""
     im = cv2.imread(str(broken / '07_270deg_right.jpg'))
     cv2.imwrite(str(broken / '03_090deg_left.jpg'), cv2.flip(im, 1), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
+    assert any('翻轉複製' in l and '90°' in l for l in lines(out, 'FAIL'))
+    rc, out = run_py('check_turnaround.py', broken, '--mode', 'photo', '--out', broken.parent / 'p.png')
     assert any('翻轉複製' in l and '90°' in l for l in lines(out, 'WARN'))
 
 
@@ -155,3 +157,39 @@ def test_preflight_reports_incompatible_and_duplicate_photos(tmp_path):
     assert any('head_090deg.jpeg' in l and '小寫 .jpg' in l for l in failed)
     assert any('head_135deg.jpg' in l and '1920 × 2048' in l for l in failed)
     assert 'Traceback' not in out
+
+
+
+def test_clean_set_has_no_warnings_in_ai_mode(synth_set, tmp_path):
+    """嚴格模式的門檻是「完美照片 + 小餘裕」：完美照片的幾何 / 一致性項目連 WARN 都不能有。
+    曝光與臉頰亮度（1.15–1.18 收緊到 ±3%、5 / 255）量的是光線：合成照片取自 v9 模型的烘焙貼圖，亮度本身不均，
+    不列入這個測試"""
+    rc, out = run_py('check_turnaround.py', synth_set, '--out', tmp_path / 'r.png')
+    lighting = ('曝光', '亮度')
+    other = [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if not any(k in l for k in lighting)]
+    assert not other, '\n'.join(other)
+    assert any('head 45° vs 0° 髮高比' in l for l in lines(out, 'PASS'))
+
+
+def test_flat_hair_in_three_quarter_closeup_fails(broken):
+    """第 11 項：45° 頭部特寫的頭髮壓扁 15%（臉相對變大）→ 髮高比 FAIL（兩層臉的原因）"""
+    f = broken / 'head_045deg.jpg'
+    im = cv2.imread(str(f)); h, w = im.shape[:2]
+    m = im.min(2) < 235; top = int(np.nonzero(m.any(1))[0].min()); y0 = int(0.36 * h)
+    yo = np.arange(h, dtype=np.float32)[:, None].repeat(w, 1)
+    src = np.where(yo < y0, y0 - (y0 - yo) / 0.85, yo).astype(np.float32)
+    src[src < top - 5] = 0                                   # above the squeezed hair: white background row 0
+    xo = np.arange(w, dtype=np.float32)[None, :].repeat(h, 0)
+    im2 = cv2.remap(im, xo, src, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    cv2.imwrite(str(f), im2, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    assert any('head 45° vs 0° 髮高比' in l for l in lines(out, 'FAIL'))
+
+
+def test_closeup_without_face_fails(broken):
+    """第 11 項：3/4 頭部特寫看不到臉（換成後腦勺）→ FAIL"""
+    im = cv2.imread(str(broken / 'head_135deg.jpg')).astype(np.int16)
+    im = np.clip(im + 2, 0, 255).astype(np.uint8)        # not pixel-identical (the input pre-check stops on exact copies)
+    cv2.imwrite(str(broken / 'head_045deg.jpg'), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    assert any('head 45° 臉部' in l and '找不到臉' in l for l in lines(out, 'FAIL'))

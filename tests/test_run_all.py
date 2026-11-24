@@ -43,6 +43,10 @@ def test_end_to_end(request, tmp_path):
     import fit_report
     rows = [r for r in fit_report.fit(str(out / 'work')) if r['kind'] == 'main']
     assert np.mean([r['extra'] for r in rows]) < 600, '腿部超出照片剪影（兩腿之間的外殼殘留）'
+    # 審查第 2 項：預設 4K 烘焙的峰值記憶體要記錄下來，而且在 9.7 GiB 的環境也跑得完
+    import re
+    peaks = [float(x) for x in re.findall(r'STEP bake33\.py \(.*?peak memory ([\d.]+) GiB', open(out / 'run_all.log').read())]
+    assert peaks and max(peaks) < 5.0, peaks
     for f in ('body_rigged.glb', 'body_rigged_lit.glb'):
         assert vg.verify(str(out / f), expect_unlit=f == 'body_rigged.glb', validator=False).count('FAIL') == 0
 
@@ -59,22 +63,51 @@ def test_legs_strict_carving_removes_gap_strip(synth_set, tmp_path):
     assert max(r['xor'] for r in rows) < 0.10
 
 
-def _cams(photos, out):
+def _bench(photos, out, *extra):
     import json
-    for step in ('cams', 'refine'):
-        rc, log = run_py('run_all.py', photos, out, '--only', step, timeout=3600)
+    rc, log = run_py('camera_benchmark.py', photos, out, *extra, timeout=3600)
+    assert rc == 0, log[-2000:]
+    return json.load(open(out / 'camera_benchmark.json'))
+
+
+def test_camera_benchmark_orthographic(synth_set, tmp_path):
+    """審查第 4 項：已知相機（正交、俯角 30°、仰角 −20°）的合成照片。照片檢查通過時角度鎖在 ±3°；
+    16 張俯角 / 仰角圖最多 1 張被誤判成透視"""
+    r = _bench(synth_set, tmp_path / 'o')
+    assert r['check_passed']
+    for ring in ('el30', 'low20'):
+        assert r['rings'][ring]['dphi_max'] <= 3.01 and r['rings'][ring]['dth_max'] <= 3.01, r
+    assert r['rings']['el30']['n_perspective'] + r['rings']['low20']['n_perspective'] <= 1, r
+
+
+def test_camera_benchmark_perspective(persp_set, tmp_path):
+    """審查第 4 項：相機在 4 m 的透視照片，俯角環 8 張至少 7 張判成透視，距離誤差平均 ≤ 1 m"""
+    r = _bench(persp_set, tmp_path / 'p', '--true-distance', '4.0')
+    e = r['rings']['el30']
+    assert e['n_perspective'] >= 7 and e['dist_err_mean'] is not None and e['dist_err_mean'] <= 1.0, r
+
+
+def test_blender_script_error_fails_the_step(synth_set, tmp_path):
+    """審查第 1 項：全新輸出資料夾只跑 uv（沒有網格）→ Blender 腳本出錯，CLI 要回傳非零並指出步驟"""
+    rc, out = run_py('run_all.py', synth_set, tmp_path / 'fresh', '--only', 'uv')
+    assert rc != 0 and '失敗於步驟 uv' in out
+
+
+def test_face_step_aligns_closeups(synth_set, tmp_path):
+    """face33：用臉部特徵點對齊 3/4 頭部特寫；對齊後特徵點誤差中位數 < 2 mm，且不比對齊前差"""
+    import re
+    out = tmp_path / 'f'
+    for step in ('cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d'):
+        rc, log = run_py('run_all.py', synth_set, out, '--only', step, timeout=3600)
         assert rc == 0, log[-2000:]
-    return json.load(open(out / 'work' / 'cams33.json'))
-
-
-def test_perspective_distance_estimated(persp_set, tmp_path):
-    """相機在 4 m 的透視照片：俯角環 8 張裡至少 6 張估出 D 在 2.5–6.5 m"""
-    c = _cams(persp_set, tmp_path / 'p')
-    ds = [v.get('D') for v in c.values() if v['kind'] == 'el30']
-    assert sum(1 for d in ds if d and 2.5 <= d <= 6.5) >= 6, ds
-
-
-def test_orthographic_set_mostly_no_perspective(synth_set, tmp_path):
-    """正交照片：俯角 + 仰角 16 張最多 3 張被誤判成透視"""
-    c = _cams(synth_set, tmp_path / 'o')
-    assert sum(1 for v in c.values() if v['kind'] in ('el30', 'low20') and v.get('D')) <= 3
+    txt = open(out / 'run_all.log').read()
+    m = re.search(r'landmark misalignment median ([\d.]+) mm -> ([\d.]+) mm', txt)
+    assert m, txt[-1500:]
+    before, after = float(m.group(1)), float(m.group(2))
+    assert after < 2.0 and after <= before + 0.1
+    # running the face step again must not apply the correction twice
+    import trimesh
+    v1 = trimesh.load(out / 'work' / 'body33s.ply', process=False).vertices
+    rc, log = run_py('run_all.py', synth_set, out, '--only', 'face3d')
+    v2 = trimesh.load(out / 'work' / 'body33s.ply', process=False).vertices
+    assert rc == 0 and np.abs(v1 - v2).max() < 2e-3

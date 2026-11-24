@@ -119,3 +119,36 @@ def test_trs_matches_axis_rotation():
     M = vg.trs_matrix({'rotation': q, 'translation': [1, 2, 3]})
     R = vg.axis_rot(ax, 37)
     assert np.allclose(M[:3, :3], R[:3, :3], atol=1e-9) and np.allclose(M[:3, 3], [1, 2, 3])
+
+
+
+def add_head_stripes(src, dst, width=24, step=175):
+    """複製 GLB，在 Head 貼圖畫黑色直線（審查第 3 項的做法：24 px 寬、間距 175 px）"""
+    import cv2
+    gl, bin_ = vg.load_glb(src)
+    views = gl['bufferViews']
+    blobs = [bin_[v.get('byteOffset', 0):v.get('byteOffset', 0) + v['byteLength']] for v in views]
+    mi = [i for i, m in enumerate(gl['materials']) if m.get('name') == 'Head'][0]
+    img = gl['images'][gl['textures'][gl['materials'][mi]['pbrMetallicRoughness']['baseColorTexture']['index']]['source']]
+    tex = cv2.imdecode(np.frombuffer(blobs[img['bufferView']], np.uint8), cv2.IMREAD_COLOR)
+    for x in range(0, tex.shape[1], step):
+        tex[:, x:x + width] = 0
+    blobs[img['bufferView']] = cv2.imencode('.jpg', tex, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes()
+    out = bytearray()
+    for v, b in zip(views, blobs):
+        out += b'\0' * (-len(out) % 4); v['byteOffset'] = len(out); v['byteLength'] = len(b); out += b
+    out += b'\0' * (-len(out) % 4); gl['buffers'][0]['byteLength'] = len(out)
+    js = json.dumps(gl, separators=(',', ':')).encode(); js += b' ' * (-len(js) % 4)
+    body = struct.pack('<I4s', len(js), b'JSON') + js + struct.pack('<I4s', len(out), b'BIN\0') + bytes(out)
+    open(dst, 'wb').write(struct.pack('<4sII', b'glTF', 2, 12 + len(body)) + body)
+
+
+def test_head_stripes_fail_and_normal_texture_passes(model_glb, tmp_path):
+    """審查第 3 項：頭部貼圖加黑條要 FAIL；正常貼圖（含睫毛、鼻孔等暗細節）要 PASS"""
+    rc, out = verify(model_glb, '--renders', tmp_path / 'ok')
+    assert any('頭部貼圖條紋' in l for l in lines(out, 'PASS')), out[-1500:]
+    bad = tmp_path / 'striped.glb'
+    add_head_stripes(model_glb, bad)
+    rc, out = verify(bad, '--renders', tmp_path / 'bad')
+    assert rc == 1 and any('頭部貼圖條紋' in l for l in lines(out, 'FAIL'))
+    assert (tmp_path / 'bad' / 'head_front.png').exists()
