@@ -27,7 +27,14 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 所有圖放在同一個資料夾，檔名規則見下方「八、檔名」。
 角度定義：0 = 正面，90 = 她的左側朝相機（臉朝畫面左），180 = 背面，270 = 右側。
 
-需要: pip install opencv-python numpy
+單檔使用（Python 3）:
+    python -m pip install numpy opencv-python
+    python check_turnaround.py 照片資料夾
+
+有重建中間檔時，可另外檢查頭部投影重疊區:
+    python check_turnaround.py 照片資料夾 --head-overlap-work 工作資料夾
+    工作資料夾需有 cams33.json、uvmesh.npz、face_lm33.npy 和頭部照片遮罩。
+
 
 結束碼: 有 FAIL 回傳 1，否則 0。報告圖預設存成 turnaround_report.png（每張圖畫出去背輪廓）。
 
@@ -155,7 +162,8 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     並寫明：camera elevated 30 degrees looking down, same distance and framing as the eye-level views,
     same T-pose, arms horizontal。
 """
-import argparse, glob, os, re, sys
+import argparse, glob, json, os, re, sys
+from pathlib import Path
 
 __version__ = '1.13.0'
 import numpy as np
@@ -595,6 +603,147 @@ def hand_row_fraction(m):
     return ((yl - t) / (b - t), (yr - t) / (b - t))
 
 
+# ---------------------------------------------------------------- head overlap
+C0 = np.array([0.0, 0.85, 0.0])
+
+
+def camera_axes(phi, th):
+    """image right r, image up u, toward-camera f (unit vectors)"""
+    p, t = np.radians(phi), np.radians(th)
+    r = np.array([np.cos(p), 0.0, -np.sin(p)])
+    u = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
+    f = np.array([np.sin(p) * np.cos(t), np.sin(t), np.cos(p) * np.cos(t)])
+    return r, u, f
+
+
+def camera_project(P, c):
+    """(col, row) arrays for points P (N, 3)"""
+    r, u, f = camera_axes(c['phi'], c['th'])
+    D = c.get('D')
+    if not D:
+        return c['cu'] + c['s'] * (P @ r), c['cv'] - c['s'] * (P @ u)
+    Q = P - C0
+    k = D / np.maximum(0.05 * D, D - Q @ f)
+    return c['cu'] + c['s'] * (C0 @ r + k * (Q @ r)), c['cv'] - c['s'] * (C0 @ u + k * (Q @ u))
+
+
+def camera_toward(P, c):
+    """unit vectors from the points toward the camera (N, 3)"""
+    _, _, f = camera_axes(c['phi'], c['th'])
+    D = c.get('D')
+    if not D:
+        return np.broadcast_to(f, P.shape)
+    v = C0 + D * f - P
+    return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+
+def camera_depth(P, c):
+    """larger = closer to the camera (for z-buffers)"""
+    _, _, f = camera_axes(c['phi'], c['th'])
+    D = c.get('D')
+    if not D:
+        return P @ f
+    return -np.linalg.norm(C0 + D * f - P, axis=1)
+
+
+FRONT = 'head_000deg'
+CHEEKS = (('左臉頰', 'head_045deg', 1), ('右臉頰', 'head_315deg', -1))
+MIN_SAMPLES = 60
+# Provisional review threshold on the 0–255 luma scale.
+LUMA_REVIEW = 40.0
+
+
+def projected_samples(points, normals, cam, image, mask):
+    """Sample luma on surface points visible in this source photo."""
+    col, row = camera_project(points, cam)
+    height, width = image.shape
+    in_frame = (col >= 1) & (row >= 1) & (col < width - 2) & (row < height - 2)
+    col = np.clip(col, 0, width - 1)
+    row = np.clip(row, 0, height - 1)
+    incidence = np.einsum('ij,ij->i', normals, camera_toward(points, cam))
+
+    cell = 4
+    grid_width, grid_height = width // cell + 1, height // cell + 1
+    x, y = (col / cell).astype(int), (row / cell).astype(int)
+    depth = camera_depth(points, cam)
+    depth_grid = np.full((grid_height, grid_width), -1e9, dtype=np.float32)
+    np.maximum.at(depth_grid, (y[in_frame], x[in_frame]), depth[in_frame])
+    visible = depth >= cv2.dilate(depth_grid, np.ones((3, 3), np.uint8))[y, x] - 0.012
+    col_index, row_index = np.rint(col).astype(int), np.rint(row).astype(int)
+    valid = in_frame & visible & (incidence > 0.2) & (mask[row_index, col_index] > 0)
+    return col_index, row_index, image[row_index, col_index].astype(float), valid
+
+
+def read_view(folder, work, stem):
+    image = cv2.imread(str(folder / f'{stem}.jpg'), cv2.IMREAD_GRAYSCALE)
+    mask = cv2.imread(str(work / f'mask_{stem}.png'), cv2.IMREAD_GRAYSCALE)
+    if image is None or mask is None or image.shape != mask.shape:
+        raise ValueError(f'{stem} 缺少可配對的照片或遮罩')
+    mask = cv2.erode(mask, np.ones((9, 9), np.uint8))
+    return image, mask
+
+
+def cheek_band(landmarks, shape, col, row):
+    """Locate the transition around the eroded landmark outline used for the frontal bake."""
+    face = np.zeros(shape, np.uint8)
+    hull = cv2.convexHull(np.rint(landmarks).astype(np.int32))
+    cv2.fillConvexPoly(face, hull, 1)
+    face = cv2.erode(face, np.ones((61, 61), np.uint8))
+    inside = cv2.distanceTransform(face, cv2.DIST_L2, 3)
+    outside = cv2.distanceTransform(1 - face, cv2.DIST_L2, 3)
+
+    top, bottom = landmarks[:, 1].min(), landmarks[:, 1].max()
+    face_height = bottom - top
+    cheek_rows = (row >= top + 0.45 * face_height) & (row <= top + 0.90 * face_height)
+    return cheek_rows & (inside[row, col] <= 32) & (outside[row, col] <= 32)
+
+
+def report_head_overlap(folder, work):
+    folder, work = Path(folder), Path(work)
+    try:
+        cameras = json.loads((work / 'cams33.json').read_text(encoding='utf-8'))
+        landmarks = np.load(work / 'face_lm33.npy')
+        if (landmarks.ndim != 2 or landmarks.shape[0] < 3 or landmarks.shape[1] < 2
+                or not np.isfinite(landmarks[:, :2]).all()):
+            raise ValueError('正面臉部特徵點無效')
+        landmarks = landmarks[:, :2]
+        with np.load(work / 'uvmesh.npz') as mesh:
+            vertices = mesh['pos']
+            head = vertices[:, 1] >= 1.40
+            points, normals = vertices[head], mesh['nrm'][head]
+        frontal_image, frontal_mask = read_view(folder, work, FRONT)
+        col, row, frontal_luma, frontal_valid = projected_samples(
+            points, normals, cameras[FRONT], frontal_image, frontal_mask)
+    except (OSError, KeyError, IndexError, ValueError) as error:
+        print(f'[WARN] 頭部投影重疊：未完成檢查（{error}）')
+        return
+
+    band = cheek_band(landmarks, frontal_image.shape, col, row)
+    face_midline = np.median(landmarks[:, 0])
+    for cheek, side, direction in CHEEKS:
+        label = f'{cheek} {FRONT} / {side}'
+        try:
+            image, mask = read_view(folder, work, side)
+            _, _, side_luma, side_valid = projected_samples(points, normals, cameras[side], image, mask)
+        except (ValueError, KeyError) as error:
+            print(f'[WARN] {label}：未完成檢查（{error}）')
+            continue
+
+        common = band & frontal_valid & side_valid & (direction * (col - face_midline) > 0)
+        count = np.count_nonzero(common)
+        if count < MIN_SAMPLES:
+            print(f'[WARN] {label}：共同可見取樣不足（{count} 點）')
+            continue
+
+        delta = np.abs(frontal_luma[common] - side_luma[common])
+        median = float(np.median(delta))
+        p90 = float(np.percentile(delta, 90))
+        status = 'WARN' if p90 >= LUMA_REVIEW else 'PASS'
+        guidance = '，接合處可能出現色帶，請複核照片的亮度及對位' if status == 'WARN' else ''
+        print(f'[{status}] {label}：亮度絕對差中位數 {median:.1f}，第 90 百分位 {p90:.1f} / 255'
+              f'（{count} 點）{guidance}')
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(description=f'check_turnaround {__version__}')
@@ -608,8 +757,6 @@ def main():
     args = ap.parse_args()
     print(f'check_turnaround 版本 {__version__}')
     if args.head_overlap_work:
-        from steps.head_overlap import report as report_head_overlap
-
         report_head_overlap(args.folder, args.head_overlap_work)
         return
 
