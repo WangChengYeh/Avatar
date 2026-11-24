@@ -70,6 +70,19 @@ python body3d/run_all.py ./photos-fixed ./output-next --name body
 python body3d/verify_glb.py ./output-next/body_rigged.glb --expect-unlit
 ```
 
+### 跑 33 張原圖的同姿勢對照
+
+在 repo 根目錄使用 Node.js 20 以上執行 [`scripts/compare_turnaround.mjs`](scripts/compare_turnaround.mjs)。腳本以 Three.js 載入無光照 GLB，使用 `cams33.json` 裡每張原圖的正交或透視相機投影。主環、俯角、仰角與頂視保留 T-pose，頭部特寫只將手臂放下，保持頭部、軀幹及世界座標固定。圖像以軟體光柵化輸出。
+
+```sh
+npm install --no-save --package-lock=false three@0.180.0 sharp
+node scripts/compare_turnaround.mjs --photos ./photos \
+  --cameras ./output/work/cams33.json --model ./output/body_rigged.glb \
+  --all-views --out ./comparison
+```
+
+`--all-views` 輸出五組總覽圖，以及 `pairs/` 內 33 張逐角度 PNG。移除該旗標可快速輸出全身與耳部對照。提供 `--before ./previous/body_rigged.glb` 可加入修正前模型。全量比對的範例見 [Issue #19](https://github.com/WangChengYeh/Avatar/issues/19)。
+
 例如 v1220 左側面曾看到肩膀接上臂處偏灰綠。先查看同角度原圖是否已有這塊色差；如果原圖正常，就沿著 UV／烘焙貼圖、靜止 GLB 到 Three.js 站姿逐步比較，找出色差第一次出現的位置，再決定要修哪一步。
 
 ## 文件
