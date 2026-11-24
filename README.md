@@ -56,7 +56,7 @@ python -m pytest -q --photos=./photos
 - **重要中間結果與修改**：保留 checker 重現的結果、會影響判斷的試修與取捨，以及實際修改的照片、checker 或 3D 步驟。將相關 commit、PR 和檢查報告連回該 Issue。
 - **驗收與下一輪**：在 Issue 內嵌同條件下的修正前後圖，記錄 KPI、PASS／FAIL 與 GLB 版本。GLB 只需記錄版本和驗收結果。驗收後關閉 Issue。下一輪開一個新 Issue，連回上一輪並說明延續的問題或新目標。
 
-範例見 [耳部重影的分析、試修與驗收 #17](https://github.com/WangChengYeh/Avatar/issues/17)。
+範例見 [耳部重影的分析、試修與驗收 #17](https://github.com/WangChengYeh/Avatar/issues/17)。下列步驟背後的理由見 [Loop engineering 的理論基礎](docs/Loop-Engineering-Theory.md)：人物是不動的虛擬人物，任何兩張圖對不上，不是 AI 畫錯就是程式估錯。
 
 1. **比對 Three.js 與原圖。** 在 Three.js 載入目前的 GLB，輸出正面 0°、左側面 90°、背面 180°，有疑點時加上 45°／315° 或局部特寫。把模型擺到與原圖相同的姿勢（例如 T-pose），配對角度、相機投影和尺度，再對照同角度的全身照及頭部特寫。用疊圖和局部放大標出問題位置，記錄角度、部位、量測值及門檻。可依問題量測五官距離、輪廓偏移、亮度差 P90 或肩臂變形。另以 Yoga2 實際站姿和動作確認使用時的外觀。
 2. **找出差異最早出現在哪一步。** 先比對原圖之間的同角度全身照與頭部特寫，再看不同角度回投到同一視角後的結果。若原圖已有五官比例、輪廓、色澤或亮度差異，走第 3 步。若原圖一致，以同一組照片逐步核對相機對齊、網格、UV 與貼圖烘焙、骨架權重、GLB 匯出與 Three.js 載入後的結果；修正最早出現差異的步驟，並加入能重現問題的檢查。若兩邊都有問題，分別修正及驗證。
@@ -75,5 +75,6 @@ python body3d/verify_glb.py ./output-next/body_rigged.glb --expect-unlit
 ## 文件
 
 - [流程與驗收](docs/Workflow-and-Validation.md) · 輸入規格、重跑步驟、照片與 GLB 檢查、回投 KPI
+- [Loop engineering 的理論基礎](docs/Loop-Engineering-Theory.md) · 為什麼要先改 checker、以原圖為錨、找最早出現差異的步驟
 - [版本與量測紀錄](CHANGELOG.md) · 重要修正、實測範圍和歷史限制
 - [Avatar 正確性審查](docs/Avatar-Correctness-Review.md) · body3d 2.3.0 的原始報告及重現方式
