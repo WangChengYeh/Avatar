@@ -128,3 +128,19 @@ def test_unverified_face_uses_wide_camera_search(monkeypatch, tmp_path):
     monkeypatch.setattr(run_all, 'run', checker_run)
     assert run_all.main([str(tmp_path), str(tmp_path / 'out'), '--only', 'check']) == 0
     assert json.loads(status_path.read_text()) == {'passed': False}
+
+
+def test_final_acceptance_thresholds():
+    """#26: run_all step 18 (fit) compares the finished mesh with every full-body photo"""
+    import fit_report
+    rows = [dict(view=f'v{i}', xor=0.056) for i in range(24)]
+    assert fit_report.acceptance(rows)[0] == 'PASS'
+    rows[3]['xor'] = 0.20                                  # one view off: listed, mean still fine
+    level, mean, worst = fit_report.acceptance(rows)
+    assert level == 'WARN' and [v for v, _ in worst] == ['v3']
+    assert fit_report.acceptance([dict(view='v', xor=0.155)] * 24)[0] == 'FAIL'     # v1220 level
+
+
+def test_fit_step_is_last():
+    import run_all
+    assert run_all.STEPS[-2:] == ['verify', 'fit']

@@ -9,7 +9,8 @@ What it does (cwd = work dir; needs face_lm33.npy from face_landmarks.py and med
   1. 468 MediaPipe landmarks in head_000 (given) and in head_045 / head_315 (detected here).
   2. head_000 is the anchor. Each landmark is a point on the head_000 viewing ray: X_i = P_i + t_i f0, where P_i is
      where the ray meets the mesh and t_i an unknown depth correction.
-  3. Least squares: per 3/4 view (phi ±5°, s, cu, cv) and per landmark t_i so that X_i reprojects onto the
+  3. Least squares: per 3/4 view (phi ±5°; with the ring lock only phi, otherwise also s, cu, cv) and per landmark
+     t_i so that X_i reprojects onto the
      landmarks detected in the 3/4 views (robust loss; landmarks on the far, hidden side are skipped).
   4. The 3/4 head cameras are replaced by the landmark fit; t is spread over the face (thin-plate RBF in the
      head_000 image plane, faded out over 15 mm outside the landmark outline) and the face vertices are moved

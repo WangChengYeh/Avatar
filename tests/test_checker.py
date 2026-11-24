@@ -129,11 +129,13 @@ def test_widened_view_fails_silhouette(broken):
 
 
 def test_ring_width_ratios(synth_set, persp_set, tmp_path):
-    """第 10c 項提示寬度比差異，第 10b 項仍能攔下 4 m 透視照片"""
+    """第 10c 項：完美照片全部 PASS；4 m 透視照片的俯角環寬度比在 AI 模式 FAIL（#23），photo 模式只提示複核"""
     rc, out = run_py('check_turnaround.py', synth_set, '--out', tmp_path / 'a.png')
     assert len([l for l in lines(out, 'PASS') if '寬度比:' in l]) == 12
     rc, out = run_py('check_turnaround.py', persp_set, '--out', tmp_path / 'b.png')
     assert any('透視:' in l for l in lines(out, 'FAIL'))
+    assert sum('el30' in l and '寬度比:' in l for l in lines(out, 'FAIL')) >= 4
+    rc, out = run_py('check_turnaround.py', persp_set, '--mode', 'photo', '--out', tmp_path / 'c.png')
     assert not any('寬度比:' in l for l in lines(out, 'FAIL'))
     assert sum('el30' in l and '寬度比:' in l and '優先複核' in l for l in lines(out, 'WARN')) >= 4
 
@@ -161,11 +163,9 @@ def test_preflight_reports_incompatible_and_duplicate_photos(tmp_path):
 
 
 def test_clean_set_has_no_warnings_in_ai_mode(synth_set, tmp_path):
-    """嚴格模式的門檻是「完美照片 + 小餘裕」：完美照片的幾何 / 一致性項目連 WARN 都不能有。
-    曝光與臉頰亮度（1.15–1.18 收緊到 ±3%、5 / 255）量的是光線：合成照片取自 v9 模型的烘焙貼圖，亮度本身不均，
-    不列入這個測試"""
+    """嚴格模式的門檻是「完美照片 + 小餘裕」：完美照片連 WARN 都不能有（曝光與臉頰粗篩 1.23.0 依完美照片重新校準）"""
     rc, out = run_py('check_turnaround.py', synth_set, '--out', tmp_path / 'r.png')
-    lighting = ('曝光', '亮度')
+    lighting = ()
     other = [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if not any(k in l for k in lighting)]
     assert not other, '\n'.join(other)
     assert any('head 45° vs 0° 髮高比' in l for l in lines(out, 'PASS'))
@@ -230,3 +230,54 @@ def test_fixed_camera_distance(broken):
     assert any('el30 135° 距離' in l and '畫大了' in l for l in fails), fails
     assert any('head 45° 放大倍率' in l and '畫小了' in l for l in fails), fails
     assert len(fails) == 2, fails
+
+
+def _shift(path, dx=0, dy=0, sy=1.0):
+    """move one photo's camera aim (dx, dy px) or stretch the figure vertically about its feet (sy)"""
+    im = cv2.imread(str(path)); h, w = im.shape[:2]
+    m = im.min(2) < 235; feet = np.nonzero(m)[0].max()
+    M = np.float32([[1, 0, dx], [0, sy, dy + (1 - sy) * feet]])
+    cv2.imwrite(str(path), cv2.warpAffine(im, M, (w, h), borderValue=(255, 255, 255)), [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+
+def test_aim_point_and_tilt(broken):
+    """10e: the clean set passes; a low20 view shifted sideways fails centring, an el30 view moved up fails the aim
+    height, and a low20 view drawn without the −20° foreshortening (4 % taller) fails the tilt"""
+    rc, out = check(broken)
+    e = [l for l in out.splitlines() if '置中:' in l or '俯仰角:' in l or '對準高度:' in l]
+    assert len(e) >= 40 and all('[PASS]' in l for l in e), [l for l in e if '[PASS]' not in l]
+    _shift(broken / 'low20_045deg.jpg', dx=40)
+    _shift(broken / 'el30_090deg.jpg', dy=-40)
+    _shift(broken / 'low20_000deg.jpg', sy=1.04)
+    rc, out = check(broken)
+    fails = lines(out, 'FAIL')
+    assert any('仰角環 45° / 225° 置中' in l for l in fails), fails
+    assert any('el30 90° 對準高度' in l for l in fails), fails
+    assert any('low20 0° 俯仰角' in l and '沒有依投影縮短' in l for l in fails), fails
+
+
+def test_lighting_fixed_to_the_person(broken):
+    """6c / 10f: the clean (flat-lit) set passes; one view brightened fails the shared-surface brightness of its
+    neighbours, and a light that follows the camera (every view brighter on the image right) fails 6c"""
+    rc, out = check(broken)
+    light = [l for l in out.splitlines() if '明暗方向:' in l or '表面亮度:' in l]
+    assert len(light) >= 30 and all('[PASS]' in l for l in light), [l for l in light if '[PASS]' not in l]
+    f = broken / '03_090deg_left.jpg'
+    im = cv2.imread(str(f)).astype(np.float32)
+    m = im.min(2) < 235
+    im[m] = np.clip(im[m] * 1.12, 0, 255)
+    cv2.imwrite(str(f), im.astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    for g in broken.glob('0[1-8]_*.jpg'):
+        # side light following the camera: every body part (each run of a row) darker on its image-left side
+        im = cv2.imread(str(g)).astype(np.float32)
+        m = im.min(2) < 235
+        for y in np.flatnonzero(m.any(1)):
+            x = np.flatnonzero(m[y])
+            for run in np.split(x, np.flatnonzero(np.diff(x) > 1) + 1):
+                if len(run) > 4:
+                    im[y, run] *= np.linspace(0.70, 1.0, len(run), dtype=np.float32)[:, None]
+        cv2.imwrite(str(g), np.clip(im, 0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    fails = lines(out, 'FAIL')
+    assert sum('明暗方向' in l and '右側較亮' in l for l in fails) >= 6, fails
+    assert any('主環 90°' in l and '表面亮度' in l for l in fails), fails

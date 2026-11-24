@@ -4,7 +4,11 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 版本 1.23.0（2026-11-25）
 
 版本紀錄:
-  1.23.0 第 10d 項：相機距離固定。全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物寬度要相同；頭部特寫
+  1.23.0 曝光粗篩 ±3% → 7%、臉頰粗篩 5 → 12 / 255：依完美照片重新校準（原門檻低於完美照片）。
+         光線規格改為固定在人身上的全方位均勻柔光：第 6c 項畫面左右亮度差 > 8% FAIL；第 10f 項相鄰角度同一表面亮度。
+         第 10c 項在 AI 模式 ≥ 5% 判 FAIL（#23）。
+         第 10e 項：對準點與俯仰角（左右置中、俯仰角、上下對準點）。
+         第 10d 項：相機距離固定。全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物寬度要相同；頭部特寫
          固定放大 HEAD_ZOOM = 4 倍（畫面寬 1.95 / 0.4875 m）。
   1.22.0 烘焙前比對全身照與同角度的頭部特寫，並檢查頭部相機及臉部深度修正。
   1.21.0 --mode ai（預設）/ photo：AI 生成的圖可以重來，門檻改成「完美照片 + 小餘裕」，翻轉複製、光線翻轉、
@@ -117,7 +121,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 每一張都是同一個姿勢：只有「相機換了位置」，手、腳、頭的相對位置不能變。
   - 不要用左右翻轉來產生另一側（例如把 45° 翻成 315°）：臉、髮線、衣服的不對稱
     細節會被鏡像。本腳本第 6b 項偵測同組內的翻轉複製，
-    第 6c 項由光線方向偵測翻轉（光源相對於相機固定，每張應該都是同一側較亮）。
+    光線均勻時翻轉圖無法由明暗判斷；第 10f 項在不對稱細節（髮線、衣服）上的表面亮度差也會報出。
 
 四、人物一致性
   - 同一個人、同樣的身材比例（胸 / 腰 / 臀 / 大腿 / 小腿的寬度與厚度差 < 8%，
@@ -129,30 +133,40 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 
 五、相機與構圖（本腳本第 2 項會檢查）
   - 主環：相機高度固定在肚臍附近，水平拍攝（俯角環、仰角、俯視依各自規定）。
-  - 每張相機距離與焦距相同；要用長焦距（或正交投影），重建程式假設正交投影。
+  - 相機距離固定（第 10d 項）：全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物左右寬度相同，
+    俯視圖與正面同寬（差 ≤ 1%，> 2% FAIL）；頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL）。
+    構圖數字與提示詞見第九節。
+  - 對準點與俯仰角（第 10e 項）：相差 180° 的兩張剪影左右對稱，由此求出旋轉軸，所有全身圖與俯視圖要在同一位置
+    （差 ≤ 5 mm，> 10 mm FAIL），頭部特寫另成一組；俯角 / 仰角環的人物高度要符合 +30° / −20° 正交投影的縮短
+    （換算俯仰角差 ≤ 2°，> 4° FAIL），對準高度在同一環內一致（差 ≤ 10 mm，> 20 mm FAIL）。
+  - 要用長焦距（或正交投影），重建程式假設正交投影。
     本腳本第 10b 項量透視強度：斜角 4 張的兩手指尖中點要在身體中軸上（偏向近手 < 2% 半臂展，
     ≥ 4% 判 FAIL，約等於相機距離不到 14 m）；第 10 項把主環重建形狀投影到每張身體圖，
     輸出紅藍對照圖：藍色 = 照片有、形狀沒有，要 ≤ 1%（> 2% FAIL；主環 90° / 270° 側面 ≤ 3%）；
     紅色 = 形狀超出照片，不設門檻（形狀由剪影雕出，凹處雕不掉，一定比真實身體大，
     完美照片也有 3–75%）。第 10c 項比較俯角 / 仰角環和同角度主環的「手寬 / 臀寬」「頭寬 / 臀寬」。
     這些寬度用畫面高度區間估算，俯仰角或姿勢改變也可能影響讀值。差 ≥ 3% 判 WARN，
-    ≥ 5% 標示優先複核。複核時比對照片的拍攝角度、姿勢與輪廓。
+    AI 模式 ≥ 5% 判 FAIL；photo 模式 ≥ 5% 標示優先複核，比對照片的拍攝角度、姿勢與輪廓。
     以上門檻都用「完美照片」（模型正交渲染的 33 張）校正：完美照片藍色 0–0.6%、10b 0–0.2%、10c 0–2%。
   - 全身完整入鏡，頭頂與腳底上下都留白，手尖不要碰到畫面左右邊緣
     （頭部特寫只要求頭頂不被切到）。
   - 每張的人物高度差 < 2%；頭頂與腳底在畫面中的位置差 < 圖高 2%。
-  - 人物置中；旋轉軸（身體中心）在每張圖大致同一個水平位置。
+  - 人物置中；旋轉軸（身體中心）在每張圖同一個水平位置（第 10e 項）。
 
 六、背景與光線（本腳本第 1 項會檢查）
   - 純白、均勻的背景（無漸層、無紋理、無地板線）。
   - 不要地面陰影或倒影：腳下的陰影會讓去背把兩腳連在一起。
-  - 光線柔和平均（像攝影棚柔光），避免強烈明暗面與高光；
-    光源相對於相機固定（每張都是同一側較亮），顏色與亮度一致。
+  - 光線固定在人身上、全方位均勻柔光（像環形柔光箱或陰天），沒有方向性的明暗面與高光，
+    盡量接近皮膚 / 衣服本身的顏色：成品是無光照 GLB，明暗應由 3D 軟體的燈光產生，不要畫進照片。
+    光源不可跟著相機轉：否則同一塊皮膚在不同角度亮度不同，烘焙後有色差接縫。
+    第 6c 項量每張畫面左右亮度差（≤ 6%，> 8% FAIL）；第 10f 項把相鄰角度投影到同一表面比亮度
+    （中位數差 ≤ 2、P90 ≤ 15 / 255，中位數 > 4 或 P90 > 25 FAIL）。
   - 人物與背景顏色要有對比（白衣服配白背景會去背失敗）。
   - 不要有 AI 留下的灰白雜點（黏在身體邊緣的無色色塊，本腳本第 1b 項）。
   - 33 張圖鎖定同一組曝光、白平衡、光源方向與強度，各視角不使用自動曝光。
   - 臉部用均勻柔光，正面和左右斜面的臉頰要保持同一膚色亮度。避免深色帶、局部高光及分區補光。
-  - 第 9 項曝光粗篩：全圖平均膚色亮度相對主環偏差應 ≤ 3%；頭部臉頰取樣亮度差應 ≤ 5 / 255。
+  - 第 9 項曝光粗篩：全圖平均膚色亮度相對主環偏差應 ≤ 7%；頭部臉頰取樣亮度差應 ≤ 12 / 255
+    （完美照片 6%、11 / 255：每個角度看到的皮膚不同；同一表面的亮度由第 10f 項直接比較）。
   - 烘焙前投影重疊檢查：共同可見臉頰亮度絕對差的第 90 百分位應 ≤ 12 / 255；
     > 12 至 20 判 WARN，> 20 判 FAIL。
 
@@ -193,9 +207,10 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
       every close-up
   - 不要用左右翻轉產生另一側（第 6b、6c 項會抓出來）。
   - 光線、背景、衣服、髮型、表情、手指姿勢、腳的位置在 33 張都要相同。
-  - 每張沿用同一段亮度提示詞：
-      fixed exposure and white balance across all views, even diffuse facial lighting,
-      consistent cheek brightness, no hard shadows or local highlights on the cheeks
+  - 每張沿用同一段亮度提示詞（第 6c、9、10f 項）：
+      even all-round soft light fixed to the subject, no directional shading, flat albedo-like colours,
+      fixed exposure and white balance across all views, the same skin and clothing brightness from every angle,
+      no hard shadows or highlights
   - 透視越小越好：提示詞用長焦距（例如 200mm）或 orthographic / turnaround sheet 風格（第 10、10b 項會檢查；第 10c 項提供寬度比複核提示）。
     俯角 30° 環最容易出問題（AI 會把相機放得很近、從上往下拍，頭大腳小）。重新生成時每張都加上：
       orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion,
@@ -483,12 +498,22 @@ def ring_ratio_check(good, extra):
 BODY_FRAME, HEAD_ZOOM = 1.95, 4.0              # metres across a full-body image; close-up zoom (same in steps/camera.py)
 HEAD_FRAME = BODY_FRAME / HEAD_ZOOM            # 0.4875 m across a close-up
 WIDTH_PASS, WIDTH_FAIL = 0.01, 0.02            # |ring width / level width - 1|
-ZOOM_PASS, ZOOM_FAIL = 0.02, 0.04              # |close-up head width / level head width / HEAD_ZOOM - 1|
+ZOOM_PASS, ZOOM_FAIL = 0.02, 0.04
+SHADE_PASS, SHADE_FAIL = 0.06, 0.08              # section 6c: |left - right| / sum of the body edges per row              # |close-up head width / level head width / HEAD_ZOOM - 1|
 
 
 def silhouette_width(m):
     cols = np.flatnonzero(m.any(0))
     return int(cols[-1] - cols[0] + 1) if cols.size else 0
+
+
+def lower_width(m, frac=0.5):
+    """width of the lower half of the silhouette (hips and legs, no arms): the view's own scale, posture-free"""
+    r = np.flatnonzero(m.any(1))
+    if not r.size:
+        return 0
+    c = np.flatnonzero(m[int(r[-1] - frac * (r[-1] - r[0])):r[-1] + 1].any(0))
+    return int(c[-1] - c[0] + 1) if c.size else 0
 
 
 def head_width(m, span):
@@ -512,9 +537,9 @@ def distance_check(good, extra):
             ref = good.get(0 if cat == 'top' else a)
             if ref is None or v.get('m') is None or ref.get('m') is None:
                 continue
-            w0 = silhouette_width(ref['m'])
-            if w0:
-                out[(cat, a)] = silhouette_width(v['m']) / w0 - 1
+            w0, l0 = silhouette_width(ref['m']), lower_width(ref['m'])
+            if w0 and l0:
+                out[(cat, a)] = (silhouette_width(v['m']) / w0 - 1, lower_width(v['m']) / l0 - 1)
     for a, v in sorted(extra.get('head', {}).items()):
         ref = good.get(a)
         if a in (90, 270) or ref is None or v.get('m') is None or ref.get('m') is None:
@@ -523,7 +548,172 @@ def distance_check(good, extra):
         s = (rows[-1] - rows[0]) / 1.65        # px per metre of the level view (figure height 1.65 m)
         w0, w1 = head_width(ref['m'], 0.18 * s), head_width(v['m'], 0.18 * s * HEAD_ZOOM)
         if w0 and w1:
-            out[('head', a)] = w1 / w0 / HEAD_ZOOM - 1
+            out[('head', a)] = (w1 / w0 / HEAD_ZOOM - 1, None)
+    return out
+
+
+# section 10e, the camera aims at one point and the rings have their nominal tilt.
+#   centring: orthographic views 180° apart see mirrored silhouettes, so the midpoint of their left / right edges is
+#     the column of the rotation axis, exactly, whatever the body shape. With one aim point and one framing it is the
+#     same column for every pair of every full-body ring (and the top view is centred like the front view); the head
+#     close-ups have their own column. Perfect photos: 0.0–0.5 mm.
+#   tilt: with the view's own scale divided out (lower-body width vs the level view), the figure height of a +30° / −20° view
+#     fixes its tilt; the main-ring hull gives the height for each tilt. Side views 90° / 270° skipped (the arms
+#     point at the camera, the hull is too deep there). Perfect photos: within 0.75°.
+#   aim height: the foot row of a tilted view, corrected by the hull, is the row of the aim point; it must be the same
+#     in every view of the ring. Perfect photos: within 5.4 mm.
+CENTRE_PASS, CENTRE_FAIL = 0.005, 0.010        # metres off the median axis column
+TILT_PASS, TILT_FAIL = 2.0, 4.0                # degrees off the nominal +30° / −20°
+AIMROW_PASS, AIMROW_FAIL = 0.010, 0.020        # metres off the median aim row of the ring
+
+
+def edge_mid(m, rows=None):
+    sel = m if rows is None else m[rows[0]:rows[1]]
+    cols = np.flatnonzero(sel.any(0))
+    return (cols[0] + cols[-1]) / 2 if cols.size else None
+
+
+def aim_check(good, extra):
+    """10e. {'centre': {(cat, a): metres}, 'head_centre': {...}, 'tilt': {(cat, a): degrees},
+    'aim_row': {(cat, a): metres}}"""
+    out = dict(centre={}, head_centre={}, tilt={}, aim_row={})
+    if 0 not in good or good[0].get('m') is None:
+        return out
+    rows0 = np.flatnonzero(good[0]['m'].any(1))
+    s = (rows0[-1] - rows0[0]) / 1.65
+    rings = {'main': good, 'el30': extra.get('el30', {}), 'low20': extra.get('low20', {})}
+    U = {}
+    for cat, items in rings.items():
+        for a in (0, 45, 90, 135):
+            v1, v2 = items.get(a), items.get(a + 180)
+            if v1 is None or v2 is None or v1.get('m') is None or v2.get('m') is None:
+                continue
+            U[(cat, a)] = (edge_mid(v1['m']) + edge_mid(v2['m'])) / 2
+    top = next(iter(extra.get('top', {}).values()), None)
+    if top is not None and top.get('m') is not None and U:
+        U[('top', 0)] = edge_mid(top['m']) - edge_mid(good[0]['m']) + U.get(('main', 0), np.median(list(U.values())))
+    if len(U) >= 3:
+        med = np.median([u for k, u in U.items() if k[0] != 'top'])
+        out['centre'] = {k: (u - med) / s for k, u in U.items()}
+    # head close-ups: the same mirror pairs on the head rows only (above the shoulders)
+    heads, Uh = extra.get('head', {}), {}
+    sh = s * HEAD_ZOOM
+    for a in (0, 45, 90, 135):
+        v1, v2 = heads.get(a), heads.get(a + 180)
+        if v1 is None or v2 is None or v1.get('m') is None or v2.get('m') is None:
+            continue
+        mids = []
+        for v in (v1, v2):
+            r = np.flatnonzero(v['m'].any(1))
+            mids.append(edge_mid(v['m'], (r[0], r[0] + int(0.15 * sh))) if r.size else None)
+        if None not in mids:
+            Uh[a] = sum(mids) / 2
+    if len(Uh) >= 2:
+        med = np.median(list(Uh.values()))
+        out['head_centre'] = {('head', a): (u - med) / sh for a, u in Uh.items()}
+    # tilt and aim row of the +30° / −20° rings against the main-ring hull
+    hull = quick_hull(good)
+    hull = hull - [0, hull[:, 1].min(), 0]
+    for cat in ('el30', 'low20'):
+        th0 = RING_EL[cat]; rows_ = {}
+        for a, v in sorted(rings[cat].items()):
+            ref = good.get(a)
+            if v.get('m') is None or ref is None or ref.get('m') is None:
+                continue
+            p = np.radians(a)
+            r = np.flatnonzero(v['m'].any(1))
+            k = lower_width(v['m']) / max(1, lower_width(ref['m']))            # this view's own scale (no arms)
+            t0 = np.radians(th0)
+            q = hull @ np.array([-np.sin(t0) * np.sin(p), np.cos(t0), -np.sin(t0) * np.cos(p)])
+            rows_[a] = (r[-1] + s * k * q.min()) / (s * k)                     # aim row, metres from the top
+            if a in (90, 270) or abs(k - 1) > WIDTH_FAIL:
+                continue                     # side views: hull too deep; wrong scale: fix the distance first
+            h_img = (r[-1] - r[0]) / (s * k)
+            r0 = np.flatnonzero(ref['m'].any(1)); h_lvl = (r0[-1] - r0[0]) / s
+            ths = np.arange(th0 - 30, th0 + 30.01, 0.25)
+            hs = []
+            for th in ths:
+                t = np.radians(th)
+                q = hull @ np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
+                hs.append(q.max() - q.min())
+            hs = np.array(hs); h0 = hs[np.argmin(np.abs(ths))]
+            expect = hs[np.argmin(np.abs(ths - th0))] / h0
+            out['tilt'][(cat, a)] = (float(ths[np.argmin(np.abs(hs - h_img))] - th0), h_img / h_lvl, float(expect))
+        if len(rows_) >= 3:
+            med = np.median(list(rows_.values()))
+            out['aim_row'].update({(cat, a): float(x - med) for a, x in rows_.items()})
+    return out
+
+
+# section 10f, lighting fixed to the person (spec: even, all-round soft light, close to the bare surface colour).
+# The same surface must have the same brightness in every view. Main-ring hull surface points are sampled in
+# neighbouring views (level a / a+45°, +30° and −20° vs level at the same angle; cameras as in section 10, inside the
+# silhouettes, facing both cameras, blurred luma) and the signed median and P90 of the difference are compared.
+# Perfect photos (flat render of the texture): |median| ≤ 0.5, P90 ≤ 11.1 / 255; v1220 (light fixed to the camera):
+# median up to 19.5, P90 up to 49.
+SURF_MED_PASS, SURF_MED_FAIL = 2.0, 4.0
+SURF_P90_PASS, SURF_P90_FAIL = 15.0, 25.0
+
+
+def hull_surface(hull, vs=0.01):
+    """surface voxels of the hull and outward normals (smoothed occupancy gradient)"""
+    from scipy import ndimage as ndi
+    lo = hull.min(0)
+    idx = np.round((hull - lo) / vs).astype(int)
+    G = np.zeros(idx.max(0) + 3, np.float32); G[tuple(idx.T)] = 1
+    grad = np.gradient(ndi.gaussian_filter(G, 1.5))
+    surf = ndi.binary_erosion(G)[tuple(idx.T)] == 0
+    I = idx[surf]
+    N = -np.stack([g[tuple(I.T)] for g in grad], 1)
+    return hull[surf], N / (np.linalg.norm(N, axis=1, keepdims=True) + 1e-9)
+
+
+def surface_luma(P, N, im, m, c):
+    """blurred luma of the surface points seen by camera c=(s, cu, cv, phi, th) and the visibility mask"""
+    s_, cu, cv_, ph, th = c
+    p, t = np.radians(ph), np.radians(th)
+    r = np.array([np.cos(p), 0, -np.sin(p)]); u = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
+    f = np.array([np.sin(p) * np.cos(t), np.sin(t), np.cos(p) * np.cos(t)])
+    col, row = cu + s_ * (P @ r), cv_ - s_ * (P @ u)
+    H_, W_ = m.shape
+    ok = (col >= 0) & (col < W_) & (row >= 0) & (row < H_)
+    ci, ri = np.clip(col.astype(int), 0, W_ - 1), np.clip(row.astype(int), 0, H_ - 1)
+    dep = P @ f; cell = 8
+    zb = np.full((H_ // cell + 1, W_ // cell + 1), -9.0); np.maximum.at(zb, (ri[ok] // cell, ci[ok] // cell), dep[ok])
+    inner = cv2.erode(m.astype(np.uint8), np.ones((25, 25), np.uint8)) > 0
+    vis = ok & (dep >= zb[ri // cell, ci // cell] - 0.02) & (N @ f > 0.5) & inner[ri, ci]
+    L = cv2.GaussianBlur(cv2.cvtColor(im, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32), (0, 0), 6)
+    return L[ri, ci], vis
+
+
+def surface_luma_check(good, extra):
+    """10f. {(label): (median, p90, n)} for neighbouring views on the same hull surface"""
+    hull = quick_hull(good)
+    P, N = hull_surface(hull)
+    cams, s0 = {}, []
+    for a, v in good.items():                          # level ring: the cameras quick_hull was carved with
+        t, b, _, _ = bbox(v['m']); s_ = (b - t) / 1.65
+        rr = int(t + 0.75 * (b - t)); xr = np.nonzero(v['m'][rr])[0]
+        cams[('main', a)] = (s_, (xr.min() + xr.max()) / 2, float(b), float(a), 0.0); s0.append(s_)
+    for cat in ('el30', 'low20'):
+        for a, v in extra.get(cat, {}).items():
+            if v.get('m') is not None:
+                cams[(cat, a)] = tuple(fit_view(hull, v['m'], a, RING_EL[cat], scale=float(np.median(s0)))[1])
+    view = {('main', a): v for a, v in good.items()}
+    view.update({(cat, a): v for cat in ('el30', 'low20') for a, v in extra.get(cat, {}).items()})
+    samp = {k: surface_luma(P, N, view[k]['im'], view[k]['m'], c) for k, c in cams.items()}
+    out = {}
+    for a in sorted(good):
+        pairs = [(('main', a), ('main', (a + 45) % 360))] + [((cat, a), ('main', a)) for cat in ('el30', 'low20')]
+        for k1, k2 in pairs:
+            if k1 not in samp or k2 not in samp:
+                continue
+            (L1, v1), (L2, v2) = samp[k1], samp[k2]
+            com = v1 & v2
+            if com.sum() < 200:
+                continue
+            dd = L1[com] - L2[com]
+            out[(k1, k2)] = (float(np.median(dd)), float(np.percentile(np.abs(dd), 90)), int(com.sum()))
     return out
 
 
@@ -842,8 +1032,11 @@ FRONT = 'head_000deg'
 CHEEKS = (('左臉頰', 'head_045deg', 1), ('右臉頰', 'head_315deg', -1))
 MIN_SAMPLES = 60
 # Brightness thresholds use the 0–255 grayscale scale unless noted.
-EXPOSURE_MAX_DIFF = 0.03
-PHOTO_CHEEK_MAX_DIFF = 5.0
+# calibrated on perfect photos (flat render, lighting perfectly consistent): mean skin brightness per view differs
+# up to 6 % (each view shows different skin), the cheek quantiles up to 11 / 255. The same-surface comparison of
+# section 10f measures lighting directly.
+EXPOSURE_MAX_DIFF = 0.07
+PHOTO_CHEEK_MAX_DIFF = 12.0
 PROJECTED_LUMA_PASS = 12.0
 PROJECTED_LUMA_FAIL = 20.0
 
@@ -2010,7 +2203,8 @@ def finish(out=None, camera_verified=True):
 
 # ---------------------------------------------------------------- main
 def main():
-    ap = argparse.ArgumentParser(description=f'check_turnaround {__version__}')
+    ap = argparse.ArgumentParser(description=f'check_turnaround {__version__}', epilog=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--version', action='version', version=f'check_turnaround {__version__}')
     ap.add_argument('folder')
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
@@ -2212,10 +2406,11 @@ def main():
     if not found:
         report(PASS, '翻轉複製', '沒有發現左右翻轉複製的圖')
 
-    # ---- 6c. lighting direction: studio lights are fixed relative to the camera, so in every genuine view the
-    # same image side of the body is brighter. A horizontally flipped image has it reversed — this catches flips
-    # even when the original they were made from is not in the set.
-    print('\n6c. 光線方向一致性（偵測左右翻轉的圖，即使原圖不在這組裡）')
+    # ---- 6c. lighting direction. Spec: even, all-round light fixed to the person, so no image side of the body is
+    # systematically brighter (perfect photos: |left-right| ≤ 4.5 %, the texture's own asymmetry). A light fixed to
+    # the camera makes the same image side brighter in every view (v190 / v1220: 8–15 %): the same surface then
+    # changes brightness with the view. If a few views are reversed, they are probably flipped copies.
+    print('\n6c. 光線方向（規格：全方位均勻柔光，畫面左右不應有一側較亮）')
 
     def light_dir(im, m, r0=0.30, r1=0.95):
         L = cv2.cvtColor(im, cv2.COLOR_BGR2LAB)[..., 0].astype(float)
@@ -2233,9 +2428,17 @@ def main():
         return (float(np.median(v)), float((v > 0).mean())) if len(v) else (0.0, 0.5)
 
     ld = {a: light_dir(v['im'], v['m']) for a, v in good.items()}
+    lp, lf = T(SHADE_PASS, 2.5 * SHADE_PASS), T(SHADE_FAIL, 2.5 * SHADE_FAIL)
+    for a, d in sorted(ld.items()):
+        lvl = PASS if abs(d[0]) <= lp else WARN if abs(d[0]) <= lf else FAIL
+        msg = f'畫面左右亮度差 {100 * d[0]:+.1f}%（{"左" if d[0] > 0 else "右"}側較亮；應 ≤ {100 * lp:.0f}%）'
+        if lvl != PASS:
+            msg += (' → 光線有方向性（常見：光源跟著相機）：同一塊皮膚轉到別的角度亮度會變，烘焙後有色差接縫。'
+                    '提示詞改用 even all-round soft light fixed to the subject, no directional shading')
+        report(lvl, f'{a}° 明暗方向', msg)
     strong = {a: d for a, d in ld.items() if abs(d[0]) > 0.06 and (d[1] > 0.65 or d[1] < 0.35)}
     if len(strong) < max(3, 0.6 * len(good)):
-        report(PASS, '光線方向', '整組光線沒有明顯方向性（平光），此項不判斷')
+        report(PASS, '光線方向', '整組光線沒有明顯方向性（平光），翻轉由第 6b 項與第 10f 項檢查')
     else:
         signs = np.array([np.sign(d[0]) for d in strong.values()])
         major = np.sign(signs.sum()) or 1.0
@@ -2498,22 +2701,24 @@ def main():
                 msg += (' → 照片是透視投影（相機太近），重建程式假設正交投影：手臂長度、方向在不同角度會不一致'
                         '（第 10 項藍色多在手上）。提示詞加 orthographic projection / 200mm telephoto / camera far away')
             report(lvl, lab + ' 透視', msg)
-        print('\n10c. 俯角 / 仰角環和水平主環的寬度比（手寬 / 臀寬、頭寬 / 臀寬，供人工複核）')
+        print('\n10c. 俯角 / 仰角環和水平主環的寬度比（手寬 / 臀寬、頭寬 / 臀寬）')
         for (cat, a), (dh, dd) in ring_ratio_check(good, extra).items():
             worst = max(abs(dh), abs(dd))
-            lvl = WARN if worst >= RATIO_WARN else PASS
+            # AI mode: a spec (perfect photos 0–2 %), FAIL from RATIO_REVIEW; photo mode: review hints only
+            lvl = PASS if worst < RATIO_WARN else WARN if worst < RATIO_REVIEW or not MODE['ai'] else FAIL
             msg = (f'手寬比差 {100 * dh:+.0f}%、頭寬比差 {100 * dd:+.0f}%（和主環 {a}° 比，'
-                   f'差 ≥ {100 * RATIO_WARN:.0f}% 判 WARN）')
-            if lvl == WARN:
+                   f'差 ≥ {100 * RATIO_WARN:.0f}% 判 WARN' + (f'，≥ {100 * RATIO_REVIEW:.0f}% 判 FAIL）' if MODE['ai'] else '）'))
+            if lvl != PASS:
                 review = '優先複核' if worst >= RATIO_REVIEW else '複核'
-                msg += f' → {review}這張與同角度主環的輪廓、俯仰角與姿勢'
+                msg += (f' → {review}這張與同角度主環的輪廓、俯仰角與姿勢' if not MODE['ai'] else
+                        ' → 這張的手 / 頭和身體比例與同角度主環不同（姿勢、俯仰角或透視），重新生成這張')
             report(lvl, f'{cat} {a}° 寬度比', msg)
 
     # ---- 10d. fixed camera distance
     dist = distance_check(good, extra) if args.pose == 'tpose' else {}
     if dist:
         print(f'\n10d. 相機距離固定（全身圖同寬 {BODY_FRAME} m 構圖；頭部特寫放大 {HEAD_ZOOM:.2f} 倍，{HEAD_FRAME:.2f} m 構圖）')
-        for (cat, a), dv in dist.items():
+        for (cat, a), (dv, dl) in dist.items():
             head = cat == 'head'
             p_, f_ = (ZOOM_PASS, ZOOM_FAIL) if head else (WIDTH_PASS, WIDTH_FAIL)
             p_, f_ = T(p_, 2.5 * p_), T(f_, 2.5 * f_)
@@ -2526,11 +2731,74 @@ def main():
                 ref = '主環 0°' if cat == 'top' else f'主環 {a}°'
                 msg = f'人物寬度和{ref}差 {100 * dv:+.1f}%（應 ≤ {100 * p_:.0f}%：正交投影下傾角不改變寬度）'
                 tag = f'{cat} {a}° 距離' if cat != 'top' else 'top 距離'
+            if dl is not None and cat != 'top':
+                msg += f'；下半身寬度差 {100 * dl:+.1f}%'
+            else:
+                dl = None
             if lvl != PASS:
-                msg += (' → 相機距離 / 構圖和規格不同：這張畫' + ('大' if dv > 0 else '小') + '了。'
-                        + (f'頭部特寫一律用同一個距離，頭寬約為畫面寬的 {100 * 0.16 / HEAD_FRAME:.0f}%，重新生成這張'
-                           if head else '所有全身圖（水平、俯角、仰角、俯視）用同一個相機距離與構圖，重新生成這張'))
+                if dl is not None and abs(dl) <= p_:
+                    msg += (' → 身體大小正確，指尖位置不同：手臂沒有水平伸直（斜了或往前），重新生成這張，'
+                            'T-pose 手臂水平，和主環同角度的手臂位置相同')
+                else:
+                    msg += (' → 相機距離 / 構圖和規格不同：這張畫' + ('大' if (dl if dl is not None else dv) > 0 else '小') + '了。'
+                            + (f'頭部特寫一律用同一個距離，頭寬約為畫面寬的 {100 * 0.16 / HEAD_FRAME:.0f}%，重新生成這張'
+                               if head else '所有全身圖（水平、俯角、仰角、俯視）用同一個相機距離與構圖，重新生成這張'))
             report(lvl, tag, msg)
+
+    # ---- 10e. one aim point, nominal tilt
+    aim = aim_check(good, extra) if args.pose == 'tpose' else {}
+    if aim and any(aim.values()):
+        print('\n10e. 相機對準點與俯仰角（左右置中、俯角 30° / 仰角 −20°、上下對準點）')
+
+        def lvl3(x, p_, f_):
+            p_, f_ = T(p_, 2.5 * p_), T(f_, 2.5 * f_)
+            return (PASS if abs(x) <= p_ else WARN if abs(x) <= f_ else FAIL), p_
+        name = {'main': '主環', 'el30': '俯角環', 'low20': '仰角環', 'top': '俯視', 'head': '頭部特寫'}
+        for key in ('centre', 'head_centre'):
+            for (cat, a), dv in aim[key].items():
+                lvl, p_ = lvl3(dv, CENTRE_PASS, CENTRE_FAIL)
+                where = f'{name[cat]} 俯視 vs 正面' if cat == 'top' else f'{name[cat]} {a}° / {a + 180}°'
+                msg = f'旋轉軸偏離共同位置 {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:.0f} mm）'
+                if lvl != PASS:
+                    msg += (' → 相機沒有對準同一個中心：這一對照片的人物左右位置不一致（常見：手臂斜、構圖跟著人物外框置中），'
+                            '重新生成，人物身體中心固定在畫面同一位置')
+                report(lvl, f'{where} 置中', msg)
+        for (cat, a), (dv, ratio, expect) in aim['tilt'].items():
+            lvl, p_ = lvl3(dv, TILT_PASS, TILT_FAIL)
+            msg = (f'人物高度是主環的 {100 * ratio:.1f}%，{RING_EL[cat]:+.0f}° 正交投影應為 {100 * expect:.1f}%'
+                   f'（相當於俯仰角 {RING_EL[cat] + dv:+.1f}°，差 {dv:+.1f}°，應 ≤ {p_:.0f}°）')
+            if lvl != PASS:
+                msg += (' → 人物高度和規格的俯仰角不符：' + ('沒有依投影縮短（AI 常只改視角、身高照畫），'
+                        if abs(RING_EL[cat] + dv) < abs(RING_EL[cat]) else '縮短過頭，') +
+                        '重新生成，提示詞寫明 camera tilted ' + ('down 30 degrees' if cat == 'el30' else 'up 20 degrees') +
+                        ', orthographic, same distance as the eye-level views')
+            report(lvl, f'{cat} {a}° 俯仰角', msg)
+        for (cat, a), dv in aim['aim_row'].items():
+            lvl, p_ = lvl3(dv, AIMROW_PASS, AIMROW_FAIL)
+            msg = f'對準點上下偏離本環共同位置 {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:.0f} mm）'
+            if lvl != PASS:
+                msg += ' → 這張相機對準的高度和同環其他張不同，重新生成，人物在畫面中的上下位置和同環其他張一致'
+            report(lvl, f'{cat} {a}° 對準高度', msg)
+
+    # ---- 10f. lighting fixed to the person: same surface, same brightness in every view
+    surf = surface_luma_check(good, extra) if args.pose == 'tpose' and len(good) >= 6 else {}
+    if surf:
+        print('\n10f. 同一表面亮度一致（光線要固定在人身上、全方位均勻柔光：同一塊皮膚 / 衣服在每張圖一樣亮）')
+        name = {'main': '主環', 'el30': 'el30', 'low20': 'low20'}
+        for (k1, k2), (med, p90, n) in surf.items():
+            mp_, mf_ = T(SURF_MED_PASS, 2.5 * SURF_MED_PASS), T(SURF_MED_FAIL, 2.5 * SURF_MED_FAIL)
+            pp_, pf_ = T(SURF_P90_PASS, 2.5 * SURF_P90_PASS), T(SURF_P90_FAIL, 2.5 * SURF_P90_FAIL)
+            l1 = PASS if abs(med) <= mp_ else WARN if abs(med) <= mf_ else FAIL
+            l2 = PASS if p90 <= pp_ else WARN if p90 <= pf_ else FAIL
+            lvl = FAIL if FAIL in (l1, l2) else WARN if WARN in (l1, l2) else PASS
+            msg = (f'同一表面亮度差：中位數 {med:+.1f}、第 90 百分位 {p90:.1f} / 255（{n} 點；'
+                   f'應中位數 ≤ {mp_:g}、P90 ≤ {pp_:g}）')
+            if lvl != PASS:
+                brighter = f'{name[k1[0]]} {k1[1]}°' if med > 0 else f'{name[k2[0]]} {k2[1]}°'
+                msg += (f' → {brighter} 整體較亮：光線跟著相機轉或有方向性，同一塊皮膚在不同角度亮度不同，烘焙後會有色差接縫。'
+                        '重新生成時用全方位均勻柔光（光線固定在人身上），每張同一組曝光；'
+                        '左右翻轉做出來的圖也會在不對稱的細節（髮線、衣服）上報出')
+            report(lvl, f'{name[k1[0]]} {k1[1]}° / {name[k2[0]]} {k2[1]}° 表面亮度', msg)
 
     # ---- 11. face consistency of the head close-ups
     face_results = []

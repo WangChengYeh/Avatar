@@ -23,6 +23,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
   15 rig       Blender 建 22 根骨頭、自動權重、匯出（rig.py）
   16 unlit     材質標為 KHR_materials_unlit（glb_unlit.py）
   17 verify    verify_glb.py 驗證兩個 GLB（有 FAIL 時結束碼 1）
+  18 fit       最終驗收：成品網格以最終相機投影回 24 張全身原圖，剪影平均不一致 > 10% 判 FAIL（fit_report.py --accept）
 
 輸出（OUT_DIR）:
     {name}_rigged.glb        無光照材質（照片已含光影，建議用這個）
@@ -36,7 +37,7 @@ __version__ = '2.6.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
-         'joints', 'rig', 'unlit', 'verify']
+         'joints', 'rig', 'unlit', 'verify', 'fit']
 
 
 def find_blender(given):
@@ -152,6 +153,16 @@ def main(argv=None):
         if bad:
             raise RuntimeError('verify_glb 有 FAIL（見 run_all.log）')
 
+    def step_fit():
+        rc = run([py, os.path.join(HERE, 'fit_report.py'), work, '--accept', '--json', os.path.join(out, 'fit_report.json')],
+                 out, log, ok_codes=(0, 1))
+        txt = open(log, errors='replace').read().split('\n$ ')[-1]
+        print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]'))))
+        if rc and not a.force:
+            raise RuntimeError('成品與原圖剪影差異太大（見 fit_report.json）：先修正照片（第 10 / 10d / 10e 項），或加 --force')
+        if rc:
+            print('     成品與原圖剪影差異太大，--force 繼續')
+
     actions = {
         'check': step_check,
         'cams': lambda: run([py, S('cams33.py'), img], work, log),
@@ -171,6 +182,7 @@ def main(argv=None):
         'rig': lambda: run(need_blender() + [S('rig.py'), '--', glb_tex, os.path.join(work, 'joints.json'), lit], work, log),
         'unlit': lambda: run([py, S('glb_unlit.py'), lit, unlit], work, log),
         'verify': step_verify,
+        'fit': step_fit,
     }
     todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
     print(f'body3d {__version__}  照片: {img}  輸出: {out}  Blender: {blender or "(找不到)"}')

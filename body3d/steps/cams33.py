@@ -143,7 +143,9 @@ for n, v in sorted(views.items()):
     sc, c = local(*best)
     # perspective: AI images of the elevated / low rings are usually drawn with a close camera. Try camera
     # distances; keep one only when it clearly fits better than orthographic.
-    if v['kind'] in ('el30', 'low20') and PERSPECTIVE:
+    # Not when the photos passed the check: section 10b verified they are orthographic (spec), and searching
+    # anyway turned 1 of 16 orthographic views into a false perspective camera (#24)
+    if v['kind'] in ('el30', 'low20') and PERSPECTIVE and not camera.CHECK_PASSED:
         bestp = (sc, c)
         for Dm in (12.0, 8.0, 6.0, 5.0, 4.0, 3.0):
             sp, cp = local(iou_view(P, dict(c, D=Dm), ms, DS), dict(c, D=Dm))
