@@ -28,6 +28,8 @@
     python body3d/verify_glb.py model.glb --expect-unlit  # GLB 驗證（取代 three.js 檢查頁）
     python body3d/fit_report.py 輸出資料夾/work            # 模型投影回每張照片比對剪影（分辨照片問題 / 腳本問題）
 
+分享照片檢查器時，可單獨提供 `check_turnaround.py`。安裝 `numpy` 和 `opencv-python` 後，即可檢查 33 張照片。
+
 烘焙前會自動比對正面和左右斜面投影到同一份網格時，臉頰接合區的亮度差。
 結果列出對應照片、取樣數與亮度差，記錄在 `run_all.log`。
 第 90 百分位達 40 / 255 時提示人工複核。缺少正面特徵點或共同取樣不足也會顯示警告，流程可繼續。
