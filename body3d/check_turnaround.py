@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.19.0（2026-11-24）
+版本 1.20.0（2026-11-24）
 
 版本紀錄:
+  1.20.0 疊圖及 CSV 加入亮度一致率、五官對位誤差與獨立的覆蓋率判定。
   1.19.0 新增各視角照片回投到正面及背面的疊圖、差異圖與覆蓋率。
   1.18.0 收緊曝光、臉頰亮度與五官門檻，關鍵尺寸或位置嚴重偏差會擋下烘焙。
   1.17.0 五官投影檢查加入眼距、鼻寬、口寬、臉型等尺寸及縮放後比例差。
@@ -182,7 +183,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.19.0'
+__version__ = '1.20.0'
 import numpy as np
 import cv2
 
@@ -912,7 +913,7 @@ def oblique_endpoints_to_front(side, samples, fit, triangles, front_cam, side_ca
     return projected
 
 
-def report_bilateral_dimensions(frontal, back_projected):
+def report_bilateral_dimensions(frontal, back_projected, overlay_kpis=None):
     """Compare frontal spans using one visible endpoint from each oblique view."""
     right = back_projected.get('head_315deg', {})
     left = back_projected.get('head_045deg', {})
@@ -930,12 +931,14 @@ def report_bilateral_dimensions(frontal, back_projected):
         fraction = difference / reference
         level = dimension_status(label, difference, fraction, calibrated=True)
         failed |= level == FAIL
+        if overlay_kpis is not None and first == RIGHT_EYE_CENTER and second == LEFT_EYE_CENTER:
+            overlay_kpis['bilateral_eye_span'] = (100 * fraction, level)
         print(f'[{level}] 五官尺寸 斜面回投正面 {label}：正面照片 {reference:.1f} px，'
               f'左右斜面回投 {estimated:.1f} px；差 {difference:+.1f} px（{100 * fraction:+.1f}%）')
     return failed
 
 
-def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
+def report_landmark_alignment(work, cameras, frontal, vertices, photo_height, overlay_kpis=None):
     min_count = max(index for anchor in FEATURE_ANCHORS for index in anchor) + 1
     sides = [(f'head_{angle}deg', work / f'face_lm33_{angle}.npy') for angle in ('045', '315')]
     if len(frontal) < min_count or not any(path.is_file() for _, path in sides):
@@ -996,6 +999,8 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
                 failed = True
             else:
                 level = WARN if before > limit or after > limit else PASS
+            if overlay_kpis is not None and fit is not None:
+                overlay_kpis.setdefault(side, {})[label] = (after, level)
             correction = f'{before:.1f} → {after:.1f} px' if fit is not None else f'{before:.1f} px'
             guidance = '；整體校正後仍需複核局部對位' if fit is not None and after > limit else ''
             if level == FAIL:
@@ -1008,11 +1013,11 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
             back_projected[side] = oblique_endpoints_to_front(
                 side, samples, fit, triangles, cameras[FRONT], cameras[side])
     if len(back_projected) == len(sides):
-        failed |= report_bilateral_dimensions(frontal, back_projected)
+        failed |= report_bilateral_dimensions(frontal, back_projected, overlay_kpis)
     return failed
 
 
-def report_head_overlap(folder, work):
+def report_head_overlap(folder, work, overlay_kpis=None):
     folder, work = Path(folder), Path(work)
     try:
         cameras = json.loads((work / 'cams33.json').read_text(encoding='utf-8'))
@@ -1058,7 +1063,7 @@ def report_head_overlap(folder, work):
         guidance = '，請複核重疊區亮度和對位' if status != PASS else ''
         print(f'[{status}] {label}：亮度絕對差中位數 {median:.1f}，第 90 百分位 {p90:.1f} / 255'
               f'（{count} 點，目標 ≤ {PROJECTED_LUMA_PASS:g}，失敗 > {PROJECTED_LUMA_FAIL:g}）{guidance}')
-    failed |= report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0])
+    failed |= report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0], overlay_kpis)
     if failed:
         print('烘焙前驗證有 FAIL：請修正列出的亮度或五官偏差。')
     return int(failed)
@@ -1068,6 +1073,7 @@ def report_head_overlap(folder, work):
 OVERLAY_SIZE = 384
 OVERLAY_TILE_SIZE = 256
 OVERLAY_MIN_COVERAGE = 0.05
+OVERLAY_LUMA_TOLERANCE = 20
 OVERLAY_DEPTH_TOLERANCE = 0.012
 
 
@@ -1179,7 +1185,7 @@ def load_overlay_view(folder, work, name):
     return image, mask
 
 
-def render_overlay_row(label, ref, warped, shared, delta):
+def render_overlay_row(label, detail, ref, warped, shared, delta):
     overlay = cv2.cvtColor(cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
     overlay = cv2.addWeighted(overlay, 0.5, np.full_like(overlay, 238), 0.5, 0)
     overlay[shared] = cv2.addWeighted(ref, 0.5, warped, 0.5, 0)[shared]
@@ -1188,16 +1194,41 @@ def render_overlay_row(label, ref, warped, shared, delta):
                                     cv2.COLORMAP_TURBO)[shared]
     tiles = [cv2.resize(image, (OVERLAY_TILE_SIZE, OVERLAY_TILE_SIZE), interpolation=cv2.INTER_AREA)
              for image in (ref, warped, overlay, heat)]
-    row = np.full((OVERLAY_TILE_SIZE + 44, OVERLAY_TILE_SIZE * 4, 3), 255, np.uint8)
+    row = np.full((OVERLAY_TILE_SIZE + 64, OVERLAY_TILE_SIZE * 4, 3), 255, np.uint8)
     cv2.putText(row, label, (8, 18), cv2.FONT_HERSHEY_SIMPLEX, .48, (28, 36, 48), 1, cv2.LINE_AA)
+    cv2.putText(row, detail, (8, 38), cv2.FONT_HERSHEY_SIMPLEX, .48, (28, 36, 48), 1, cv2.LINE_AA)
     for i, text in enumerate(('Reference', 'Warped view', '50/50 overlay', 'Luma difference')):
-        cv2.putText(row, text, (i * OVERLAY_TILE_SIZE + 8, 39), cv2.FONT_HERSHEY_SIMPLEX, .49,
+        cv2.putText(row, text, (i * OVERLAY_TILE_SIZE + 8, 59), cv2.FONT_HERSHEY_SIMPLEX, .49,
                     (28, 36, 48), 1, cv2.LINE_AA)
-    row[44:] = np.hstack(tiles)
+    row[64:] = np.hstack(tiles)
     return row
 
 
-def report_view_overlays(folder, work, output):
+def overlay_geometry_fields(reference, source, kpis):
+    fields = dict(oblique_eye_median_px='', oblique_nose_median_px='', oblique_mouth_median_px='',
+                  alignment_status='NOT_APPLICABLE', bilateral_eye_span_error_percent='',
+                  bilateral_eye_span_status='NOT_APPLICABLE')
+    if reference != FRONT or source not in {name for _, name, _ in CHEEKS}:
+        return fields
+
+    measurements = kpis.get(source, {})
+    for label, column in zip(('眼部', '鼻部', '嘴部'),
+                             ('oblique_eye_median_px', 'oblique_nose_median_px', 'oblique_mouth_median_px')):
+        if label in measurements:
+            fields[column] = f'{measurements[label][0]:.1f}'
+    levels = {level for _, level in measurements.values()}
+    fields['alignment_status'] = (FAIL if FAIL in levels else
+                                  'NOT_MEASURED' if len(measurements) < 3 else
+                                  WARN if WARN in levels else PASS)
+    eye_span = kpis.get('bilateral_eye_span')
+    fields['bilateral_eye_span_status'] = 'NOT_MEASURED'
+    if eye_span is not None:
+        fields['bilateral_eye_span_error_percent'] = f'{eye_span[0]:+.1f}'
+        fields['bilateral_eye_span_status'] = eye_span[1]
+    return fields
+
+
+def report_view_overlays(folder, work, output, overlay_kpis=None):
     """Write diagnostic sheets and CSV without changing the baking acceptance decision."""
     folder, work, output = Path(folder), Path(work), Path(output)
     cameras = json.loads((work / 'cams33.json').read_text(encoding='utf-8'))
@@ -1222,7 +1253,9 @@ def report_view_overlays(folder, work, output):
                                 cv2.resize(mask, (OVERLAY_SIZE, OVERLAY_SIZE), interpolation=cv2.INTER_NEAREST) > 0)
         rows_by_target[name] = []
 
-    fieldnames = ('reference', 'source', 'shared_pixels', 'coverage_percent', 'luma_median', 'luma_p90', 'status')
+    fieldnames = ('reference', 'source', 'shared_pixels', 'coverage_percent', 'luma_median', 'luma_p90', 'status',
+                  'coverage_status', 'luma_within_20_percent', 'luma_status',
+                  *overlay_geometry_fields('', '', {}).keys())
     with (output / 'view_overlap.csv').open('w', encoding='utf-8', newline='') as log:
         writer = csv.DictWriter(log, fieldnames=fieldnames)
         writer.writeheader()
@@ -1241,17 +1274,35 @@ def report_view_overlays(folder, work, output):
                 coverage = count / max(1, denominator)
                 delta = cv2.absdiff(cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY),
                                     cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY))
-                median = float(np.median(delta[shared])) if count else None
-                p90 = float(np.percentile(delta[shared], 90)) if count else None
-                status = ('LOW_COVERAGE' if coverage < OVERLAY_MIN_COVERAGE else
-                          'REVIEW' if p90 is None or p90 > PROJECTED_LUMA_FAIL else 'WITHIN_LUMA_LIMIT')
+                enough = coverage >= OVERLAY_MIN_COVERAGE
+                median, p90, within = None, None, None
+                if enough:
+                    difference = delta[shared]
+                    median = float(np.median(difference))
+                    p90 = float(np.percentile(difference, 90))
+                    within = 100 * float(np.mean(difference <= OVERLAY_LUMA_TOLERANCE))
+                coverage_status = 'SUFFICIENT' if enough else 'LOW_COVERAGE'
+                luma_status = ('NOT_MEASURED' if p90 is None else
+                               'REVIEW' if p90 > OVERLAY_LUMA_TOLERANCE else 'WITHIN_LUMA_LIMIT')
+                status = luma_status if enough else coverage_status
+                geometry = overlay_geometry_fields(target, name, overlay_kpis or {})
                 summary = f'P90 {p90:.1f}/255' if p90 is not None else 'P90 unavailable'
                 label = f'{name} to {target}  |  overlap {coverage:.1%}  |  {summary}  |  {status}'
-                rows_by_target[target].append(render_overlay_row(label, ref, warped, shared, delta))
+                detail = (f'Luma within {OVERLAY_LUMA_TOLERANCE}/255: {within:.1f}%'
+                          if within is not None else 'Luma agreement: insufficient overlap')
+                if geometry['alignment_status'] != 'NOT_APPLICABLE':
+                    mouth = geometry['oblique_mouth_median_px'] or 'N/A'
+                    detail += f'  |  Mouth (oblique) {mouth} px  |  Alignment {geometry["alignment_status"]}'
+                    eye_span = geometry['bilateral_eye_span_error_percent']
+                    if eye_span:
+                        detail += f'  |  Eye span (both sides) {eye_span}%'
+                rows_by_target[target].append(render_overlay_row(label, detail, ref, warped, shared, delta))
                 writer.writerow(dict(reference=target, source=name, shared_pixels=count,
-                                     coverage_percent=f'{100 * coverage:.2f}',
+                                     coverage_percent=f'{100 * coverage:.2f}', coverage_status=coverage_status,
                                      luma_median='' if median is None else f'{median:.1f}',
-                                     luma_p90='' if p90 is None else f'{p90:.1f}', status=status))
+                                     luma_p90='' if p90 is None else f'{p90:.1f}', status=status,
+                                     luma_within_20_percent='' if within is None else f'{within:.2f}',
+                                     luma_status=luma_status, **geometry))
 
     count = 0
     for target, rows in rows_by_target.items():
@@ -1465,10 +1516,11 @@ def main():
         ap.error('--view-overlay-dir 需要 --head-overlap-work')
     print(f'check_turnaround 版本 {__version__}')
     if args.head_overlap_work:
-        status = report_head_overlap(args.folder, args.head_overlap_work)
+        overlay_kpis = {} if args.view_overlay_dir else None
+        status = report_head_overlap(args.folder, args.head_overlap_work, overlay_kpis)
         if args.view_overlay_dir:
             try:
-                report_view_overlays(args.folder, args.head_overlap_work, args.view_overlay_dir)
+                report_view_overlays(args.folder, args.head_overlap_work, args.view_overlay_dir, overlay_kpis)
             except (OSError, KeyError, ValueError) as error:
                 print(f'[WARN] 正背面回投疊圖：{error}')
         sys.exit(status)

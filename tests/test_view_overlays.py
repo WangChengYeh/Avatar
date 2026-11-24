@@ -71,7 +71,24 @@ def test_overlay_cli_writes_front_back_sheets_and_csv(tmp_path):
     with (out / 'view_overlap.csv').open(encoding='utf-8') as report:
         rows = list(csv.DictReader(report))
     assert len(rows) == 6
-    assert any(row['reference'] == 'head_000deg' and row['source'] == 'head_045deg' and
-               row['luma_p90'] == '0.0' and float(row['coverage_percent']) > 5 for row in rows)
-    assert any(row['reference'] == 'head_000deg' and row['source'] == 'head_180deg' and
-               row['status'] == 'LOW_COVERAGE' for row in rows)
+    comparable = next(row for row in rows if row['reference'] == 'head_000deg' and row['source'] == 'head_045deg')
+    assert comparable['luma_p90'] == '0.0' and comparable['luma_within_20_percent'] == '100.00'
+    assert comparable['coverage_status'] == 'SUFFICIENT'
+    assert comparable['alignment_status'] == 'NOT_MEASURED'
+    hidden = next(row for row in rows if row['reference'] == 'head_000deg' and row['source'] == 'head_180deg')
+    assert hidden['status'] == 'LOW_COVERAGE' and hidden['luma_status'] == 'NOT_MEASURED'
+    assert hidden['luma_p90'] == hidden['luma_within_20_percent'] == ''
+
+
+def test_overlay_keeps_geometry_and_bilateral_status_separate():
+    kpis = {
+        'head_045deg': {'眼部': (19.0, checker.PASS), '鼻部': (18.0, checker.PASS), '嘴部': (33.3, checker.FAIL)},
+        'bilateral_eye_span': (17.5, checker.FAIL),
+    }
+    fields = checker.overlay_geometry_fields('head_000deg', 'head_045deg', kpis)
+    assert fields['oblique_mouth_median_px'] == '33.3'
+    assert fields['alignment_status'] == 'FAIL'
+    assert fields['bilateral_eye_span_error_percent'] == '+17.5'
+    assert fields['bilateral_eye_span_status'] == 'FAIL'
+    back = checker.overlay_geometry_fields('head_180deg', 'head_045deg', kpis)
+    assert back['alignment_status'] == back['bilateral_eye_span_status'] == 'NOT_APPLICABLE'
