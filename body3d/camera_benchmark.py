@@ -38,7 +38,7 @@ def main():
     cams = json.load(open(os.path.join(work, 'cams33.json')))
     passed = json.load(open(os.path.join(work, 'check_status.json'))).get('passed')
     res = dict(check_passed=passed, rings={})
-    print(f'照片檢查 {"通過" if passed else "有 FAIL"}；真值：{"透視 %.1f m" % a.true_distance if a.true_distance else "正交"}')
+    print(f'照片檢查 {"通過" if passed else "未通過相機校準條件"}；真值：{"透視 %.1f m" % a.true_distance if a.true_distance else "正交"}')
     print(f'{"環":6s}{"|Δφ| 平均/最大":>16s}{"|Δθ| 平均/最大":>16s}{"判成透視":>10s}{"距離誤差 平均/最大":>20s}')
     for ring in ('main', 'el30', 'low20'):
         rows = [(n, c) for n, c in cams.items() if c.get('kind') == ring]

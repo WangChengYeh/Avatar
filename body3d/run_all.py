@@ -101,14 +101,20 @@ def main(argv=None):
         return [blender, '-b', '--factory-startup', '--python-exit-code', '1', '--python']
 
     def step_check():
+        status_path = os.path.join(work, 'check_status.json')
+        if os.path.exists(status_path):
+            os.remove(status_path)
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--pose', a.pose,
-                  '--out', os.path.join(out, 'turnaround_report.png')], out, log, ok_codes=(0, 1))
-        # the camera steps trust the nominal angles (±3°) only for photos that passed the strict check
-        json.dump(dict(passed=rc == 0), open(os.path.join(work, 'check_status.json'), 'w'))
-        if rc and not a.force:
+                  '--camera-check', '--out', os.path.join(out, 'turnaround_report.png')],
+                 out, log, ok_codes=(0, 1, 3))
+        with open(status_path, 'w') as f:
+            json.dump(dict(passed=rc == 0), f)
+        if rc == 1 and not a.force:
             raise RuntimeError('照片檢查有 FAIL（見 run_all.log / turnaround_report.png）。修正照片，或加 --force 繼續')
-        if rc:
+        if rc == 1:
             print('     照片檢查有 FAIL，--force 繼續')
+        if rc == 3:
+            print('     臉部一致性未通過完整驗證，相機使用較寬的搜尋範圍。')
 
     def step_face():
         for angle in ('000', '045', '315'):
@@ -121,7 +127,8 @@ def main(argv=None):
                 run([py, S('face_landmarks.py'), f, dst], work, log)
 
     def step_bake():
-        rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work],
+        rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work,
+                  '--view-overlay-dir', os.path.join(out, 'view_overlays')],
                  work, log, ok_codes=(0, 1), show_output=True)
         if rc and not a.force:
             raise RuntimeError('烘焙前頭部檢查有 FAIL（見 run_all.log）。修正照片，或加 --force 繼續')

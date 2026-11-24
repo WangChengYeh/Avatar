@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.19.0（2026-11-24）
+版本 1.21.0（2026-11-24）
 
 版本紀錄:
-  1.19.0 --mode ai（預設）/ photo：AI 生成的圖可以重來，門檻改成「完美照片 + 小餘裕」，翻轉複製、光線翻轉、
+  1.21.0 --mode ai（預設）/ photo：AI 生成的圖可以重來，門檻改成「完美照片 + 小餘裕」，翻轉複製、光線翻轉、
          解析度、背景 / 陰影等 WARN 在 ai 模式判 FAIL；俯角 / 仰角環大小一致改比相差 180° 的兩張；
          第 11 項：臉部一致性（頭部特寫 0° / 45° / 315° 都要找得到臉；五官比例、頭髮高度 / 臉高要和正面一致，
          扣掉偵測偏差後 ±2%，> 4% 判 FAIL）
+  1.20.0 疊圖及 CSV 加入亮度一致率、五官對位誤差與獨立的覆蓋率判定。
+  1.19.0 新增各視角照片回投到正面及背面的疊圖、差異圖與覆蓋率。
   1.18.0 收緊曝光、臉頰亮度與五官門檻，關鍵尺寸或位置嚴重偏差會擋下烘焙。
   1.17.0 五官投影檢查加入眼距、鼻寬、口寬、臉型等尺寸及縮放後比例差。
   1.16.0 烘焙前比對正面與左右斜面的五官投影，列出整體縮放和平移試算前後的偏移。
@@ -44,6 +46,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     python check_turnaround.py 照片資料夾 --head-overlap-work 工作資料夾
     工作資料夾需有 cams33.json、uvmesh.npz、face_lm33.npy 和頭部照片遮罩。
     五官對位另讀取 face_lm33_045.npy 與 face_lm33_315.npy。
+    加 --view-overlay-dir 報告資料夾 可輸出正背面疊圖。
 
 
 結束碼: 有 FAIL 回傳 1，否則 0。報告圖預設存成 turnaround_report.png（每張圖畫出去背輪廓）。
@@ -180,11 +183,11 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     並寫明：camera elevated 30 degrees looking down, same distance and framing as the eye-level views,
     same T-pose, arms horizontal。
 """
-import argparse, hashlib, json, os, re, sys
+import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.19.0'
+__version__ = '1.21.0'
 import numpy as np
 import cv2
 
@@ -472,10 +475,15 @@ def face_measures(im, m):
     if not r.multi_face_landmarks:
         return None
     L = np.array([[l.x * w, l.y * h] for l in r.multi_face_landmarks[0].landmark])
-    top = np.nonzero(m.any(1))[0].min()
+    foreground_rows = np.flatnonzero(m.any(1))
+    if not foreground_rows.size:
+        return None
+    top = foreground_rows[0]
     brow = L[[105, 334], 1].mean(); eye = L[[33, 133, 362, 263], 1].mean()
     mouth = L[[61, 291, 13, 14], 1].mean(); chin = L[152, 1]
     face = chin - brow
+    if not np.isfinite(L).all() or face <= 0 or mouth <= eye or brow <= top:
+        return None
     return (mouth - eye) / face, (brow - top) / face, face
 
 
@@ -487,6 +495,7 @@ def face_check(extra):
     for a in FACE_VIEWS:
         v = heads.get(a)
         if v is None or v.get('m') is None:
+            out.append((FAIL, f'head {a}° 臉部', '缺少可用的頭部特寫'))
             continue
         r = face_measures(v['im'], v['m'])
         if r == 'nomp':
@@ -499,14 +508,15 @@ def face_check(extra):
             out.append((PASS, f'head {a}° 臉部', f'找到臉，臉高 {r[2]:.0f} px'))
     if 0 not in M:
         return out
+    pass_limit, fail_limit = T(FACE_PASS, 0.04), T(FACE_FAIL, 0.08)
     for a in (45, 315):
         if a not in M:
             continue
         for k, i, what in (('prop', 0, '五官比例（眼到嘴 / 眉到下巴）'), ('hair', 1, '頭髮高度 / 臉高（頭頂到眉 / 眉到下巴）')):
             dev = (M[a][i] / M[0][i]) / FACE_BIAS[k] - 1
-            lvl = PASS if abs(dev) <= T(FACE_PASS, 0.04) else WARN if abs(dev) <= T(FACE_FAIL, 0.08) else FAIL
+            lvl = PASS if abs(dev) <= pass_limit else WARN if abs(dev) <= fail_limit else FAIL
             msg = (f'{what}：{M[a][i]:.3f}，正面 {M[0][i]:.3f}，扣掉 3/4 偵測偏差後差 {100 * dev:+.1f}%'
-                   f'（應在 ±{100 * FACE_PASS:.0f}% 內，> {100 * FACE_FAIL:.0f}% 判 FAIL）')
+                   f'（應在 ±{100 * pass_limit:.0f}% 內，> {100 * fail_limit:.0f}% 判 FAIL）')
             if lvl != PASS:
                 if k == 'hair':
                     msg += (' → 這張 3/4 特寫的' + ('臉畫得比正面大（或頭髮比較扁）' if dev < 0 else '臉畫得比正面小（或頭髮比較蓬）') +
@@ -993,7 +1003,7 @@ def oblique_endpoints_to_front(side, samples, fit, triangles, front_cam, side_ca
     return projected
 
 
-def report_bilateral_dimensions(frontal, back_projected):
+def report_bilateral_dimensions(frontal, back_projected, overlay_kpis=None):
     """Compare frontal spans using one visible endpoint from each oblique view."""
     right = back_projected.get('head_315deg', {})
     left = back_projected.get('head_045deg', {})
@@ -1011,12 +1021,14 @@ def report_bilateral_dimensions(frontal, back_projected):
         fraction = difference / reference
         level = dimension_status(label, difference, fraction, calibrated=True)
         failed |= level == FAIL
+        if overlay_kpis is not None and first == RIGHT_EYE_CENTER and second == LEFT_EYE_CENTER:
+            overlay_kpis['bilateral_eye_span'] = (100 * fraction, level)
         print(f'[{level}] 五官尺寸 斜面回投正面 {label}：正面照片 {reference:.1f} px，'
               f'左右斜面回投 {estimated:.1f} px；差 {difference:+.1f} px（{100 * fraction:+.1f}%）')
     return failed
 
 
-def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
+def report_landmark_alignment(work, cameras, frontal, vertices, photo_height, overlay_kpis=None):
     min_count = max(index for anchor in FEATURE_ANCHORS for index in anchor) + 1
     sides = [(f'head_{angle}deg', work / f'face_lm33_{angle}.npy') for angle in ('045', '315')]
     if len(frontal) < min_count or not any(path.is_file() for _, path in sides):
@@ -1077,6 +1089,8 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
                 failed = True
             else:
                 level = WARN if before > limit or after > limit else PASS
+            if overlay_kpis is not None and fit is not None:
+                overlay_kpis.setdefault(side, {})[label] = (after, level)
             correction = f'{before:.1f} → {after:.1f} px' if fit is not None else f'{before:.1f} px'
             guidance = '；整體校正後仍需複核局部對位' if fit is not None and after > limit else ''
             if level == FAIL:
@@ -1089,11 +1103,11 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
             back_projected[side] = oblique_endpoints_to_front(
                 side, samples, fit, triangles, cameras[FRONT], cameras[side])
     if len(back_projected) == len(sides):
-        failed |= report_bilateral_dimensions(frontal, back_projected)
+        failed |= report_bilateral_dimensions(frontal, back_projected, overlay_kpis)
     return failed
 
 
-def report_head_overlap(folder, work):
+def report_head_overlap(folder, work, overlay_kpis=None):
     folder, work = Path(folder), Path(work)
     try:
         cameras = json.loads((work / 'cams33.json').read_text(encoding='utf-8'))
@@ -1139,10 +1153,256 @@ def report_head_overlap(folder, work):
         guidance = '，請複核重疊區亮度和對位' if status != PASS else ''
         print(f'[{status}] {label}：亮度絕對差中位數 {median:.1f}，第 90 百分位 {p90:.1f} / 255'
               f'（{count} 點，目標 ≤ {PROJECTED_LUMA_PASS:g}，失敗 > {PROJECTED_LUMA_FAIL:g}）{guidance}')
-    failed |= report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0])
+    failed |= report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0], overlay_kpis)
     if failed:
         print('烘焙前驗證有 FAIL：請修正列出的亮度或五官偏差。')
     return int(failed)
+
+
+# ---------------------------------------------------------------- front/back reprojection report
+OVERLAY_SIZE = 384
+OVERLAY_TILE_SIZE = 256
+OVERLAY_MIN_COVERAGE = 0.05
+OVERLAY_LUMA_TOLERANCE = 20
+OVERLAY_DEPTH_TOLERANCE = 0.012
+
+
+def rasterize_surface(vertices, faces, cam, size=OVERLAY_SIZE, photo_size=2048, with_points=False):
+    """Rasterize nearest depth and optional surface position at thumbnail pixel centers."""
+    col, row = camera_project(vertices, cam)
+    factor = size / photo_size
+    image_xy = (np.column_stack((col, row)) + 0.5) * factor - 0.5
+    _, _, direction = camera_axes(cam['phi'], cam['th'])
+    depth = vertices @ direction
+    distance = cam.get('D')
+    reciprocal = None
+    if distance:
+        reciprocal = 1 / np.maximum(0.05 * distance, distance - (vertices - C0) @ direction)
+
+    depth_map = np.full(size * size, -np.inf, np.float32)
+    positions = np.full((size * size, 3), np.nan, np.float32) if with_points else None
+    corners = image_xy[faces]
+    bounds_low = np.maximum(0, np.ceil(corners.min(axis=1))).astype(int)
+    bounds_high = np.minimum(size - 1, np.floor(corners.max(axis=1))).astype(int)
+    sizes = np.maximum(0, bounds_high - bounds_low + 1)
+    total_pixels = np.r_[0, np.cumsum(sizes[:, 0] * sizes[:, 1])]
+    start = 0
+    while start < len(faces):
+        # Bound scratch allocations even when a few large triangles cover the whole image.
+        pixel_limit = np.searchsorted(total_pixels, total_pixels[start] + 400_000, side='right') - 1
+        stop = max(start + 1, min(start + 4096, pixel_limit))
+        batch = slice(start, stop)
+        ids, batch_corners = faces[batch], corners[batch]
+        lo, spans = bounds_low[batch], sizes[batch]
+        counts = spans[:, 0] * spans[:, 1]
+        start = stop
+        if not counts.any():
+            continue
+
+        candidates = np.repeat(np.arange(len(ids)), counts)
+        offsets = np.arange(counts.sum()) - np.repeat(np.cumsum(counts) - counts, counts)
+        width = spans[candidates, 0]
+        x = lo[candidates, 0] + offsets % width
+        y = lo[candidates, 1] + offsets // width
+
+        a, b, c = batch_corners[candidates].transpose(1, 0, 2)
+        edge1, edge2 = b - a, c - a
+        delta = np.column_stack((x, y)) - a
+        determinant = edge1[:, 0] * edge2[:, 1] - edge1[:, 1] * edge2[:, 0]
+        valid = np.abs(determinant) > 1e-9
+        divisor = np.where(valid, determinant, 1)
+        u = (delta[:, 0] * edge2[:, 1] - delta[:, 1] * edge2[:, 0]) / divisor
+        v = (edge1[:, 0] * delta[:, 1] - edge1[:, 1] * delta[:, 0]) / divisor
+        weights = np.column_stack((1 - u - v, u, v))
+        inside = valid & (weights.min(axis=1) >= -1e-7)
+        if not inside.any():
+            continue
+
+        indices = ids[candidates[inside]]
+        weights = weights[inside]
+        if reciprocal is not None:
+            weights *= reciprocal[indices]
+            weights /= weights.sum(axis=1, keepdims=True)
+        z = np.sum(depth[indices] * weights, axis=1)
+        pixel = y[inside] * size + x[inside]
+        order = np.lexsort((z, pixel))
+        ordered_pixel = pixel[order]
+        nearest = order[np.r_[ordered_pixel[1:] != ordered_pixel[:-1], True]]
+        nearest = nearest[z[nearest] > depth_map[pixel[nearest]]]
+        depth_map[pixel[nearest]] = z[nearest]
+        if positions is not None:
+            positions[pixel[nearest]] = np.einsum('ij,ijk->ik', weights[nearest], vertices[indices[nearest]])
+
+    return depth_map.reshape(size, size), None if positions is None else positions.reshape(size, size, 3)
+
+
+def reproject_photo(positions, target_mask, camera, source_depth, source_image, source_mask):
+    """Pull source colors only where both masks and the source z-buffer agree."""
+    valid_target = target_mask & np.isfinite(positions[:, :, 0])
+    points = positions[valid_target]
+    warped = np.full((*target_mask.shape, 3), 216, np.uint8)
+    shared = np.zeros(target_mask.shape, bool)
+    denominator = int(target_mask.sum())
+    if not len(points):
+        return warped, shared, denominator
+    col, row = camera_project(points, camera)
+    height, width = source_mask.shape
+    in_frame = (col >= 1) & (row >= 1) & (col < width - 2) & (row < height - 2)
+    col = np.clip(col, 0, width - 1)
+    row = np.clip(row, 0, height - 1)
+    size = source_depth.shape[0]
+    x = np.clip(np.rint((col + 0.5) * size / width - 0.5).astype(int), 0, size - 1)
+    y = np.clip(np.rint((row + 0.5) * size / height - 0.5).astype(int), 0, size - 1)
+    _, _, direction = camera_axes(camera['phi'], camera['th'])
+    z = points @ direction
+    source_visible = np.abs(source_depth[y, x] - z) <= OVERLAY_DEPTH_TOLERANCE
+    visible = in_frame & source_visible & (source_mask[np.rint(row).astype(int), np.rint(col).astype(int)] > 0)
+    shared[valid_target] = visible
+    if visible.any():
+        # Thumbnail maps stay within OpenCV's remap size limits.
+        map_x = np.zeros(target_mask.shape, np.float32)
+        map_y = np.zeros_like(map_x)
+        map_x[shared], map_y[shared] = col[visible], row[visible]
+        warped[shared] = cv2.remap(source_image, map_x, map_y, cv2.INTER_LINEAR)[shared]
+    return warped, shared, denominator
+
+
+def load_overlay_view(folder, work, name):
+    image = cv2.imread(str(folder / f'{name}.jpg'))
+    mask = cv2.imread(str(work / f'mask_{name}.png'), cv2.IMREAD_GRAYSCALE)
+    if image is None or mask is None or image.shape[:2] != mask.shape or image.shape[0] != image.shape[1]:
+        raise ValueError(f'{name} 缺少同尺寸的正方形照片與遮罩')
+    return image, mask
+
+
+def render_overlay_row(label, detail, ref, warped, shared, delta):
+    overlay = cv2.cvtColor(cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+    overlay = cv2.addWeighted(overlay, 0.5, np.full_like(overlay, 238), 0.5, 0)
+    overlay[shared] = cv2.addWeighted(ref, 0.5, warped, 0.5, 0)[shared]
+    heat = np.full_like(ref, 216)
+    heat[shared] = cv2.applyColorMap(np.clip(delta.astype(np.float32) * 4, 0, 255).astype(np.uint8),
+                                    cv2.COLORMAP_TURBO)[shared]
+    tiles = [cv2.resize(image, (OVERLAY_TILE_SIZE, OVERLAY_TILE_SIZE), interpolation=cv2.INTER_AREA)
+             for image in (ref, warped, overlay, heat)]
+    row = np.full((OVERLAY_TILE_SIZE + 64, OVERLAY_TILE_SIZE * 4, 3), 255, np.uint8)
+    cv2.putText(row, label, (8, 18), cv2.FONT_HERSHEY_SIMPLEX, .48, (28, 36, 48), 1, cv2.LINE_AA)
+    cv2.putText(row, detail, (8, 38), cv2.FONT_HERSHEY_SIMPLEX, .48, (28, 36, 48), 1, cv2.LINE_AA)
+    for i, text in enumerate(('Reference', 'Warped view', '50/50 overlay', 'Luma difference')):
+        cv2.putText(row, text, (i * OVERLAY_TILE_SIZE + 8, 59), cv2.FONT_HERSHEY_SIMPLEX, .49,
+                    (28, 36, 48), 1, cv2.LINE_AA)
+    row[64:] = np.hstack(tiles)
+    return row
+
+
+def overlay_geometry_fields(reference, source, kpis):
+    fields = dict(oblique_eye_median_px='', oblique_nose_median_px='', oblique_mouth_median_px='',
+                  alignment_status='NOT_APPLICABLE', bilateral_eye_span_error_percent='',
+                  bilateral_eye_span_status='NOT_APPLICABLE')
+    if reference != FRONT or source not in {name for _, name, _ in CHEEKS}:
+        return fields
+
+    measurements = kpis.get(source, {})
+    for label, column in zip(('眼部', '鼻部', '嘴部'),
+                             ('oblique_eye_median_px', 'oblique_nose_median_px', 'oblique_mouth_median_px')):
+        if label in measurements:
+            fields[column] = f'{measurements[label][0]:.1f}'
+    levels = {level for _, level in measurements.values()}
+    fields['alignment_status'] = (FAIL if FAIL in levels else
+                                  'NOT_MEASURED' if len(measurements) < 3 else
+                                  WARN if WARN in levels else PASS)
+    eye_span = kpis.get('bilateral_eye_span')
+    fields['bilateral_eye_span_status'] = 'NOT_MEASURED'
+    if eye_span is not None:
+        fields['bilateral_eye_span_error_percent'] = f'{eye_span[0]:+.1f}'
+        fields['bilateral_eye_span_status'] = eye_span[1]
+    return fields
+
+
+def report_view_overlays(folder, work, output, overlay_kpis=None):
+    """Write diagnostic sheets and CSV without changing the baking acceptance decision."""
+    folder, work, output = Path(folder), Path(work), Path(output)
+    cameras = json.loads((work / 'cams33.json').read_text(encoding='utf-8'))
+    with np.load(work / 'uvmesh.npz') as mesh:
+        vertices, faces = mesh['pos'], mesh['tri']
+    output.mkdir(parents=True, exist_ok=True)
+    targets = {}
+    for name, cam in cameras.items():
+        slot = photo_slot(name)
+        if slot in (('main', 0), ('main', 180), ('head', 0), ('head', 180)):
+            targets[slot] = name
+    if not targets:
+        raise ValueError('缺少正面或背面的參考相機')
+
+    rows_by_target = {}
+    render_targets = {}
+    for (kind, angle), name in sorted(targets.items()):
+        image, mask = load_overlay_view(folder, work, name)
+        _, positions = rasterize_surface(vertices, faces, cameras[name], photo_size=image.shape[0], with_points=True)
+        render_targets[name] = (kind, angle, positions,
+                                cv2.resize(image, (OVERLAY_SIZE, OVERLAY_SIZE), interpolation=cv2.INTER_AREA),
+                                cv2.resize(mask, (OVERLAY_SIZE, OVERLAY_SIZE), interpolation=cv2.INTER_NEAREST) > 0)
+        rows_by_target[name] = []
+
+    fieldnames = ('reference', 'source', 'shared_pixels', 'coverage_percent', 'luma_median', 'luma_p90', 'status',
+                  'coverage_status', 'luma_within_20_percent', 'luma_status',
+                  *overlay_geometry_fields('', '', {}).keys())
+    with (output / 'view_overlap.csv').open('w', encoding='utf-8', newline='') as log:
+        writer = csv.DictWriter(log, fieldnames=fieldnames)
+        writer.writeheader()
+        for name, cam in sorted(cameras.items()):
+            try:
+                image, mask = load_overlay_view(folder, work, name)
+            except ValueError as error:
+                print(f'[WARN] 回投疊圖：{error}')
+                continue
+            source_depth, _ = rasterize_surface(vertices, faces, cam, photo_size=image.shape[0])
+            for target, (kind, angle, positions, ref, target_mask) in render_targets.items():
+                if name == target or (kind == 'head') != (cam['kind'] == 'head'):
+                    continue
+                warped, shared, denominator = reproject_photo(positions, target_mask, cam, source_depth, image, mask)
+                count = int(shared.sum())
+                coverage = count / max(1, denominator)
+                delta = cv2.absdiff(cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY),
+                                    cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY))
+                enough = coverage >= OVERLAY_MIN_COVERAGE
+                median, p90, within = None, None, None
+                if enough:
+                    difference = delta[shared]
+                    median = float(np.median(difference))
+                    p90 = float(np.percentile(difference, 90))
+                    within = 100 * float(np.mean(difference <= OVERLAY_LUMA_TOLERANCE))
+                coverage_status = 'SUFFICIENT' if enough else 'LOW_COVERAGE'
+                luma_status = ('NOT_MEASURED' if p90 is None else
+                               'REVIEW' if p90 > OVERLAY_LUMA_TOLERANCE else 'WITHIN_LUMA_LIMIT')
+                status = luma_status if enough else coverage_status
+                geometry = overlay_geometry_fields(target, name, overlay_kpis or {})
+                summary = f'P90 {p90:.1f}/255' if p90 is not None else 'P90 unavailable'
+                label = f'{name} to {target}  |  overlap {coverage:.1%}  |  {summary}  |  {status}'
+                detail = (f'Luma within {OVERLAY_LUMA_TOLERANCE}/255: {within:.1f}%'
+                          if within is not None else 'Luma agreement: insufficient overlap')
+                if geometry['alignment_status'] != 'NOT_APPLICABLE':
+                    mouth = geometry['oblique_mouth_median_px'] or 'N/A'
+                    detail += f'  |  Mouth (oblique) {mouth} px  |  Alignment {geometry["alignment_status"]}'
+                    eye_span = geometry['bilateral_eye_span_error_percent']
+                    if eye_span:
+                        detail += f'  |  Eye span (both sides) {eye_span}%'
+                rows_by_target[target].append(render_overlay_row(label, detail, ref, warped, shared, delta))
+                writer.writerow(dict(reference=target, source=name, shared_pixels=count,
+                                     coverage_percent=f'{100 * coverage:.2f}', coverage_status=coverage_status,
+                                     luma_median='' if median is None else f'{median:.1f}',
+                                     luma_p90='' if p90 is None else f'{p90:.1f}', status=status,
+                                     luma_within_20_percent='' if within is None else f'{within:.2f}',
+                                     luma_status=luma_status, **geometry))
+
+    count = 0
+    for target, rows in rows_by_target.items():
+        if rows:
+            kind, angle = render_targets[target][:2]
+            path = output / f'{kind}_{"front" if angle == 0 else "back"}.png'
+            if not cv2.imwrite(str(path), np.vstack(rows)):
+                raise OSError(f'無法寫入 {path}')
+            count += len(rows)
+    print(f'[INFO] 正背面回投疊圖：{count} 組比對，輸出 {output}（灰底表示未共同可見）')
 
 
 RING_ANGLES = tuple(range(0, 360, 45))
@@ -1315,7 +1575,7 @@ def check_photo_cheek_brightness(head_views):
                               f'（目標 ≤ {PHOTO_CHEEK_MAX_DIFF:g}）{guidance}')
 
 
-def finish(out=None):
+def finish(out=None, camera_verified=True):
     failures = sum(r[0] == FAIL for r in results)
     warnings = sum(r[0] == WARN for r in results)
     passes = sum(r[0] == PASS for r in results)
@@ -1327,7 +1587,9 @@ def finish(out=None):
         print('照片初篩有 WARN：請複核，烘焙前仍需檢查投影。')
     else:
         print('照片初篩通過：可以開始重建，烘焙前仍需檢查投影。')
-    sys.exit(1 if failures else 0)
+    if not failures and not camera_verified:
+        print('臉部一致性未通過完整驗證，相機使用較寬的搜尋範圍。')
+    sys.exit(1 if failures else 0 if camera_verified else 3)
 
 
 # ---------------------------------------------------------------- main
@@ -1342,11 +1604,23 @@ def main():
                     help='ai（預設）：AI 生成的圖可以重來，用嚴格門檻；photo：真實拍攝，門檻較寬')
     ap.add_argument('--head-overlap-work', metavar='WORK_DIR',
                     help='用重建中間檔檢查頭部重疊區亮度及五官對位')
+    ap.add_argument('--view-overlay-dir', metavar='DIR', help='輸出各角度回投到正面/背面的疊圖與 CSV')
+    ap.add_argument('--camera-check', action='store_true',
+                    help='供相機校準使用：若無 FAIL 但第 11 項未全數通過，回傳 3')
     args = ap.parse_args()
+    if args.view_overlay_dir and not args.head_overlap_work:
+        ap.error('--view-overlay-dir 需要 --head-overlap-work')
     MODE['ai'] = args.mode == 'ai'
     print(f'check_turnaround 版本 {__version__}（模式 {args.mode}：' + ('AI 生成圖，嚴格門檻' if MODE['ai'] else '真實照片，較寬門檻') + '）')
     if args.head_overlap_work:
-        sys.exit(report_head_overlap(args.folder, args.head_overlap_work))
+        overlay_kpis = {} if args.view_overlay_dir else None
+        status = report_head_overlap(args.folder, args.head_overlap_work, overlay_kpis)
+        if args.view_overlay_dir:
+            try:
+                report_view_overlays(args.folder, args.head_overlap_work, args.view_overlay_dir, overlay_kpis)
+            except (OSError, KeyError, ValueError) as error:
+                print(f'[WARN] 正背面回投疊圖：{error}')
+        sys.exit(status)
 
     views, extra = load_photos(args.folder, args.out)
     print(f'主環找到 {len(views)} 張: ' + ', '.join(f'{a}°' for a in sorted(views)))
@@ -1820,9 +2094,11 @@ def main():
             report(lvl, f'{cat} {a}° 寬度比', msg)
 
     # ---- 11. face consistency of the head close-ups
+    face_results = []
     if extra.get('head'):
         print('\n11. 臉部一致性（頭部特寫 0° / 45° / 315°：找得到臉、五官比例、頭髮高度和臉的比例要一致）')
-        for lvl, lab, msg in face_check(extra):
+        face_results = face_check(extra)
+        for lvl, lab, msg in face_results:
             report(lvl, lab, msg)
 
     # ---- report image
@@ -1843,7 +2119,8 @@ def main():
     rows = [np.hstack(tiles[i:i + 4] + [np.full_like(tiles[0], 255)] * (4 - len(tiles[i:i + 4]))) for i in range(0, len(tiles), 4)]
     cv2.imwrite(args.out, np.vstack(rows))
 
-    finish(args.out)
+    camera_verified = bool(face_results) and all(lvl == PASS for lvl, _, _ in face_results)
+    finish(args.out, camera_verified=not args.camera_check or camera_verified)
 
 
 if __name__ == '__main__':

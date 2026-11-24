@@ -193,3 +193,18 @@ def test_closeup_without_face_fails(broken):
     cv2.imwrite(str(broken / 'head_045deg.jpg'), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
     assert any('head 45° 臉部' in l and '找不到臉' in l for l in lines(out, 'FAIL'))
+
+
+@pytest.mark.parametrize(('ai', 'fail_limit', 'status'), [(True, 4, 'FAIL'), (False, 8, 'WARN')])
+def test_face_report_uses_mode_thresholds(monkeypatch, ai, fail_limit, status):
+    import check_turnaround as checker
+
+    monkeypatch.setitem(checker.MODE, 'ai', ai)
+    monkeypatch.setattr(checker, 'face_measures',
+                        lambda angle, _: (0.3 * (1 if angle == 0 else 1.024),
+                                          0.4 * (1 if angle == 0 else 1.055 * 1.06), 140))
+    heads = {angle: {'im': angle, 'm': object()} for angle in (0, 45, 315)}
+    report = checker.face_check({'head': heads})
+    hair = [(level, message) for level, label, message in report if '髮高比' in label]
+    assert len(hair) == 2
+    assert all(level == status and f'> {fail_limit}% 判 FAIL' in message for level, message in hair)

@@ -75,8 +75,12 @@ def test_landmark_alignment_reserves_mouth_as_validation(tmp_path, capsys):
             if group == '嘴部':
                 oblique[index, 1] += 32
     np.save(tmp_path / 'face_lm33_045.npy', oblique)
+    kpis = {}
     assert checker.report_landmark_alignment(
-        tmp_path, {'head_000deg': front_cam, 'head_045deg': side_cam}, frontal, vertices, 2048)
+        tmp_path, {'head_000deg': front_cam, 'head_045deg': side_cam}, frontal, vertices, 2048, kpis)
+    error, level = kpis['head_045deg']['嘴部']
+    assert error == pytest.approx(32)
+    assert level == checker.FAIL
     output = capsys.readouterr().out
     assert '1.100×' in output
     assert '嘴部用於驗證' in output
@@ -116,10 +120,12 @@ def test_bilateral_spans_use_one_visible_eye_from_each_side(capsys):
     frontal = np.zeros((468, 2))
     frontal[list(checker.RIGHT_EYE_CENTER), 0] = 100
     frontal[list(checker.LEFT_EYE_CENTER), 0] = 300
+    kpis = {}
     assert checker.report_bilateral_dimensions(frontal, {
         'head_315deg': {checker.RIGHT_EYE_CENTER: np.array([90, 0])},
         'head_045deg': {checker.LEFT_EYE_CENTER: np.array([320, 0])},
-    })
+    }, kpis)
+    assert kpis['bilateral_eye_span'] == (15.0, checker.FAIL)
     output = capsys.readouterr().out
     eye_distance = next(line for line in lines(output, 'FAIL') if '眼距（眼角中點）' in line)
     assert '正面照片 200.0 px' in eye_distance and '左右斜面回投 230.0 px' in eye_distance

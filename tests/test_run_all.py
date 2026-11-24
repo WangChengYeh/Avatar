@@ -111,3 +111,20 @@ def test_face_step_aligns_closeups(synth_set, tmp_path):
     rc, log = run_py('run_all.py', synth_set, out, '--only', 'face3d')
     v2 = trimesh.load(out / 'work' / 'body33s.ply', process=False).vertices
     assert rc == 0 and np.abs(v1 - v2).max() < 2e-3
+
+
+def test_unverified_face_uses_wide_camera_search(monkeypatch, tmp_path):
+    import json
+    import run_all
+
+    def checker_run(command, cwd, log, ok_codes):
+        assert '--camera-check' in command
+        assert 3 in ok_codes
+        return 3
+
+    status_path = tmp_path / 'out' / 'work' / 'check_status.json'
+    status_path.parent.mkdir(parents=True)
+    status_path.write_text('{"passed": true}')
+    monkeypatch.setattr(run_all, 'run', checker_run)
+    assert run_all.main([str(tmp_path), str(tmp_path / 'out'), '--only', 'check']) == 0
+    assert json.loads(status_path.read_text()) == {'passed': False}
