@@ -6,8 +6,9 @@ camera). Without D the camera is orthographic:
     col = cu + s * (P·r),   row = cv - s * (P·u)
 With D it is a pinhole camera at C0 + D·f looking at C0 (same scale s at the centre plane):
     k = D / (D - (P - C0)·f),   col = cu + s * (C0·r + k (P - C0)·r),   row = cv - s * (C0·u + k (P - C0)·u)
-AI images are usually drawn with some perspective (the camera is "close"), most of all the elevated views; the
-D of those views is estimated in cams33.py / refine33.py.
+The input spec is orthographic (checked by section 10b). Only when the photos fail the check (run with --force) do
+cams33.py / refine33.py estimate a D for the elevated / low views, so that photos drawn with perspective can still be
+reconstructed for diagnosis.
 """
 import numpy as np
 
@@ -65,7 +66,7 @@ import json as _json, os as _os
 def _limits():
     """How far registration may move phi / th from the nominal angles.
     Photos that passed the strict photo check (run_all writes check_status.json in the work dir): the checker has
-    verified the angles (sections 4 / 8 within ±6°, perspective 10b, ring ratios 10c), so the nominal angles are
+    verified the angles (sections 4 / 8 within ±6°, perspective 10b, ring ratios 10c, distance 10d, aim and tilt 10e), so the nominal angles are
     trusted: ±3°. Otherwise (including incomplete face checks): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
     pin the tilt: on perfect photos free fitting turns 30° into 16–27°.
     The elevation of the +30° and −20° rings follows the input spec exactly.

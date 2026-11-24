@@ -11,7 +11,7 @@ python -m pip install -r requirements.txt
 python body3d/run_all.py ./photos ./output --name body
 ```
 
-`./photos` 放入 33 張 2048 × 2048 的 JPEG，使用小寫 `.jpg`。完整角度與檔名見[流程與驗收](docs/Workflow-and-Validation.md#輸入照片)。
+`./photos` 放入 33 張 2048 × 2048 的 JPEG，使用小寫 `.jpg`。完整角度與檔名見[流程與驗收](docs/Workflow-and-Validation.md#輸入照片)，生圖時的相機距離、構圖與提示詞見[生圖規格](docs/Workflow-and-Validation.md#生圖規格)。
 
 Blender 可從 PATH、Homebrew 或系統應用程式目錄尋找。也可用 `--blender /path/to/blender` 或 `BLENDER` 指定。要額外執行 Khronos glTF Validator，可在 repo 根目錄執行 `npm install gltf-validator`，或以 `GLTF_VALIDATOR_DIR` 指向已安裝該套件的 `node_modules`。
 
@@ -24,10 +24,11 @@ Blender 可從 PATH、Homebrew 或系統應用程式目錄尋找。也可用 `--
 | `output/turnaround_report*.png` | 照片初篩與輪廓、頭部複核圖 |
 | `output/view_overlays/` | 正背面回投疊圖與 KPI CSV |
 | `output/v2_*.png` | Blender 預覽圖 |
-| `output/run_all.log` | 17 步流程日誌，含檢查結果與可用的峰值記憶體紀錄 |
+| `output/fit_report.json` | 最終驗收：成品投影回 24 張全身原圖的剪影不一致（平均 > 10% 判 FAIL） |
+| `output/run_all.log` | 18 步流程日誌，含檢查結果與可用的峰值記憶體紀錄 |
 | `output/work/` | 重跑單一步驟或進階檢查用的中間檔 |
 
-照片初篩或烘焙前檢查出現 `FAIL` 時，流程會停止。`--force` 可繼續輸出供診斷，最終 GLB 驗證仍會執行。`--from STEP` 和 `--only STEP` 會使用既有的 `output/work/`。
+照片初篩、烘焙前檢查、GLB 驗證或最後一步成品與原圖比對（`fit`）出現 `FAIL` 時，流程會停止或以結束碼 1 結束。`--force` 可繼續輸出供診斷，最終 GLB 驗證與比對仍會執行。`--from STEP` 和 `--only STEP` 會使用既有的 `output/work/`。
 
 ## 常用指令
 

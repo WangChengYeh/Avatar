@@ -57,12 +57,32 @@ def fit(work, mesh='body33s.ply', region='legs'):
     return rows
 
 
+# final acceptance (run_all step 18, --accept): the finished mesh projected with the final cameras onto every
+# full-body photo, region body. Calibrated on perfect synthetic photos (cameras known): mean 5.6–6.6 %, worst view
+# 9.3 %; v1220 (photos failing the check): mean 15.5 %, worst 29.8 %.
+ACCEPT_PASS, ACCEPT_FAIL, VIEW_WARN = 0.08, 0.10, 0.12
+
+
+def acceptance(rows):
+    """(level, mean xor, [(view, xor) over VIEW_WARN]) for the body-region rows"""
+    x = np.array([r['xor'] for r in rows]) if rows else np.zeros(1)
+    worst = [(r['view'], r['xor']) for r in sorted(rows, key=lambda r: -r['xor']) if r['xor'] > VIEW_WARN]
+    mean = float(x.mean())
+    level = 'FAIL' if mean > ACCEPT_FAIL else 'WARN' if mean > ACCEPT_PASS or worst else 'PASS'
+    return level, mean, worst
+
+
 def main():
     ap = argparse.ArgumentParser(description=f'fit_report {__version__}')
     ap.add_argument('work'); ap.add_argument('--mesh', default='body33s.ply')
     ap.add_argument('--region', choices=['legs', 'body'], default='legs')
     ap.add_argument('--max-extra', type=float, default=600)
+    ap.add_argument('--accept', action='store_true',
+                    help='最終驗收：全身剪影平均不一致 ≤ 8%% PASS、> 10%% FAIL（結束碼 1），單張 > 12%% WARN')
+    ap.add_argument('--json', help='另存每張結果與驗收結論')
     a = ap.parse_args()
+    if a.accept:
+        a.region = 'body'
     rows = fit(a.work, a.mesh, a.region)
     print(f'{"視角":24s}{"extra":>8s}{"missing":>9s}{"xor":>8s}')
     for r in rows:
@@ -70,6 +90,17 @@ def main():
     main_ = [r for r in rows if r['kind'] == 'main']
     me = np.mean([r['extra'] for r in main_]); mx = np.mean([r['xor'] for r in main_])
     print(f'\n主環平均: extra {me:.0f} px, xor {100 * mx:.1f}%（{a.region}）')
+    if a.accept:
+        level, mean, worst = acceptance(rows)
+        print(f'[{level}] 成品與原圖剪影: {len(rows)} 張全身圖平均不一致 {100 * mean:.1f}%'
+              f'（應 ≤ {100 * ACCEPT_PASS:.0f}%，> {100 * ACCEPT_FAIL:.0f}% 判 FAIL；完美照片 5.6–6.6%）')
+        for v, x in worst:
+            print(f'[WARN] {v}: 不一致 {100 * x:.1f}%（單張應 ≤ {100 * VIEW_WARN:.0f}%）→ 先看這張照片的第 10 / 10d / 10e 項')
+        if a.json:
+            json.dump(dict(level=level, mean=mean, rows=rows), open(a.json, 'w'), indent=1)
+        sys.exit(1 if level == 'FAIL' else 0)
+    if a.json:
+        json.dump(dict(rows=rows), open(a.json, 'w'), indent=1)
     sys.exit(1 if me > a.max_extra else 0)
 
 
