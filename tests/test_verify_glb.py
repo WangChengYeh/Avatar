@@ -80,6 +80,32 @@ def test_unnormalised_weights_fail(model_glb, tmp_path):
     assert any('權重加總' in l and '100' in l for l in lines(out, 'FAIL'))
 
 
+def test_normalized_opposite_hand_weight_stretches_mesh(model_glb, tmp_path):
+    def edit_weights(gl, bin_):
+        names = [gl['nodes'][i]['name'] for i in gl['skins'][0]['joints']]
+        attributes = gl['meshes'][0]['primitives'][0]['attributes']
+        positions = vg.accessor(gl, bin_, attributes['POSITION'])
+        vertex = int(np.argmin(positions[:, 0]))
+
+        for semantic, values in (('JOINTS_0', [names.index('LeftHand'), 0, 0, 0]),
+                                 ('WEIGHTS_0', [1.0, 0.0, 0.0, 0.0])):
+            data = gl['accessors'][attributes[semantic]]
+            view = gl['bufferViews'][data['bufferView']]
+            dtype = np.dtype(vg.COMP[data['componentType']])
+            stride = view.get('byteStride', 4 * dtype.itemsize)
+            start = view.get('byteOffset', 0) + data.get('byteOffset', 0) + vertex * stride
+            if data.get('normalized'):
+                values = np.asarray(values) * np.iinfo(dtype).max
+            bin_[start:start + 4 * dtype.itemsize] = np.asarray(values, dtype=dtype).tobytes()
+
+    bad = tmp_path / 'cross-hand-weight.glb'
+    rewrite_glb(model_glb, bad, edit_bin=edit_weights)
+    rc, out = verify(bad)
+    assert rc == 1
+    assert any('權重加總' in line for line in lines(out, 'PASS'))
+    assert any('擺姿勢網格連續性' in line for line in lines(out, 'FAIL'))
+
+
 def test_missing_texture_fails(model_glb, tmp_path):
     def ed(gl):
         del gl['materials'][0]['pbrMetallicRoughness']['baseColorTexture']
