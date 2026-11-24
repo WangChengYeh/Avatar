@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.16.0（2026-11-24）
+版本 1.17.0（2026-11-24）
 
 版本紀錄:
+  1.17.0 五官投影檢查加入眼距、鼻寬、口寬、臉型等尺寸及縮放後比例差。
   1.16.0 烘焙前比對正面與左右斜面的五官投影，列出整體縮放和平移試算前後的偏移。
   1.15.0 收緊生圖曝光規格，新增照片臉頰亮度粗篩及烘焙前亮度門檻。
   1.14.0 新增重建輸入格式、角度檔名與重複照片檢查，並輸出頭部局部複核圖。
@@ -178,7 +179,7 @@ import argparse, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.16.0'
+__version__ = '1.17.0'
 import numpy as np
 import cv2
 
@@ -722,6 +723,35 @@ FEATURE_POINTS = (
 )
 ALIGNMENT_REVIEW_FRACTION = 0.01
 
+# Tuple endpoints use the mean image position of the specified landmarks.
+RIGHT_EYE_CENTER, LEFT_EYE_CENTER = (33, 133), (362, 263)
+EYE_MIDLINE = RIGHT_EYE_CENTER + LEFT_EYE_CENTER
+MOUTH_CENTER = (13, 14)
+FACE_DIMENSIONS = (
+    ('眼距（眼角中點）', RIGHT_EYE_CENTER, LEFT_EYE_CENTER),
+    ('內眼角距', (133,), (362,)),
+    ('外眼角距', (33,), (263,)),
+    ('右眼寬', (33,), (133,)),
+    ('左眼寬', (362,), (263,)),
+    ('右眼開合', (159,), (145,)),
+    ('左眼開合', (386,), (374,)),
+    ('鼻翼寬', (98,), (327,)),
+    ('鼻樑至鼻尖', (168,), (1,)),
+    ('眼線中心至鼻尖', EYE_MIDLINE, (1,)),
+    ('鼻底至上唇', (2,), (0,)),
+    ('嘴寬', (61,), (291,)),
+    ('唇部開合', (13,), (14,)),
+    ('嘴部中心至下巴', MOUTH_CENTER, (152,)),
+    ('顴部寬', (234,), (454,)),
+    ('下顎寬', (172,), (397,)),
+    ('前額至下巴', (10,), (152,)),
+)
+FEATURE_ANCHORS = tuple(dict.fromkeys(
+    [(index,) for _, indices in FEATURE_POINTS for index in indices] +
+    [anchor for _, first, second in FACE_DIMENSIONS for anchor in (first, second)]))
+DIMENSION_REVIEW_FRACTION = 0.05
+DIMENSION_REVIEW_MIN_PX = 2.0
+
 
 def mesh_point_at(pixel, triangles, projected, depths):
     """Find the foremost surface point under a pixel in an orthographic view."""
@@ -768,32 +798,119 @@ def estimate_scale_translation(projected, observed):
     return scale, y_center - scale * x_center
 
 
-def landmark_correspondences(triangles, front_cam, side_cam, frontal, oblique):
+def projected_triangles(triangles, cam):
     flat = triangles.reshape(-1, 3)
-    front_xy = np.column_stack(camera_project(flat, front_cam)).reshape(-1, 3, 2)
-    side_xy = np.column_stack(camera_project(flat, side_cam)).reshape(-1, 3, 2)
-    front_depth = camera_depth(flat, front_cam).reshape(-1, 3)
-    side_depth = camera_depth(flat, side_cam).reshape(-1, 3)
+    xy = np.column_stack(camera_project(flat, cam)).reshape(-1, 3, 2)
+    return xy, camera_depth(flat, cam).reshape(-1, 3)
+
+
+def landmark_correspondences(triangles, front_cam, side_cam, frontal, oblique):
+    front_xy, front_depth = projected_triangles(triangles, front_cam)
+    side_xy, side_depth = projected_triangles(triangles, side_cam)
     _, _, direction = camera_axes(side_cam['phi'], side_cam['th'])
+    samples = {}
+    for anchor in FEATURE_ANCHORS:
+        point, normal = mesh_point_at(frontal[list(anchor)].mean(0), triangles, front_xy, front_depth)
+        if point is None or normal @ direction < 0.25:
+            continue
+        pixel = np.array(camera_project(point, side_cam))
+        visible, _ = mesh_point_at(pixel, triangles, side_xy, side_depth)
+        if visible is None or np.linalg.norm(visible - point) > 0.008:
+            continue
+        samples[anchor] = (pixel, oblique[list(anchor)].mean(0))
+    return samples
+
+
+def group_landmark_samples(samples):
     pairs = {}
     for label, indices in FEATURE_POINTS:
-        points, targets = [], []
-        for index in indices:
-            point, normal = mesh_point_at(frontal[index], triangles, front_xy, front_depth)
-            if point is None or normal @ direction < 0.25:
-                continue
-            pixel = np.array(camera_project(point, side_cam))
-            visible, _ = mesh_point_at(pixel, triangles, side_xy, side_depth)
-            if visible is None or np.linalg.norm(visible - point) > 0.008:
-                continue
-            points.append(pixel)
-            targets.append(oblique[index])
-        pairs[label] = (np.asarray(points).reshape(-1, 2), np.asarray(targets).reshape(-1, 2))
+        visible = [samples[(i,)] for i in indices if (i,) in samples]
+        if visible:
+            pairs[label] = tuple(np.asarray(visible).transpose(1, 0, 2))
+        else:
+            pairs[label] = (np.empty((0, 2)), np.empty((0, 2)))
     return pairs
 
 
+def report_face_dimensions(side, samples, scale):
+    """Compare distances in the same view, before and after correcting global scale."""
+    for label, first, second in FACE_DIMENSIONS:
+        if first not in samples or second not in samples:
+            print(f'[INFO] 五官尺寸 {side} {label}：共同可見點不足')
+            continue
+        projected_a, observed_a = samples[first]
+        projected_b, observed_b = samples[second]
+        expected = float(np.linalg.norm(projected_a - projected_b))
+        observed = float(np.linalg.norm(observed_a - observed_b))
+        if expected < 1.0:
+            print(f'[INFO] 五官尺寸 {side} {label}：投影距離小於 1 px')
+            continue
+
+        reference = expected * scale if scale is not None else expected
+        difference = observed - reference
+        fraction = difference / reference
+        mismatch = abs(difference) > DIMENSION_REVIEW_MIN_PX and abs(fraction) > DIMENSION_REVIEW_FRACTION
+        level = WARN if mismatch else PASS
+        resized = f'，縮放後投影 {reference:.1f} px' if scale is not None else ''
+        suffix = '縮放後差' if scale is not None else '原始差'
+        print(f'[{level}] 五官尺寸 {side} {label}：原始投影 {expected:.1f} px，照片 {observed:.1f} px'
+              f'{resized}；{suffix} {difference:+.1f} px（{100 * fraction:+.1f}%）')
+
+
+# Each endpoint comes from the side where it faces the camera.
+BILATERAL_DIMENSIONS = (
+    ('眼距（眼角中點）', RIGHT_EYE_CENTER, LEFT_EYE_CENTER),
+    ('外眼角距', (33,), (263,)),
+    ('嘴寬', (61,), (291,)),
+    ('顴部寬', (234,), (454,)),
+    ('下顎寬', (172,), (397,)),
+)
+
+
+def oblique_endpoints_to_front(side, samples, fit, triangles, front_cam, side_cam):
+    """Back-project the visible, nearer half of an oblique photo to frontal pixels."""
+    scale, shift = fit
+    near_index = 0 if side == 'head_315deg' else 1
+    anchors = {(first, second)[near_index] for _, first, second in BILATERAL_DIMENSIONS}
+    side_xy, side_depth = projected_triangles(triangles, side_cam)
+    front_xy, front_depth = projected_triangles(triangles, front_cam)
+    _, _, side_direction = camera_axes(side_cam['phi'], side_cam['th'])
+    projected = {}
+    for anchor in anchors.intersection(samples):
+        normalized_pixel = (samples[anchor][1] - shift) / scale
+        point, normal = mesh_point_at(normalized_pixel, triangles, side_xy, side_depth)
+        if point is None or normal @ side_direction < 0.25:
+            continue
+        pixel = np.array(camera_project(point, front_cam))
+        visible, _ = mesh_point_at(pixel, triangles, front_xy, front_depth)
+        if visible is not None and np.linalg.norm(visible - point) <= 0.008:
+            projected[anchor] = pixel
+    return projected
+
+
+def report_bilateral_dimensions(frontal, back_projected):
+    """Compare frontal spans using one visible endpoint from each oblique view."""
+    right = back_projected.get('head_315deg', {})
+    left = back_projected.get('head_045deg', {})
+    for label, first, second in BILATERAL_DIMENSIONS:
+        if first not in right or second not in left:
+            print(f'[INFO] 五官尺寸 斜面回投正面 {label}：左右可見端點不足')
+            continue
+        reference = float(np.linalg.norm(frontal[list(first)].mean(0) - frontal[list(second)].mean(0)))
+        if reference < 1.0:
+            print(f'[INFO] 五官尺寸 斜面回投正面 {label}：正面距離小於 1 px')
+            continue
+        estimated = float(np.linalg.norm(right[first] - left[second]))
+        difference = estimated - reference
+        fraction = difference / reference
+        mismatch = abs(difference) > DIMENSION_REVIEW_MIN_PX and abs(fraction) > DIMENSION_REVIEW_FRACTION
+        level = WARN if mismatch else PASS
+        print(f'[{level}] 五官尺寸 斜面回投正面 {label}：正面照片 {reference:.1f} px，'
+              f'左右斜面回投 {estimated:.1f} px；差 {difference:+.1f} px（{100 * fraction:+.1f}%）')
+
+
 def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
-    min_count = max(index for _, indices in FEATURE_POINTS for index in indices) + 1
+    min_count = max(index for anchor in FEATURE_ANCHORS for index in anchor) + 1
     sides = [(f'head_{angle}deg', work / f'face_lm33_{angle}.npy') for angle in ('045', '315')]
     if len(frontal) < min_count or not any(path.is_file() for _, path in sides):
         print('[WARN] 五官投影：取樣資料不足，需要正面與斜面特徵點')
@@ -807,6 +924,7 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
         return
 
     limit = photo_height * ALIGNMENT_REVIEW_FRACTION
+    back_projected = {}
     for side, path in sides:
         if not path.is_file() or side not in cameras:
             print(f'[WARN] 五官投影 {side}：缺少斜面特徵點或相機')
@@ -823,7 +941,8 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
             print(f'[WARN] 五官投影 {side}：{error}')
             continue
 
-        pairs = landmark_correspondences(triangles, cameras[FRONT], cameras[side], frontal, oblique[:, :2])
+        samples = landmark_correspondences(triangles, cameras[FRONT], cameras[side], frontal, oblique[:, :2])
+        pairs = group_landmark_samples(samples)
         eyes, nose = pairs['眼部'], pairs['鼻部']
         fit = None
         if len(eyes[0]) >= 2 and len(nose[0]) >= 2:
@@ -850,6 +969,12 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
             print(f'[{level}] 五官投影 {side} {label}：中位偏移 {correction}'
                   f'（{len(points)} 點，目標 ≤ {limit:.1f} px）；'
                   f'原始偏移 x {dx:+.1f}、y {dy:+.1f} px（右、下為正）{guidance}')
+        report_face_dimensions(side, samples, fit[0] if fit is not None else None)
+        if fit is not None:
+            back_projected[side] = oblique_endpoints_to_front(
+                side, samples, fit, triangles, cameras[FRONT], cameras[side])
+    if len(back_projected) == len(sides):
+        report_bilateral_dimensions(frontal, back_projected)
 
 
 def report_head_overlap(folder, work):

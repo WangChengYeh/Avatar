@@ -91,3 +91,33 @@ def test_mesh_projection_uses_foremost_triangle():
                                           triangles[:, :, 2])
     np.testing.assert_allclose(point, [0.25, 0.25, 1.0])
     np.testing.assert_allclose(normal, [0, 0, 1])
+
+
+def test_face_dimensions_compare_proportions_after_scale(capsys):
+    samples = {
+        checker.RIGHT_EYE_CENTER: (np.array([10, 0]), np.array([25, 0])),
+        checker.LEFT_EYE_CENTER: (np.array([110, 0]), np.array([145, 0])),
+        (98,): (np.array([20, 40]), np.array([40, 50])),
+        (327,): (np.array([60, 40]), np.array([100, 50])),
+    }
+    checker.report_face_dimensions('head_045deg', samples, scale=1.2)
+    output = capsys.readouterr().out
+    eyes = next(line for line in lines(output, 'PASS') if '眼距（眼角中點）' in line)
+    assert '原始投影 100.0' in eyes and '照片 120.0' in eyes and '縮放後差 +0.0' in eyes
+    nose = next(line for line in lines(output, 'WARN') if '鼻翼寬' in line)
+    assert '縮放後差 +12.0 px（+25.0%）' in nose
+    assert '嘴寬：共同可見點不足' in output
+
+
+def test_bilateral_spans_use_one_visible_eye_from_each_side(capsys):
+    frontal = np.zeros((468, 2))
+    frontal[list(checker.RIGHT_EYE_CENTER), 0] = 100
+    frontal[list(checker.LEFT_EYE_CENTER), 0] = 300
+    checker.report_bilateral_dimensions(frontal, {
+        'head_315deg': {checker.RIGHT_EYE_CENTER: np.array([90, 0])},
+        'head_045deg': {checker.LEFT_EYE_CENTER: np.array([320, 0])},
+    })
+    output = capsys.readouterr().out
+    eye_distance = next(line for line in lines(output, 'WARN') if '眼距（眼角中點）' in line)
+    assert '正面照片 200.0 px' in eye_distance and '左右斜面回投 230.0 px' in eye_distance
+    assert '差 +30.0 px（+15.0%）' in eye_distance
