@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.15.0（2026-11-24）
+版本 1.16.0（2026-11-24）
 
 版本紀錄:
+  1.16.0 烘焙前比對正面與左右斜面的五官投影，列出整體縮放和平移試算前後的偏移。
   1.15.0 收緊生圖曝光規格，新增照片臉頰亮度粗篩及烘焙前亮度門檻。
   1.14.0 新增重建輸入格式、角度檔名與重複照片檢查，並輸出頭部局部複核圖。
   1.13.0 新增頭部投影重疊區的烘焙前亮度差檢查（--head-overlap-work）。
@@ -36,6 +37,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 有重建中間檔時，可另外檢查頭部投影重疊區:
     python check_turnaround.py 照片資料夾 --head-overlap-work 工作資料夾
     工作資料夾需有 cams33.json、uvmesh.npz、face_lm33.npy 和頭部照片遮罩。
+    五官對位另讀取 face_lm33_045.npy 與 face_lm33_315.npy。
 
 
 結束碼: 有 FAIL 回傳 1，否則 0。報告圖預設存成 turnaround_report.png（每張圖畫出去背輪廓）。
@@ -176,7 +178,7 @@ import argparse, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.15.0'
+__version__ = '1.16.0'
 import numpy as np
 import cv2
 
@@ -712,6 +714,144 @@ def cheek_band(landmarks, shape, col, row):
     return cheek_rows & (inside[row, col] <= 32) & (outside[row, col] <= 32)
 
 
+# MediaPipe landmark indices. Keep the mouth out of the scale/translation fit.
+FEATURE_POINTS = (
+    ('眼部', (33, 133, 159, 145, 263, 362, 386, 374)),
+    ('鼻部', (1, 2, 4, 98, 327)),
+    ('嘴部', (61, 291, 13, 14, 17, 0)),
+)
+ALIGNMENT_REVIEW_FRACTION = 0.01
+
+
+def mesh_point_at(pixel, triangles, projected, depths):
+    """Find the foremost surface point under a pixel in an orthographic view."""
+    x, y = pixel
+    cols, rows = projected[:, :, 0], projected[:, :, 1]
+    candidates = np.flatnonzero(
+        (cols.min(1) <= x) & (cols.max(1) >= x) &
+        (rows.min(1) <= y) & (rows.max(1) >= y))
+    if not len(candidates):
+        return None, None
+
+    a, b, c = projected[candidates].transpose(1, 0, 2)
+    edge1, edge2 = b - a, c - a
+    delta = pixel - a
+    denominator = edge1[:, 0] * edge2[:, 1] - edge1[:, 1] * edge2[:, 0]
+    nondegenerate = np.abs(denominator) > 1e-9
+    safe = np.where(nondegenerate, denominator, 1)
+    w1 = (delta[:, 0] * edge2[:, 1] - delta[:, 1] * edge2[:, 0]) / safe
+    w2 = (edge1[:, 0] * delta[:, 1] - edge1[:, 1] * delta[:, 0]) / safe
+    weights = np.column_stack((1 - w1 - w2, w1, w2))
+    inside = nondegenerate & (weights.min(1) >= -1e-7)
+    if not inside.any():
+        return None, None
+
+    hit_indices = candidates[inside]
+    hit_weights = weights[inside]
+    front = np.argmax((depths[hit_indices] * hit_weights).sum(1))
+    triangle = triangles[hit_indices[front]]
+    point = hit_weights[front] @ triangle
+    normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+    return point, normal / max(np.linalg.norm(normal), 1e-12)
+
+
+def estimate_scale_translation(projected, observed):
+    """Fit a single positive isotropic scale and a translation in pixel space."""
+    x_center, y_center = projected.mean(0), observed.mean(0)
+    x, y = projected - x_center, observed - y_center
+    variance = np.sum(x * x)
+    if variance <= 1e-9:
+        return None
+    scale = np.sum(x * y) / variance
+    if scale <= 0:
+        return None
+    return scale, y_center - scale * x_center
+
+
+def landmark_correspondences(triangles, front_cam, side_cam, frontal, oblique):
+    flat = triangles.reshape(-1, 3)
+    front_xy = np.column_stack(camera_project(flat, front_cam)).reshape(-1, 3, 2)
+    side_xy = np.column_stack(camera_project(flat, side_cam)).reshape(-1, 3, 2)
+    front_depth = camera_depth(flat, front_cam).reshape(-1, 3)
+    side_depth = camera_depth(flat, side_cam).reshape(-1, 3)
+    _, _, direction = camera_axes(side_cam['phi'], side_cam['th'])
+    pairs = {}
+    for label, indices in FEATURE_POINTS:
+        points, targets = [], []
+        for index in indices:
+            point, normal = mesh_point_at(frontal[index], triangles, front_xy, front_depth)
+            if point is None or normal @ direction < 0.25:
+                continue
+            pixel = np.array(camera_project(point, side_cam))
+            visible, _ = mesh_point_at(pixel, triangles, side_xy, side_depth)
+            if visible is None or np.linalg.norm(visible - point) > 0.008:
+                continue
+            points.append(pixel)
+            targets.append(oblique[index])
+        pairs[label] = (np.asarray(points).reshape(-1, 2), np.asarray(targets).reshape(-1, 2))
+    return pairs
+
+
+def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
+    min_count = max(index for _, indices in FEATURE_POINTS for index in indices) + 1
+    sides = [(f'head_{angle}deg', work / f'face_lm33_{angle}.npy') for angle in ('045', '315')]
+    if len(frontal) < min_count or not any(path.is_file() for _, path in sides):
+        print('[WARN] 五官投影：取樣資料不足，需要正面與斜面特徵點')
+        return
+    try:
+        with np.load(work / 'uvmesh.npz') as mesh:
+            triangles = vertices[mesh['tri']]
+        triangles = triangles[(triangles[:, :, 1] >= 1.36).any(1)]
+    except (OSError, KeyError, IndexError, ValueError) as error:
+        print(f'[WARN] 五官投影：無法讀取三角網格（{error}）')
+        return
+
+    limit = photo_height * ALIGNMENT_REVIEW_FRACTION
+    for side, path in sides:
+        if not path.is_file() or side not in cameras:
+            print(f'[WARN] 五官投影 {side}：缺少斜面特徵點或相機')
+            continue
+        if cameras[FRONT].get('D') or cameras[side].get('D'):
+            print(f'[WARN] 五官投影 {side}：需要正交頭部相機')
+            continue
+        try:
+            oblique = np.load(path)
+            if (oblique.ndim != 2 or oblique.shape[0] < min_count or oblique.shape[1] < 2
+                    or not np.isfinite(oblique[:, :2]).all()):
+                raise ValueError('斜面特徵點無效')
+        except (OSError, ValueError) as error:
+            print(f'[WARN] 五官投影 {side}：{error}')
+            continue
+
+        pairs = landmark_correspondences(triangles, cameras[FRONT], cameras[side], frontal, oblique[:, :2])
+        eyes, nose = pairs['眼部'], pairs['鼻部']
+        fit = None
+        if len(eyes[0]) >= 2 and len(nose[0]) >= 2:
+            fit = estimate_scale_translation(np.vstack((eyes[0], nose[0])), np.vstack((eyes[1], nose[1])))
+        if fit is not None:
+            scale, shift = fit
+            print(f'[INFO] 五官投影 {side}：用眼鼻試算整體縮放 {scale:.3f}× 與平移'
+                  f'（x {shift[0]:+.1f}，y {shift[1]:+.1f} px）；嘴部用於驗證')
+        else:
+            print(f'[WARN] 五官投影 {side}：共同可見眼鼻點不足，無法試算整體縮放')
+
+        for label, (points, targets) in pairs.items():
+            if len(points) < 2:
+                print(f'[WARN] 五官投影 {side} {label}：共同可見點不足（{len(points)} 點）')
+                continue
+            offsets = targets - points
+            before = float(np.median(np.linalg.norm(offsets, axis=1)))
+            dx, dy = np.median(offsets, axis=0)
+            fitted = scale * points + shift if fit is not None else points
+            after = float(np.median(np.linalg.norm(targets - fitted, axis=1)))
+            level = WARN if before > limit or after > limit else PASS
+            correction = f'{before:.1f} → {after:.1f} px' if fit is not None else f'{before:.1f} px'
+            guidance = '；整體校正後仍需複核局部對位' if fit is not None and after > limit else ''
+            print(f'[{level}] 五官投影 {side} {label}：中位偏移 {correction}'
+                  f'（{len(points)} 點，目標 ≤ {limit:.1f} px）；'
+                  f'原始偏移 x {dx:+.1f}、y {dy:+.1f} px（右、下為正）{guidance}')
+
+
 def report_head_overlap(folder, work):
     folder, work = Path(folder), Path(work)
     try:
@@ -758,6 +898,7 @@ def report_head_overlap(folder, work):
         guidance = '，請複核重疊區亮度和對位' if status != PASS else ''
         print(f'[{status}] {label}：亮度絕對差中位數 {median:.1f}，第 90 百分位 {p90:.1f} / 255'
               f'（{count} 點，目標 ≤ {PROJECTED_LUMA_PASS:g}，失敗 > {PROJECTED_LUMA_FAIL:g}）{guidance}')
+    report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0])
     return int(failed)
 
 
@@ -955,7 +1096,7 @@ def main():
     ap.add_argument('--out', default='turnaround_report.png')
     ap.add_argument('--min-height', type=int, default=2000)
     ap.add_argument('--head-overlap-work', metavar='WORK_DIR',
-                    help='用重建中間檔檢查頭部貼圖的重疊區亮度差')
+                    help='用重建中間檔檢查頭部重疊區亮度及五官對位')
     args = ap.parse_args()
     print(f'check_turnaround 版本 {__version__}')
     if args.head_overlap_work:
