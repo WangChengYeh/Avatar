@@ -114,6 +114,20 @@ def load_view(n):
 VW = {'main': 6.0, 'el30': 1.0, 'low20': 1.0, 'top': 0.5, 'head': 1.0}   # main ring is the best-aligned: it wins where it sees
 HEAD_PRI = {'head_000deg': 6.0, 'head_180deg': 3.0}                       # frontal close-up owns the face features
 PW = 12.0                    # sharp: the most frontal view dominates (blending misaligned AI views ghosts)
+
+
+def smoothstep(lo, hi, values):
+    f = np.clip((values - lo) / (hi - lo), 0, 1)
+    return f * f * (3 - 2 * f)
+
+
+def shoulder_front_weight(points, normal_z):
+    lateral, height = np.abs(points[:, 0]), points[:, 1]
+    return (smoothstep(0.065, 0.11, lateral) *
+            (1 - smoothstep(0.27, 0.37, lateral)) *
+            smoothstep(1.13, 1.22, height) *
+            (1 - smoothstep(1.34, 1.41, height)) *
+            smoothstep(0.12, 0.62, normal_z))
 # ---------- colour match: every non-main view is scaled per channel to agree with the main ring where both
 # see the surface well (the top / elevated / low shots are lit a little differently)
 rng = np.random.default_rng(0)
@@ -149,6 +163,7 @@ for n, c in cams.items():
 acc = np.zeros((len(X), 3), np.float32); wsum = np.zeros(len(X)); wconf = np.zeros(len(X), np.float32)
 for n, c in sorted(cams.items()):
     kind = c['kind']
+    frontal_body = kind == 'main' and abs((c['phi'] + 180) % 360 - 180) <= 10 and abs(c['th']) <= 10
     img, ed, m = load_view(n)
     H_, W_ = m.shape
     # z-buffer in image space (cell ~ 4 px on the body views; head close-ups are ~3.5x bigger), built chunk by chunk
@@ -191,6 +206,11 @@ for n, c in sorted(cams.items()):
         else:
             w *= 1 - headw                            # full-body views never paint the head (they would win on
                                                       # down-facing spots like under the lip and paste their own lips)
+            if frontal_body:
+                # Keep the front photograph's strap/skin boundary coherent on
+                # the shoulder instead of blending the differently registered straps.
+                front_confidence = smoothstep(0.18, 0.46, ndot) * smoothstep(4, 15, remap(ed, col, row))
+                w += 120 * shoulder_front_weight(Xc, Ns[sl, 2]) * inb * front_confidence * (1 - headw)
         # confidence uses a gentle power (is this texel seen at all?); blending uses the sharp one (who wins)
         wc = np.clip(ndot, 0, 1) ** 2 * vis * inb * edf
         if kind == 'head':
