@@ -53,3 +53,41 @@ def test_photo_cheek_brightness_uses_local_samples(monkeypatch):
         315: {'im': oblique, 'm': mask},
     })
     assert [result[0] for result in checker.results] == [checker.PASS, checker.WARN]
+
+
+def test_landmark_alignment_reserves_mouth_as_validation(tmp_path, capsys):
+    vertices = np.array([
+        [-0.2, 1.39, 0.1], [0.2, 1.39, 0.1], [0.2, 1.68, 0.1], [-0.2, 1.68, 0.1],
+    ])
+    np.savez(tmp_path / 'uvmesh.npz', tri=[[0, 1, 2], [0, 2, 3]])
+    front_cam = dict(phi=0, th=0, s=3000, cu=1024, cv=5600)
+    side_cam = dict(front_cam, phi=45)
+    frontal = np.zeros((468, 2))
+    oblique = np.zeros((468, 2))
+    for group, indices in checker.FEATURE_POINTS:
+        for i, index in enumerate(indices):
+            point = np.array([-0.09 + 0.02 * i, {'眼部': 1.60, '鼻部': 1.55, '嘴部': 1.48}[group], 0.1])
+            frontal[index] = checker.camera_project(point, front_cam)
+            oblique[index] = np.array(checker.camera_project(point, side_cam)) * 1.10 + [15, 5]
+            if group == '嘴部':
+                oblique[index, 1] += 32
+    np.save(tmp_path / 'face_lm33_045.npy', oblique)
+    checker.report_landmark_alignment(
+        tmp_path, {'head_000deg': front_cam, 'head_045deg': side_cam}, frontal, vertices, 2048)
+    output = capsys.readouterr().out
+    assert '1.100×' in output
+    assert '嘴部用於驗證' in output
+    mouth = next(line for line in lines(output, 'WARN') if 'head_045deg 嘴部' in line)
+    assert '→ 32.0 px' in mouth and '局部對位' in mouth
+    assert 'head_315deg：缺少斜面特徵點' in output
+
+
+def test_mesh_projection_uses_foremost_triangle():
+    xy = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    back = np.column_stack((xy, np.zeros(3)))
+    front = np.column_stack((xy, np.ones(3)))
+    triangles = np.stack((back, front))
+    point, normal = checker.mesh_point_at(np.array([0.25, 0.25]), triangles, triangles[:, :, :2],
+                                          triangles[:, :, 2])
+    np.testing.assert_allclose(point, [0.25, 0.25, 1.0])
+    np.testing.assert_allclose(normal, [0, 0, 1])

@@ -98,12 +98,14 @@ def main(argv=None):
             print('     照片檢查有 FAIL，--force 繼續')
 
     def step_face():
-        f = os.path.join(img, 'head_000deg.jpg')
-        dst = os.path.join(work, 'face_lm33.npy')
-        if os.path.exists(dst):
-            os.remove(dst)
-        if os.path.exists(f):
-            run([py, S('face_landmarks.py'), f, dst], work, log)
+        for angle in ('000', '045', '315'):
+            f = os.path.join(img, f'head_{angle}deg.jpg')
+            name = 'face_lm33.npy' if angle == '000' else f'face_lm33_{angle}.npy'
+            dst = os.path.join(work, name)
+            if os.path.exists(dst):
+                os.remove(dst)
+            if os.path.exists(f):
+                run([py, S('face_landmarks.py'), f, dst], work, log)
 
     def step_bake():
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work],
