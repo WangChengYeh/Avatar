@@ -1,137 +1,55 @@
-# body3d 2.5.0 — 33 張 T-pose 照片 → 附骨架 GLB（全部 Python）
+# Avatar · body3d
 
-## 安裝
-- Python 3.10–3.12：`pip install -r requirements.txt`
-- Blender 4.2 以上（UV、匯出、骨架三步用 `blender -b --python` 執行 Python 腳本）。
-  自動尋找 PATH / Homebrew / /Applications，或 `--blender 路徑`、環境變數 `BLENDER`。
-- 選用：Node.js + `npm install gltf-validator`，verify_glb.py 會一併跑 Khronos 驗證器
-  （放在本資料夾，或設定 `GLTF_VALIDATOR_DIR=.../node_modules`）。
+用 33 張環繞照片重建人物，輸出帶 22 根骨骼及 4K 貼圖的 GLB。預設輸出無光照與 PBR 兩個版本。
 
-## 一支指令跑完整流程
-    python body3d/run_all.py 照片資料夾 輸出資料夾 [--force] [--name body]
+## 快速開始
 
-16 步：照片檢查 → 相機 → 外殼 → 手臂 → 圓滑 → 腿部嚴格雕刻 → 網格 → 頭部對位 → 臉部特徵點 → UV → 貼圖烘焙
-→ 匯出 → 關節 → 骨架 → 無光照材質 → GLB 驗證。約 3 分鐘。
-- 照片檢查有 FAIL 會停下，`--force` 強制繼續。
-- `--from 步驟` 從某步重跑、`--only 步驟` 只跑一步（中間檔在 輸出資料夾/work）。
-- 輸出：`body_rigged.glb`（無光照，建議）、`body_rigged_lit.glb`、`v2_*.png` 預覽、`turnaround_report.png`、`run_all.log`。
+需要 Python 3.10–3.12 和 Blender 4.2 以上。在 repo 根目錄執行：
 
-## 個別工具
-    python body3d/check_turnaround.py 照片資料夾        # 照片規範檢查 1.21.0（規範全文在檔頭註解）
-        # 第 10 項輸出 *_silhouette_check.png 紅藍對照圖：主環重建形狀投影到每張身體圖
-        #   藍色 = 照片有、形狀沒有：≤ 1% PASS，> 2% FAIL（主環 90° / 270° ≤ 3%）
-        #   紅色 = 形狀超出照片：不設門檻（剪影雕出的形狀一定比身體大，完美照片也有 3–75%）
-        # 第 10b 項量透視：斜角兩手指尖中點偏向近手 < 2% 半臂展，≥ 4% FAIL，並估計相機距離
-        # 第 10c 項：俯角 / 仰角環比對同角度主環的手寬 / 臀寬、頭寬 / 臀寬。差 ≥ 3% WARN，≥ 5% 優先複核
-        # 第 11 項：頭部特寫 0° / 45° / 315° 的臉（MediaPipe）：找得到臉、五官比例、頭髮高度 / 臉高一致
-        # --mode ai（預設，AI 生成的圖可以重來：門檻 = 完美照片 + 小餘裕，翻轉 / 光線 / 解析度等改判 FAIL）
-        # --mode photo（真實拍攝，較寬門檻）
-        # 未安裝 MediaPipe 時第 11 項會標示 WARN，相機仍使用較寬的搜尋範圍。
-        # 門檻都用「完美照片」（模型正交渲染的 33 張）校正：完美照片藍色 0–0.6%、10b 0–0.2%、10c 0–2%
-    python body3d/check_turnaround.py 照片資料夾 --head-overlap-work 輸出資料夾/work
-    python body3d/verify_glb.py model.glb --expect-unlit  # GLB 驗證（取代 three.js 檢查頁）
-    python body3d/fit_report.py 輸出資料夾/work            # 模型投影回每張照片比對剪影（分辨照片問題 / 腳本問題）
+```sh
+python -m pip install -r requirements.txt
+python body3d/run_all.py ./photos ./output --name body
+```
 
-分享照片檢查器時，可單獨提供 `check_turnaround.py`。安裝 `numpy` 和 `opencv-python` 後，即可檢查 33 張照片。
+`./photos` 放入 33 張 2048 × 2048 的 JPEG，使用小寫 `.jpg`。完整角度與檔名見[流程與驗收](docs/Workflow-and-Validation.md#輸入照片)。
 
-重建輸入為 33 張 2048 × 2048 的 JPEG，使用小寫 `.jpg` 與規格檔名。
-同一角度有多個檔案、不同角度使用相同像素或尺寸不符時，會在輪廓檢查前回報。
-頭部疑似近似複製會提示人工複核，另可用 `*_head_review.png` 檢視臉頰、鼻翼和嘴角。
+Blender 可從 PATH、Homebrew 或系統應用程式目錄尋找。也可用 `--blender /path/to/blender` 或 `BLENDER` 指定。要額外執行 Khronos glTF Validator，可在 repo 根目錄執行 `npm install gltf-validator`，或以 `GLTF_VALIDATOR_DIR` 指向已安裝該套件的 `node_modules`。
 
-烘焙前會自動比對正面和左右斜面投影到同一份網格時，臉頰接合區的亮度差。
-結果列出對應照片、取樣數與亮度差，記錄在 `run_all.log`。
-生圖時固定曝光、白平衡與柔光設定。照片粗篩的全圖膚色亮度差目標為 3% 以內，
-正面與左右 45° 的臉頰亮度分位差目標為 5 / 255 以內。超過時提示人工複核。
-烘焙前的共同可見點亮度差第 90 百分位目標為 ≤ 12 / 255，超過 12 但未超過 20 時警告。
-超過 20 判 FAIL。缺少正面特徵點或取樣不足會提示未完成檢查。
-烘焙前也會以 MediaPipe 的正面、45° 與 315° 特徵點比對眼、鼻、嘴的投影位置。用共同可見眼鼻點
-試算單一縮放及平移，再用嘴部驗證。偏移超過圖高 1% 時提示複核。至少 3 個共同可見點的
-部位，在試算後中位偏移仍超過圖高 1.5% 時判 FAIL。沒有特徵點或共同可見點不足時會明示。
-五官尺寸逐項比較同一視角的投影及照片距離，包括眼距（兩眼眼角中點）、眼寬、鼻翼寬、嘴寬、
-五官垂直間距和臉型尺寸，並列出整體縮放後的差值及百分比。
-差異同時超過 4% 和 2 px 時提示複核。眼距、眼寬、鼻翼寬、鼻樑到鼻尖或嘴寬在縮放後
-仍同時超過 8% 和 5 px 時判 FAIL。眼唇開合、顴部和下顎輪廓保留人工複核。
-看不到任一端點的尺寸列為取樣不足。
-對眼距、嘴寬等跨越兩側的尺寸，也會用左右斜面各自可見的端點回投到正面後估計，
-並與正面照片比較。烘焙前出現 FAIL 時會停止，已有的 `--force` 可繼續。
-烘焙前也會輸出 `view_overlays/`，把身體與頭部的各視角分別回投到正面和背面，
-每列顯示參考照片、回投照片、50/50 疊圖及亮度差異。灰底或淡化處代表沒有共同可見的取樣。
-`view_overlap.csv` 分別列出共同可見覆蓋率、亮度差中位數／P90，以及亮度差 ≤ 20 / 255 的像素比例
-（`luma_within_20_percent`）。覆蓋率低於 5% 時標示資料不足，亮度統計留空。
-正面與 45°／315° 的頭部比對也列出眼、鼻、嘴在斜面照片座標中的校正後中位偏移，
-以及左右斜面合計的回投眼距差。量不到的項目留空，覆蓋率、亮度及對位各自顯示狀態。
-疊圖供複核輪廓內的特徵位置及色差。單獨執行時，在進階檢查指令加 `--view-overlay-dir 報告資料夾`。
+## 主要輸出
 
-verify_glb.py 檢查：GLB 格式、22 根骨頭名稱與父子階層、Hips 為根、蒙皮網格為根節點、
-綁定矩陣、骨骼索引、權重加總 = 1、最多 4 根骨頭、高度 / 地面 / 朝向 / T-pose、貼圖可解碼、
-無光照材質，並用 numpy 線性蒙皮實際擺姿勢（左上臂往下 70°，指尖要往下、腳不能動）。
-有 FAIL 時結束碼 1。
+| 路徑 | 用途 |
+| --- | --- |
+| `output/body_rigged.glb` | 無光照版本，適合保留照片原有光影 |
+| `output/body_rigged_lit.glb` | PBR 版本，會受場景光源影響 |
+| `output/turnaround_report*.png` | 照片初篩與輪廓、頭部複核圖 |
+| `output/view_overlays/` | 正背面回投疊圖與 KPI CSV |
+| `output/v2_*.png` | Blender 預覽圖 |
+| `output/run_all.log` | 17 步流程日誌，含檢查結果與可用的峰值記憶體紀錄 |
+| `output/work/` | 重跑單一步驟或進階檢查用的中間檔 |
 
-## 測試
-    pytest -q                                   # 約 3 分鐘（需要 Blender 渲染合成照片）
-    pytest -q --photos=照片資料夾                # 另外跑完整端到端（要用 = 連接）
+照片初篩或烘焙前檢查出現 `FAIL` 時，流程會停止。`--force` 可繼續輸出供診斷，最終 GLB 驗證仍會執行。`--from STEP` 和 `--only STEP` 會使用既有的 `output/work/`。
 
-- test_checker.py：合成的 33 張照片要通過（含第 10 / 10b 項）；缺俯視圖、缺環上一張、角度對調、翻轉複製、灰白雜點、曝光不足、4 m 透視相機渲染的整組（10b FAIL、估計距離 3–6.5 m）、拉寬的一張（10 項藍色在手）都要被抓出來
-- test_verify_glb.py：好模型通過；骨頭改名、父子錯、權重不歸一、缺貼圖、該無光照卻沒有、非 GLB 都要 FAIL；四元數數學
-- test_checker.py（2.4.0）：嚴格模式下完美照片 0 FAIL 0 WARN；翻轉複製 AI 模式 FAIL / photo 模式 WARN；3/4 特寫頭髮壓扁 15% → 髮高比 FAIL；3/4 特寫換成後腦勺 → 找不到臉 FAIL
-- test_run_all.py（2.4.0）：face33 對齊後特徵點誤差 < 2 mm、重跑不會重複修正
-- test_camera.py：遠距透視 = 正交、近處放大、角度限制
-- test_run_all.py：4 m 透視照片估出 D 2.5–6.5 m、正交照片幾乎不判成透視；照片 FAIL 時流程會停；合成照片跑前半段得到 1.65 m、手臂完整、封閉的網格；腿部不能超出照片剪影（fit_report）；端到端兩個 GLB 都通過驗證、腿部剪影吻合
-- tests/data/body_rigged.glb 是測試用模型（v9）；可用環境變數 BODY3D_GLB 換成別的
+## 常用指令
 
-## 2.5.0：正確性審查（docs/Avatar-Correctness-Review.md）的修正
-1. Blender 腳本出錯時 CLI 回傳非零並指出步驟：所有 Blender 步驟加 `--python-exit-code 1`。
-2. 預設 4K 烘焙不再因記憶體被終止：bake33 分塊處理、逐貼圖像素陣列用 float32。
-   本機（16 GiB）同一份 v14 中間檔：峰值記憶體佔用 8.6 GB → 2.4 GB（常駐 5.7 → 4.2 GiB），貼圖幾乎相同
-   （平均差 0.00，最大 6 階，JPEG 誤差）。run_all.log 每一步記錄 `peak memory`。
-3. verify_glb 1.1.0：純 Python 把頭部從正面 / 左右 45° / 左右側面渲染，找皮膚上又細又長的暗線
-   （寬 ≤ 6 px、長 ≥ 5 cm）。審查的黑條貼圖 → FAIL；v9 / v12 / v13 / v14 → PASS（睫毛、鼻孔、嘴線不誤判）。
-   `--renders 資料夾` 存渲染圖。
-4. 相機：照片檢查通過時（run_all 寫 work/check_status.json），角度只允許離檔名角度 ±3°；
-   沒通過（--force）仍是 ±10° / ±16°。透視判定門檻 IoU 增益 0.005 → 0.01。
-   camera_benchmark.py（已知相機的合成照片）：正交組角度誤差最大 3°（原 10° / 14°）、16 張誤判透視 1 張、
-   全身剪影 7.81% → 6.40%；4 m 透視組俯角 8/8 判成透視，距離誤差平均 0.56 m。
-另：face33 重跑時從頭部對位的相機開始（結果完全相同）。
+```sh
+# 檢查照片（預設為 AI 模式）
+python body3d/check_turnaround.py ./photos --out turnaround_report.png
 
-## 2.4.0：臉部兩層疊合
-原因（量測）：正面和 3/4 頭部特寫的臉在模型上錯開 8 mm（34 px）。
-- 腳本：頭部特寫相機用含頭髮的剪影對齊，頭髮畫法不同就跟著偏；模型臉部是平滑的塊（鼻子少 19–27 mm、
-  眼窩多 8–16 mm）。
-- 照片：3/4 特寫的臉相對頭髮畫大了 13–16%（檢查第 11 項現在會擋下）。
-修正：steps/face33.py（第 10 步 face3d）用臉部特徵點對齊 3/4 特寫相機，三角量測 468 個臉部點，把鼻子 / 眼窩
-推到正確深度（臉部輪廓固定不動，往內 15 mm 漸變）。錯開中位數 8 mm → 2 mm。
-headreg33.py：頭部特寫的角度限制在檔名角度 ±10°（原本 90° 會被對成 107°）。
+# 驗證無光照 GLB，另存頭部渲染供複核
+python body3d/verify_glb.py ./output/body_rigged.glb --expect-unlit --renders ./head-renders
 
-## 誤差底線（完美照片能做到多好）
-用模型正交渲染的 33 張完美照片跑流程，再把模型投影回每張照片（fit_report.py --region body）：
-平均剪影不一致 7.7%（相機角度鎖在檔名角度時 6.2%）。照片做到藍色 < 1% 之後，剩下的誤差主要在腳本：
-- 相機角度只靠剪影估不準（俯角 30° 估成 16–27°）；環境變數 BODY3D_MAX_DPHI / BODY3D_MAX_DTH 可限制
-  角度範圍（0 = 鎖在檔名角度）
-- 外殼投票容許 3 張不同意 + 圓滑，模型整體比照片胖 1–2 cm
+# 將重建網格投影回輸入視角，檢查身體剪影
+python body3d/fit_report.py ./output/work --region body
 
-## 2.3.0：透視相機
-- steps/camera.py：所有步驟共用的相機模型；有 D（相機到身體中心的距離）時是透視投影。
-  cams33 / refine33 會替俯角、仰角環估計 D（明顯比正交好才採用），bake33 用逐點視線方向與距離做 z-buffer。
-  你的照片：俯角環剪影誤差 14.3% → 12.3%，仰角環 10.3% → 9.7%，臉部接縫明顯變淡。
-  驗證：4 m 透視渲染的合成照片，俯角環估出 3.0–4.0 m；正交照片 16 張有 14 張判定為正交。
-- 相機角度限制在檔名角度 ±10°、俯仰角 ±16°（只靠剪影分不開俯仰角、距離和縮放）。
-  已知：就算是完美的正交合成照片，俯仰角也估得偏小（俯角 30° 估成 16–27°），之後要改。
-- rig.py：Bone Heat 失敗時自動改用放大 10 / 100 倍的副本計算權重再複製回來。
-- legs33.py：腿部截面做 2-D opening，去掉兩腿之間 < 1.6 cm 的細條殘留。
+# 跑測試；提供 33 張照片可加跑端到端
+python -m pytest -q
+python -m pytest -q --photos=./photos
+```
 
-## 2.2.0：照片透視檢查
-33 張 AI 圖其實是透視投影（相機約 5 m），重建程式假設正交投影。檢查 1.9.0 第 10b 項會判 FAIL；
-用 4 m 透視相機渲染的合成照片估計出 4.4–4.8 m，驗證了這個量法。重新生成時提示詞加
-orthographic projection / 200mm telephoto / camera far away。現有照片仍可用 run_all.py --force 重建。
+可單獨分享 `check_turnaround.py`。照片初篩基本功能需要 `numpy` 和 `opencv-python`，第 11 項的臉部檢查另外使用 MediaPipe。
 
-## 2.1.0：小腿內側凸塊（腳本問題，不是照片問題）
-外殼投票「容許 3 張不同意」，但兩腿之間的縫只有 45° / 225° 附近幾張看得到，票數不夠就留下一條殘留。
-照片裡的縫是乾淨的（fit_report：修正前主環腿部平均超出照片 5991 px，修正後 57 px）。
-legs33.py 在腳踝到胯下上方 12 cm 改用主環 8 張嚴格雕刻：任何一張清楚看到是空的就削掉。
+## 文件
 
-## 已知問題
-- 腿以外（手臂、軀幹）仍用寬鬆投票，整體剪影比照片略大
-- 右肩頂偏灰（照片本身的陰影）；45° 視角臉頰有淡接縫
-- 俯仰角估計有偏差（見 2.3.0）
-- 正面頭像左側瀏海旁仍有淡淡的直條；頭頂有一小塊偏亮
-- 腳踝附近在個別視角會被多削 1–2 px（嚴格雕刻的代價；從 12 cm 起雕會讓腳踝外殼殘留回來，整體較差）
+- [流程與驗收](docs/Workflow-and-Validation.md) · 輸入規格、重跑步驟、照片與 GLB 檢查、回投 KPI
+- [版本與量測紀錄](CHANGELOG.md) · 重要修正、實測範圍和歷史限制
+- [Avatar 正確性審查](docs/Avatar-Correctness-Review.md) · body3d 2.3.0 的原始報告及重現方式
