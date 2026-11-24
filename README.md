@@ -17,12 +17,12 @@
 - 輸出：`body_rigged.glb`（無光照，建議）、`body_rigged_lit.glb`、`v2_*.png` 預覽、`turnaround_report.png`、`run_all.log`。
 
 ## 個別工具
-    python body3d/check_turnaround.py 照片資料夾        # 照片規範檢查 1.11.0（規範全文在檔頭註解）
+    python body3d/check_turnaround.py 照片資料夾        # 照片規範檢查 1.12.0（規範全文在檔頭註解）
         # 第 10 項輸出 *_silhouette_check.png 紅藍對照圖：主環重建形狀投影到每張身體圖
         #   藍色 = 照片有、形狀沒有：≤ 1% PASS，> 2% FAIL（主環 90° / 270° ≤ 3%）
         #   紅色 = 形狀超出照片：不設門檻（剪影雕出的形狀一定比身體大，完美照片也有 3–75%）
         # 第 10b 項量透視：斜角兩手指尖中點偏向近手 < 2% 半臂展，≥ 4% FAIL，並估計相機距離
-        # 第 10c 項：俯角 / 仰角環的手寬 / 臀寬、頭寬 / 臀寬要和同角度主環差 ±3% 內，≥ 5% FAIL
+        # 第 10c 項：俯角 / 仰角環比對同角度主環的手寬 / 臀寬、頭寬 / 臀寬。差 ≥ 3% WARN，≥ 5% 優先複核
         # 門檻都用「完美照片」（模型正交渲染的 33 張）校正：完美照片藍色 0–0.6%、10b 0–0.2%、10c 0–2%
     python body3d/verify_glb.py model.glb --expect-unlit  # GLB 驗證（取代 three.js 檢查頁）
     python body3d/fit_report.py 輸出資料夾/work            # 模型投影回每張照片比對剪影（分辨照片問題 / 腳本問題）

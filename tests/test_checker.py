@@ -126,8 +126,10 @@ def test_widened_view_fails_silhouette(broken):
 
 
 def test_ring_width_ratios(synth_set, persp_set, tmp_path):
-    """第 10c 項：正交合成照片 12 張全部 PASS；4 m 透視照片的俯角環要 FAIL"""
+    """第 10c 項提示寬度比差異，第 10b 項仍能攔下 4 m 透視照片"""
     rc, out = run_py('check_turnaround.py', synth_set, '--out', tmp_path / 'a.png')
     assert len([l for l in lines(out, 'PASS') if '寬度比:' in l]) == 12
     rc, out = run_py('check_turnaround.py', persp_set, '--out', tmp_path / 'b.png')
-    assert len([l for l in lines(out, 'FAIL') if 'el30' in l and '寬度比:' in l]) >= 4
+    assert any('透視:' in l for l in lines(out, 'FAIL'))
+    assert not any('寬度比:' in l for l in lines(out, 'FAIL'))
+    assert sum('el30' in l and '寬度比:' in l and '優先複核' in l for l in lines(out, 'WARN')) >= 4
