@@ -48,6 +48,24 @@ python -m pytest -q --photos=./photos
 
 可單獨分享 `check_turnaround.py`。照片初篩基本功能需要 `numpy` 和 `opencv-python`，第 11 項的臉部檢查另外使用 MediaPipe。
 
+## Loop engineering
+
+每次修改照片、checker 或 3D 流程，都用同一組視圖完成一次「比對 → 判因 → 修正 → 重建 → 回驗」循環。
+
+1. **比對 Three.js 與原圖。** 在 Three.js 載入目前的 GLB，輸出正面 0°、左側面 90°、背面 180°，有疑點時加上 45°／315° 或局部特寫。把模型擺到與原圖相同的姿勢（例如 T-pose），配對角度、相機投影和尺度，再對照同角度的全身照及頭部特寫。用疊圖和局部放大標出問題位置，記錄角度、部位、量測值及門檻。可依問題量測五官距離、輪廓偏移、亮度差 P90 或肩臂變形。另以 Yoga2 實際站姿和動作確認使用時的外觀。
+2. **找出差異最早出現在哪一步。** 先比對原圖之間的同角度全身照與頭部特寫，再看不同角度回投到同一視角後的結果。若原圖已有五官比例、輪廓、色澤或亮度差異，走第 3 步。若原圖一致，以同一組照片逐步核對相機對齊、網格、UV 與貼圖烘焙、骨架權重、GLB 匯出與 Three.js 載入後的結果；修正最早出現差異的步驟，並加入能重現問題的檢查。若兩邊都有問題，分別修正及驗證。
+3. **原圖有問題時，先改 checker，再修圖。** 把規則加到可單獨使用的 [`check_turnaround.py`](body3d/check_turnaround.py)，並先用未修正的照片重跑。如果原圖原本 PASS，先確認新版 checker 能在正確角度和部位報出目標問題。再修照片，用相同指令、門檻和比對條件重跑，確認該項由 FAIL 轉為 PASS，再確認其他角度及既有規則沒有新增 FAIL。保留修圖前後的數值、疊圖與檢查報告。
+4. **重新生成 GLB 並回到 Three.js 驗收。** 用修正後的 33 張照片和最新版腳本，從頭在新的輸出目錄重建，省略 `--force`。確認 GLB 驗證通過，再用第 1 步的相同設定輸出三視圖，重測原本失敗的部位和 KPI。涉及肩臂時，另測站姿與抬手，確認貼圖和網格在動作中也符合預期。若差異仍超出門檻，回到第 2 步追到原因。
+
+```sh
+python body3d/check_turnaround.py ./photos-before --out report-before.png
+python body3d/check_turnaround.py ./photos-fixed --out report-after.png
+python body3d/run_all.py ./photos-fixed ./output-next --name body
+python body3d/verify_glb.py ./output-next/body_rigged.glb --expect-unlit
+```
+
+例如 v1220 左側面曾看到肩膀接上臂處偏灰綠。先查看同角度原圖是否已有這塊色差；如果原圖正常，就沿著 UV／烘焙貼圖、靜止 GLB 到 Three.js 站姿逐步比較，找出色差第一次出現的位置，再決定要修哪一步。
+
 ## 文件
 
 - [流程與驗收](docs/Workflow-and-Validation.md) · 輸入規格、重跑步驟、照片與 GLB 檢查、回投 KPI
