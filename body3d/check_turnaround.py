@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.20.0（2026-11-24）
+版本 1.21.0（2026-11-24）
 
 版本紀錄:
+  1.21.0 --mode ai（預設）/ photo：AI 生成的圖可以重來，門檻改成「完美照片 + 小餘裕」，翻轉複製、光線翻轉、
+         解析度、背景 / 陰影等 WARN 在 ai 模式判 FAIL；俯角 / 仰角環大小一致改比相差 180° 的兩張；
+         第 11 項：臉部一致性（頭部特寫 0° / 45° / 315° 都要找得到臉；五官比例、頭髮高度 / 臉高要和正面一致，
+         扣掉偵測偏差後 ±2%，> 4% 判 FAIL）
   1.20.0 疊圖及 CSV 加入亮度一致率、五官對位誤差與獨立的覆蓋率判定。
   1.19.0 新增各視角照片回投到正面及背面的疊圖、差異圖與覆蓋率。
   1.18.0 收緊曝光、臉頰亮度與五官門檻，關鍵尺寸或位置嚴重偏差會擋下烘焙。
@@ -183,7 +187,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.20.0'
+__version__ = '1.21.0'
 import numpy as np
 import cv2
 
@@ -375,6 +379,19 @@ def top_consistency(hull, mt, core=0.22):
 
 
 RING_EL = {'main': 0.0, 'el30': 30.0, 'low20': -20.0}
+# --mode ai (default): AI images can be regenerated at no cost, so thresholds are "perfect photos + a small margin"
+# and policy items (flipped copies, lighting flips, resolution) FAIL. --mode photo: the looser 1.11 thresholds.
+MODE = {'ai': True}
+
+
+def T(ai, photo):
+    """threshold for the current mode"""
+    return ai if MODE['ai'] else photo
+
+
+def strict(level):
+    """WARN becomes FAIL in AI mode (for items that are simply wrong, e.g. a flipped copy)"""
+    return FAIL if (MODE['ai'] and level == WARN) else level
 # section 10, blue = share of the photo outside the main-ring shape. Calibrated on perfect (orthographic, rendered)
 # photos: 0–0.6 % blue, so > 1 % is a real inconsistency. Level-ring side views (90° / 270°) are tested against a
 # hull built without them, which cannot reproduce a profile: perfect photos give 1.8–2.9 % there.
@@ -435,6 +452,79 @@ def ring_ratio_check(good, extra):
             r0, r1 = width_ratios(good[a]['m']), width_ratios(v['m'])
             if r0 and r1:
                 out[(cat, a)] = (r1[0] / r0[0] - 1, r1[1] / r0[1] - 1)
+    return out
+
+
+# section 11, face consistency of the head close-ups (needs mediapipe). Ratios of vertical distances only, so with
+# level orthographic cameras they are the same in every view; MediaPipe itself reads 3/4 faces a little
+# differently, so the 3/4 views are compared with the bias measured on perfect (rendered) photos.
+FACE_VIEWS = (0, 45, 315)
+FACE_BIAS = {'prop': 1.024, 'hair': 1.055}      # 3/4 view / frontal view on perfect photos
+FACE_PASS, FACE_FAIL = 0.02, 0.04               # |ratio / bias - 1|; perfect photos: 0–0.6 %
+
+
+def face_measures(im, m):
+    """(eye->mouth / brow->chin, head top->brow / brow->chin, face height px) or None if no face"""
+    try:
+        import mediapipe as mp
+    except ImportError:
+        return 'nomp'
+    h, w = im.shape[:2]
+    with mp.solutions.face_mesh.FaceMesh(static_image_mode=True, min_detection_confidence=0.3) as fm:
+        r = fm.process(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
+    if not r.multi_face_landmarks:
+        return None
+    L = np.array([[l.x * w, l.y * h] for l in r.multi_face_landmarks[0].landmark])
+    foreground_rows = np.flatnonzero(m.any(1))
+    if not foreground_rows.size:
+        return None
+    top = foreground_rows[0]
+    brow = L[[105, 334], 1].mean(); eye = L[[33, 133, 362, 263], 1].mean()
+    mouth = L[[61, 291, 13, 14], 1].mean(); chin = L[152, 1]
+    face = chin - brow
+    if not np.isfinite(L).all() or face <= 0 or mouth <= eye or brow <= top:
+        return None
+    return (mouth - eye) / face, (brow - top) / face, face
+
+
+def face_check(extra):
+    """11. returns list of (level, label, message)"""
+    heads = extra.get('head', {})
+    out = []
+    M = {}
+    for a in FACE_VIEWS:
+        v = heads.get(a)
+        if v is None or v.get('m') is None:
+            out.append((FAIL, f'head {a}° 臉部', '缺少可用的頭部特寫'))
+            continue
+        r = face_measures(v['im'], v['m'])
+        if r == 'nomp':
+            return [(WARN, '臉部一致性', '沒有安裝 mediapipe，第 11 項無法檢查（pip install "mediapipe==0.10.14"）')]
+        if r is None:
+            out.append((FAIL, f'head {a}° 臉部', '找不到臉（MediaPipe）：正面 / 3/4 頭部特寫要清楚看到五官，'
+                                                   '不要被頭髮遮住，也不要轉超過 45°'))
+        else:
+            M[a] = r
+            out.append((PASS, f'head {a}° 臉部', f'找到臉，臉高 {r[2]:.0f} px'))
+    if 0 not in M:
+        return out
+    pass_limit, fail_limit = T(FACE_PASS, 0.04), T(FACE_FAIL, 0.08)
+    for a in (45, 315):
+        if a not in M:
+            continue
+        for k, i, what in (('prop', 0, '五官比例（眼到嘴 / 眉到下巴）'), ('hair', 1, '頭髮高度 / 臉高（頭頂到眉 / 眉到下巴）')):
+            dev = (M[a][i] / M[0][i]) / FACE_BIAS[k] - 1
+            lvl = PASS if abs(dev) <= pass_limit else WARN if abs(dev) <= fail_limit else FAIL
+            msg = (f'{what}：{M[a][i]:.3f}，正面 {M[0][i]:.3f}，扣掉 3/4 偵測偏差後差 {100 * dev:+.1f}%'
+                   f'（應在 ±{100 * pass_limit:.0f}% 內，> {100 * fail_limit:.0f}% 判 FAIL）')
+            if lvl != PASS:
+                if k == 'hair':
+                    msg += (' → 這張 3/4 特寫的' + ('臉畫得比正面大（或頭髮比較扁）' if dev < 0 else '臉畫得比正面小（或頭髮比較蓬）') +
+                            '：重建用頭髮輪廓對齊相機，臉會和正面錯開，貼圖出現兩層臉。重新生成，要求和 head_000 '
+                            '同一個髮型、同樣的頭髮蓬度、同樣的臉部大小')
+                else:
+                    msg += ' → 五官位置和正面不同（不是同一張臉 / 表情不同），重新生成這張'
+            out.append((lvl, f'head {a}° vs 0° {"五官比例" if k == "prop" else "髮高比"}', msg))
     return out
 
 
@@ -1485,7 +1575,7 @@ def check_photo_cheek_brightness(head_views):
                               f'（目標 ≤ {PHOTO_CHEEK_MAX_DIFF:g}）{guidance}')
 
 
-def finish(out=None):
+def finish(out=None, camera_verified=True):
     failures = sum(r[0] == FAIL for r in results)
     warnings = sum(r[0] == WARN for r in results)
     passes = sum(r[0] == PASS for r in results)
@@ -1497,7 +1587,9 @@ def finish(out=None):
         print('照片初篩有 WARN：請複核，烘焙前仍需檢查投影。')
     else:
         print('照片初篩通過：可以開始重建，烘焙前仍需檢查投影。')
-    sys.exit(1 if failures else 0)
+    if not failures and not camera_verified:
+        print('臉部一致性未通過完整驗證，相機使用較寬的搜尋範圍。')
+    sys.exit(1 if failures else 0 if camera_verified else 3)
 
 
 # ---------------------------------------------------------------- main
@@ -1508,13 +1600,18 @@ def main():
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
     ap.add_argument('--out', default='turnaround_report.png')
     ap.add_argument('--min-height', type=int, default=2000)
+    ap.add_argument('--mode', choices=['ai', 'photo'], default='ai',
+                    help='ai（預設）：AI 生成的圖可以重來，用嚴格門檻；photo：真實拍攝，門檻較寬')
     ap.add_argument('--head-overlap-work', metavar='WORK_DIR',
                     help='用重建中間檔檢查頭部重疊區亮度及五官對位')
     ap.add_argument('--view-overlay-dir', metavar='DIR', help='輸出各角度回投到正面/背面的疊圖與 CSV')
+    ap.add_argument('--camera-check', action='store_true',
+                    help='供相機校準使用：若無 FAIL 但第 11 項未全數通過，回傳 3')
     args = ap.parse_args()
     if args.view_overlay_dir and not args.head_overlap_work:
         ap.error('--view-overlay-dir 需要 --head-overlap-work')
-    print(f'check_turnaround 版本 {__version__}')
+    MODE['ai'] = args.mode == 'ai'
+    print(f'check_turnaround 版本 {__version__}（模式 {args.mode}：' + ('AI 生成圖，嚴格門檻' if MODE['ai'] else '真實照片，較寬門檻') + '）')
     if args.head_overlap_work:
         overlay_kpis = {} if args.view_overlay_dir else None
         status = report_head_overlap(args.folder, args.head_overlap_work, overlay_kpis)
@@ -1574,20 +1671,20 @@ def main():
         fig_h = b - t
         v['fig_h'], v['top'], v['bot'] = fig_h, t, b
         report_blob(tag, im, m)
-        report(PASS if H >= args.min_height else WARN, tag,
+        report(PASS if H >= args.min_height else strict(WARN), tag,
                f'解析度 {W}x{H}，人物高 {fig_h}px' + ('' if H >= args.min_height else f'（建議圖高 ≥ {args.min_height}）'))
         if t < 0.02 * H or b > 0.98 * H or l < 2 or r > W - 3:
             report(FAIL, tag, '人物碰到畫面邊緣，需完整入鏡並留白')
         bgL = float(np.median(bg[..., 0]))
         if bgL < 215:
-            report(WARN, tag, f'背景偏暗（L={bgL:.0f}），建議純白背景')
+            report(strict(WARN), tag, f'背景偏暗（L={bgL:.0f}），要純白背景')
         # floor shadow: dark pixels outside the figure in the bottom band
         band = slice(int(b - 0.06 * fig_h), min(H, int(b + 0.04 * fig_h)))
         Lb = lab[band, :, 0]; mb = m[band]
         dark = (Lb < np.median(bg[band, :, 0]) - 12) & ~cv2.dilate(mb.astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool)
         frac = dark.sum() / max(1, dark.size)
         if frac > 0.01:
-            report(WARN, tag, f'腳邊有地面陰影（{100 * frac:.1f}% 的底部區域），去背會受影響')
+            report(strict(WARN), tag, f'腳邊有地面陰影（{100 * frac:.1f}% 的底部區域），去背會受影響')
 
     good = {a: v for a, v in views.items() if v.get('m') is not None}
     if 0 not in good:
@@ -1597,12 +1694,13 @@ def main():
     print('\n2. 構圖一致性（每張人物高度、頭頂與腳底位置）')
     hs = np.array([v['fig_h'] for v in good.values()])
     spread = (hs.max() - hs.min()) / hs.mean()
-    report(PASS if spread < 0.02 else WARN if spread < 0.04 else FAIL, '人物高度',
+    report(PASS if spread < T(0.01, 0.02) else WARN if spread < T(0.02, 0.04) else FAIL, '人物高度',
            f'差異 {100 * spread:.1f}%（應 < 2%：相機距離與焦距需相同）')
     tops = np.array([v['top'] / v['im'].shape[0] for v in good.values()])
     bots = np.array([v['bot'] / v['im'].shape[0] for v in good.values()])
     d = max(np.ptp(tops), np.ptp(bots))
-    report(PASS if d < 0.02 else WARN, '頭頂 / 腳底位置', f'差異 {100 * d:.1f}% 圖高（應 < 2%：相機高度需固定）')
+    report(PASS if d < T(0.01, 0.02) else strict(WARN) if d >= T(0.02, 0.0) else WARN, '頭頂 / 腳底位置',
+           f'差異 {100 * d:.1f}% 圖高（應 < {100 * T(0.01, 0.02):.0f}%：相機高度需固定）')
 
     # ---- 3. pose
     print(f'\n3. 姿勢（{args.pose}）')
@@ -1619,7 +1717,8 @@ def main():
         ok = 0.35 < yl < 0.60 and 0.35 < yr < 0.60
         report(PASS if ok else WARN, 'A-pose（正面）', f'手尖高度 {100 * yl:.0f}% / {100 * yr:.0f}%')
     sym = abs(yl - yr)
-    report(PASS if sym < 0.03 else WARN, '左右手對稱', f'兩手高度差 {100 * sym:.1f}% 身高（應 < 3%）')
+    report(PASS if sym < T(0.015, 0.03) else WARN if sym < 0.03 else strict(WARN), '左右手對稱',
+           f'兩手高度差 {100 * sym:.1f}% 身高（應 < {100 * T(0.015, 0.03):.1f}%）')
 
     # ---- 4. real angle of each view (from the hand span; arms lie in the body plane, span ∝ |cos θ|)
     print('\n4. 實際角度估計（由雙手展開寬度推算，±10° 內算正確）')
@@ -1638,7 +1737,8 @@ def main():
                    if not ok_ else f'展開寬比例 {r_:.2f}，像真正側面')
         else:
             err = abs(est - expect)
-            report(PASS if err <= 10 else FAIL, f'{a:3d}°', f'推算約 {est:.0f}°（應為 {expect}°，誤差 {err:.0f}°）')
+            report(PASS if err <= T(5, 10) else WARN if err <= T(8, 10) else FAIL, f'{a:3d}°',
+                   f'推算約 {est:.0f}°（應為 {expect}°，誤差 {err:.0f}°，應 ≤ {T(5, 10)}°）')
 
     # ---- 5. true profiles: the legs must overlap
     print('\n5. 側面是否為真正 90°（兩腿應完全重疊）')
@@ -1658,8 +1758,8 @@ def main():
     print('\n6. 一致性（鏡像對應的兩張輪廓應幾乎相同，代表同一個身體、同一個姿勢）')
     # 相差 180° 的兩張從正反兩面拍同一個身體，輪廓必定互為鏡像（最嚴格的檢查）
     # 左右對稱的兩張（45/315、135/225）只在身體左右對稱時才相同，標準放寬
-    pairs = [(0, 180, '0° vs 180°（正 / 背）', 0.90), (90, 270, '90° vs 270°（左 / 右側）', 0.90),
-             (45, 225, '45° vs 225°', 0.90), (135, 315, '135° vs 315°', 0.90),
+    pairs = [(0, 180, '0° vs 180°（正 / 背）', T(0.95, 0.90)), (90, 270, '90° vs 270°（左 / 右側）', T(0.95, 0.90)),
+             (45, 225, '45° vs 225°', T(0.95, 0.90)), (135, 315, '135° vs 315°', T(0.95, 0.90)),
              (45, 315, '45° vs 315°（左右對稱）', 0.85), (135, 225, '135° vs 225°（左右對稱）', 0.85)]
     for a, b, label, thr in pairs:
         if a in good and b in good:
@@ -1690,7 +1790,7 @@ def main():
             dflip = np.abs(A - B[:, ::-1]).max(2)[fgm].mean()
             if dflip < 4:
                 found = True
-                report(WARN, f'{a}° vs {b_}°',
+                report(strict(WARN), f'{a}° vs {b_}°',
                        f'{b_}° 是 {a}° 的左右翻轉複製（前景差異 {dflip:.1f}）。形狀可用（假設身體左右對稱），'
                        f'但臉、髮線、衣服的不對稱細節會被鏡像；最好真的從另一側生成。')
     if not found:
@@ -1730,7 +1830,7 @@ def main():
         for a in sorted(odd):
             d = ld[a]
             pct = 100 * (d[1] if major < 0 else 1 - d[1])
-            report(WARN, f'{a}° 光線',
+            report(strict(WARN), f'{a}° 光線',
                    f'這張是{"畫面左側" if major < 0 else "畫面右側"}較亮（{pct:.0f}% 的列），'
                    f'其他張都是{side}較亮 → 很可能是把別張圖左右翻轉做出來的（臉、髮線、衣服細節會是鏡像）')
 
@@ -1752,8 +1852,9 @@ def main():
             wa, wb = widths(good[a]['m']), widths(good[b]['m'])
             devs = np.abs(wa / wb - 1); k_ = int(np.argmax(devs)); dev = devs[k_]
             lv = ['胸', '腰', '臀', '大腿', '小腿'][k_]
-            report(PASS if dev < 0.08 else FAIL, label,
-                   f'胸/腰/臀/大腿/小腿最大差異 {100 * dev:.0f}%，在「{lv}」（應 < 8%；腳踝見 7c）')
+            report(PASS if dev < T(0.03, 0.08) else WARN if dev < T(0.05, 0.08) else FAIL, label,
+                   f'胸/腰/臀/大腿/小腿最大差異 {100 * dev:.0f}%，在「{lv}」（應 < {100 * T(0.03, 0.08):.0f}%，'
+                   f'≥ {100 * T(0.05, 0.08):.0f}% FAIL；腳踝見 7c）')
 
     # ---- 7b. feet: same stance in every view (front/back: gap between the feet; mirrored pairs agree)
     print('\n7b. 腳的位置一致性（每張雙腳要站在同一個位置）')
@@ -1781,7 +1882,7 @@ def main():
             ga, gb = feet_gap(good[a]['m']), feet_gap(good[(180 + a) % 360]['m'])
             if ga is not None and gb is not None:
                 dg = abs(ga - gb)
-                report(PASS if dg < 0.015 else WARN, f'腳間距 {a}° vs {(180 + a) % 360}°',
+                report(PASS if dg < 0.015 else strict(WARN), f'腳間距 {a}° vs {(180 + a) % 360}°',
                        f'{100 * ga:.1f}% vs {100 * gb:.1f}% 身高（差 {100 * dg:.1f}%，應 < 1.5%）')
 
     # ---- 7c. ankles / feet: same width in mirrored pairs (a mismatch makes the reconstruction shave an ankle off)
@@ -1800,7 +1901,7 @@ def main():
         md = lambda v_: float(np.median(v_)) / h_ if len(v_) else None
         return md(L_), md(R_), md(S_)
     an = {a: ankles(v['m']) for a, v in good.items()}
-    TH = 0.08
+    TH = T(0.05, 0.08)
     if 0 in an and 180 in an and None not in an[0][:2] and None not in an[180][:2]:
         # front image-left = her right leg = back image-right
         for leg, fa, fb in (('她的右腳', an[0][0], an[180][1]), ('她的左腳', an[0][1], an[180][0])):
@@ -1848,7 +1949,7 @@ def main():
                     cs, fs, sr, cov, hshare, ov_, where_ = top_consistency(hull_, m)
                     ovp = os.path.splitext(args.out)[0] + '_top_check.png'
                     cv2.imwrite(ovp, ov_)
-                    lvl = PASS if cov >= 0.97 else WARN if cov >= 0.93 else FAIL
+                    lvl = PASS if cov >= T(0.99, 0.97) else WARN if cov >= T(0.98, 0.93) else FAIL
                     why = '' if lvl == PASS else (
                         '；超出的部分主要在頭部（%d%%）→ 俯視相機太近、透視太強（頭被拍得太大），請用長焦距 / 正交投影、相機拉遠重新生成' % (100 * hshare)
                         if hshare > 0.5 else
@@ -1856,15 +1957,26 @@ def main():
                         ' → 這些部位在俯視圖和主環裡的位置 / 大小不一致（或相機不在正上方），請重新生成 top.jpg，'
                         '讓髮髻、腳的位置和主環相同（對照圖紅色 = 只有俯視圖有，綠色 = 只有主環有，手臂的綠色正常）')
                     report(lvl, tag + ' 與主環一致性',
-                           f'俯視圖身體中段有 {100 * cov:.1f}% 落在主環重建形狀之內（應 ≥ 97%）；'
+                           f'俯視圖身體中段有 {100 * cov:.1f}% 落在主環重建形狀之內（應 ≥ {100 * T(0.99, 0.97):.0f}%）；'
                            f'重合度 {cs:.2f}（含手臂 {fs:.2f}，主環看不到手臂上下厚度，只供參考）；對照圖 {ovp}' + why)
             if cat == 'head':
                 hfrac = (b - t) / H_
                 report(PASS if hfrac >= 0.6 else WARN, tag, f'頭到肩高度佔畫面 {100 * hfrac:.0f}%（應 ≥ 60%）')
-            hs_.append(b - t)
+            hs_.append(b - t); v['h'] = b - t
         if len(hs_) >= 2 and cat in ('el30', 'head', 'low20'):
-            sp = (max(hs_) - min(hs_)) / np.mean(hs_)
-            report(PASS if sp < 0.03 else WARN, f'{cat} 大小一致', f'各張人物 / 頭部高度差 {100 * sp:.1f}%（應 < 3%）')
+            if cat == 'head':
+                sp = (max(hs_) - min(hs_)) / np.mean(hs_); what = '各張頭部高度差'
+            else:
+                # tilted cameras: the figure height depends on the azimuth (arms tilt in the image), but views 180°
+                # apart are mirror images of each other and must have the same height
+                prs = [(items[a]['h'], items[a + 180]['h']) for a in (0, 45, 90, 135)
+                       if a in items and a + 180 in items and 'h' in items[a] and 'h' in items[a + 180]]
+                sp = max((abs(x - y) / ((x + y) / 2) for x, y in prs), default=0.0); what = '相差 180° 的兩張人物高度差'
+            # perfect photos: head 0 %, el30 / low20 pairs up to 2.3 % (front and back are not exact mirrors from above)
+            sp_pass = T(0.015, 0.03) if cat == 'head' else T(0.03, 0.03)
+            sp_fail = T(0.03, 0.03) if cat == 'head' else T(0.05, 0.03)
+            report(PASS if sp < sp_pass else WARN if sp < sp_fail else strict(WARN), f'{cat} 大小一致',
+                   f'{what} {100 * sp:.1f}%（應 < {100 * sp_pass:.1f}%）')
         if cat not in ('el30', 'head', 'low20'):
             continue
         okv = {a: v for a, v in items.items() if v.get('m') is not None}
@@ -1882,8 +1994,8 @@ def main():
                            f'展開寬比例 {r_:.2f}（真側面應 < 0.40）' + ('' if r_ < 0.40 else '，角度不到 90°'))
                 else:
                     est_ = np.degrees(np.arccos(r_))
-                    report(PASS if abs(est_ - exp_) <= 12 else FAIL, f'{cat} {a}° 角度',
-                           f'推算約 {est_:.0f}°（應為 {exp_}°，±12° 內；俯 / 仰角會讓推算略有偏差）')
+                    report(PASS if abs(est_ - exp_) <= T(6, 12) else WARN if abs(est_ - exp_) <= T(9, 12) else FAIL, f'{cat} {a}° 角度',
+                           f'推算約 {est_:.0f}°（應為 {exp_}°，±{T(6, 12)}° 內；俯 / 仰角會讓推算略有偏差）')
         # (b) flipped copies inside the ring
         angs_ = sorted(okv)
         flips = []
@@ -1894,7 +2006,7 @@ def main():
                 fgm = cv2.resize((okv[a]['m'] | okv[b_]['m'][:, ::-1]).astype(np.uint8), (256, 256)) > 0
                 if np.abs(A - B[:, ::-1]).max(2)[fgm].mean() < 4:
                     flips.append(f'{b_}° 是 {a}° 的左右翻轉')
-        report(WARN if flips else PASS, f'{cat} 翻轉複製', '；'.join(flips) if flips else '沒有發現左右翻轉複製的圖')
+        report(strict(WARN) if flips else PASS, f'{cat} 翻轉複製', '；'.join(flips) if flips else '沒有發現左右翻轉複製的圖')
         # (c) lighting direction consistent within the ring
         # head close-ups: use only neck / shoulders (face vs hair colour would fake a lighting direction)
         ldr = {a: (light_dir(v['im'], v['m'], 0.75, 0.98) if cat == 'head' else light_dir(v['im'], v['m']))
@@ -1903,7 +2015,7 @@ def main():
         if len(strong_) >= max(3, 0.6 * len(okv)):
             maj = np.sign(sum(np.sign(d[0]) for d in strong_.values())) or 1.0
             odd_ = sorted(a for a, d in strong_.items() if np.sign(d[0]) != maj)
-            report(WARN if odd_ else PASS, f'{cat} 光線方向',
+            report(strict(WARN) if odd_ else PASS, f'{cat} 光線方向',
                    f'{", ".join(f"{a}°" for a in odd_)} 的亮側和其他張相反，可能是左右翻轉做出來的' if odd_
                    else f'每張都是{"畫面左側" if maj > 0 else "畫面右側"}較亮，一致')
         else:
@@ -1919,12 +2031,14 @@ def main():
     ref_ = [lv[f'{a}°'] for a in good if lv.get(f'{a}°')]
     if ref_:
         med = float(np.median(ref_))
-        odd = [(k, x / med - 1) for k, x in lv.items() if x and abs(x / med - 1) > EXPOSURE_MAX_DIFF]
+        EXP = T(EXPOSURE_MAX_DIFF, 0.12)
+        odd = [(k, x / med - 1) for k, x in lv.items() if x and abs(x / med - 1) > EXP]
         for k, d_ in odd:
-            report(WARN, f'{k} 曝光', f'膚色亮度比主環{"亮" if d_ > 0 else "暗"} {100 * abs(d_):.0f}%（應在 ±{100 * EXPOSURE_MAX_DIFF:g}% 內）；'
+            report(strict(WARN) if abs(d_) > T(0.10, 1.0) else WARN, f'{k} 曝光',
+                   f'膚色亮度比主環{"亮" if d_ > 0 else "暗"} {100 * abs(d_):.0f}%（應在 ±{100 * EXP:g}% 內）；'
                                        f'光線 / 曝光要和主環相同，否則重建後會看到色差接縫')
         if not odd:
-            report(PASS, '曝光一致', f'{len(lv)} 張的膚色亮度都在主環的 ±12% 內')
+            report(PASS, '曝光一致', f'{len(lv)} 張的膚色亮度都在主環的 ±{100 * EXP:.0f}% 內')
 
     check_photo_cheek_brightness({a: v for a, v in extra['head'].items() if v.get('m') is not None})
 
@@ -1938,6 +2052,8 @@ def main():
             blue = 1 - r_['cover']
             side = r_['cat'] == 'main' and r_['ang'] in (90, 270)
             bp, bw = (BLUE_SIDE_PASS, BLUE_SIDE_WARN) if side else (BLUE_PASS, BLUE_WARN)
+            if not MODE['ai']:
+                bp, bw = 0.04, 0.07
             lvl = PASS if blue <= bp else WARN if blue <= bw else FAIL
             msg = (f"藍色（照片有、主環形狀沒有）{100 * blue:.1f}%（應 ≤ {100 * bp:.0f}%，> {100 * bw:.0f}% 判 FAIL"
                    + ('；側面不參與建形狀，方法本身就有 2–3%' if side else '') + '）；'
@@ -1957,7 +2073,7 @@ def main():
         print('\n10b. 透視強度（斜角 4 張：兩手指尖中點應在身體中軸上；透視會讓中點偏向靠近相機的手）')
         for k, (p_, dist_, vals_) in perspective_check(good, extra).items():
             lab = {'main': '主環', 'el30': '俯角環', 'low20': '仰角環'}[k]
-            lvl = PASS if p_ < PERSP_PASS else WARN if p_ < PERSP_WARN else FAIL
+            lvl = PASS if p_ < T(PERSP_PASS, 0.03) else WARN if p_ < T(PERSP_WARN, 0.06) else FAIL
             msg = (f"指尖中點偏向近手 {100 * p_:.1f}% 半臂展（應 < {100 * PERSP_PASS:.0f}%；"
                    + '、'.join(f'{a}° {100 * x:+.0f}%' for a, x in sorted(vals_.items())) + '）')
             if lvl != PASS:
@@ -1977,6 +2093,14 @@ def main():
                 msg += f' → {review}這張與同角度主環的輪廓、俯仰角與姿勢'
             report(lvl, f'{cat} {a}° 寬度比', msg)
 
+    # ---- 11. face consistency of the head close-ups
+    face_results = []
+    if extra.get('head'):
+        print('\n11. 臉部一致性（頭部特寫 0° / 45° / 315°：找得到臉、五官比例、頭髮高度和臉的比例要一致）')
+        face_results = face_check(extra)
+        for lvl, lab, msg in face_results:
+            report(lvl, lab, msg)
+
     # ---- report image
     tiles = []
     allv = [(f'{a} deg', v) for a, v in sorted(views.items())] + \
@@ -1995,7 +2119,8 @@ def main():
     rows = [np.hstack(tiles[i:i + 4] + [np.full_like(tiles[0], 255)] * (4 - len(tiles[i:i + 4]))) for i in range(0, len(tiles), 4)]
     cv2.imwrite(args.out, np.vstack(rows))
 
-    finish(args.out)
+    camera_verified = bool(face_results) and all(lvl == PASS for lvl, _, _ in face_results)
+    finish(args.out, camera_verified=not args.camera_check or camera_verified)
 
 
 if __name__ == '__main__':

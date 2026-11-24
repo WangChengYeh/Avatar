@@ -1,6 +1,8 @@
 """Register the 8 head close-ups (orthographic, level camera) against the head of the mesh:
 scale / offsets from the head top and head width, then refine by IoU on the head (above the chin)."""
-import numpy as np, cv2, json, trimesh
+import numpy as np, cv2, json, trimesh, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import camera       # angle limits shared with the other cameras (±10° around the file-name angle)
 from scipy import ndimage as ndi
 cams = json.load(open('cams33.json'))
 v = trimesh.load('body33s.ply').vertices
@@ -62,6 +64,8 @@ for a in range(0, 360, 45):
             for key, dv in (('cu', step), ('cv', step), ('s', c['s'] * 0.004 * step), ('phi', step / 4)):
                 for sg in (1, -1):
                     c2 = dict(c); c2[key] += sg * dv
+                    if not camera.within_limits(n, c2):
+                        continue                       # a silhouette of hair alone cannot fix the angle
                     s2 = iou(c2, m, min(H - 1, c2['cv'] - c2['s'] * 1.42))
                     if s2 > sc + 1e-4:
                         sc, c, improved = s2, c2, True

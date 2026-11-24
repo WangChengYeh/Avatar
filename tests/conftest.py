@@ -34,7 +34,7 @@ def model_glb():
 def synth_set(blender, model_glb, tmp_path_factory):
     """33 張乾淨的合成照片（由測試模型在 Blender 正交渲染），整個測試只渲染一次"""
     out = tmp_path_factory.mktemp('synth') / 'set'
-    subprocess.run([blender, '-b', '--factory-startup', '--python', os.path.join(HERE, 'render_synth.py'), '--',
+    subprocess.run([blender, '-b', '--factory-startup', '--python-exit-code', '1', '--python', os.path.join(HERE, 'render_synth.py'), '--',
                     model_glb, str(out)], check=True, capture_output=True)
     assert len(os.listdir(out)) == 33
     return out
@@ -44,7 +44,7 @@ def synth_set(blender, model_glb, tmp_path_factory):
 def persp_set(blender, model_glb, tmp_path_factory):
     """同一個模型，但用距離 4 m 的透視相機渲染（違反「正交 / 長焦距」規範）"""
     out = tmp_path_factory.mktemp('persp') / 'set'
-    subprocess.run([blender, '-b', '--factory-startup', '--python', os.path.join(HERE, 'render_synth.py'), '--',
+    subprocess.run([blender, '-b', '--factory-startup', '--python-exit-code', '1', '--python', os.path.join(HERE, 'render_synth.py'), '--',
                     model_glb, str(out), '4.0'], check=True, capture_output=True)
     assert len(os.listdir(out)) == 33
     return out

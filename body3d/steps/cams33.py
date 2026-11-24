@@ -27,7 +27,7 @@ for f in sorted(glob.glob(os.path.join(SRC, '*.jpg'))):
     kind = 'top' if n.startswith('top') else 'el30' if n.startswith('el30') else 'low20' if n.startswith('low20') \
         else 'head' if n.startswith('head') else 'main'
     views[n] = dict(file=f, kind=kind, ang=ang)
-print('views', len(views))
+print('views', len(views), ' angle limits ±%.0f° / ±%.0f°%s' % (camera.MAX_DPHI, camera.MAX_DTH, '（照片檢查通過）' if camera.CHECK_PASSED else ''))
 
 # ---- main ring: orthographic cameras straight from the silhouettes (height 1.65 m, feet at y = 0,
 # rotation axis = centre between the calves, angle from the file name); refine33.py fine-tunes them
@@ -89,7 +89,7 @@ print('main hull surface points', len(P))
 
 NOM = {'el30': 30.0, 'low20': -20.0, 'top': 90.0}
 PERSPECTIVE = os.environ.get('BODY3D_PERSPECTIVE', '1') != '0'
-PERSP_MIN_GAIN = 0.005
+PERSP_MIN_GAIN = 0.01             # IoU gain a camera distance must bring (0.005 gave false perspective on orthographic photos)
 DS = 4
 for n, v in sorted(views.items()):
     if v['kind'] not in NOM:

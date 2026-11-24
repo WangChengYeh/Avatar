@@ -1,13 +1,16 @@
 """Bake body + head textures from all 33 views (orthographic cameras in cams33.json).
 weight = (n . view)^P  x  visibility (z-buffer per view)  x  distance from the photo silhouette edge  x  view weight
-Head close-ups dominate on the head (highest resolution). Unseen texels are filled by diffusion over the surface."""
+Head close-ups dominate on the head (highest resolution). Unseen texels are filled by diffusion over the surface.
+Memory: the two 4K textures have ~14–17 M texels; per-texel arrays are float32 and every per-view pass runs in
+chunks of CHUNK texels (peak footprint was 8.6 GB before, killed on 9.7 GiB machines)."""
 import json, os, sys
 import cv2, numpy as np
 from scipy.ndimage import distance_transform_edt
 
 D = sys.argv[1]
 SRC = sys.argv[2]
-S_BODY, S_HEAD = 4096, 4096
+S_BODY = S_HEAD = int(os.environ.get('BODY3D_TEX', 4096))
+CHUNK = 2_000_000
 cams = json.load(open(os.path.join(D, 'cams33.json')))
 M = np.load(os.path.join(D, 'uvmesh.npz'))
 pos, nrm, tri, uv, grp = M['pos'], M['nrm'], M['tri'], M['uv'], M['grp']
@@ -22,18 +25,25 @@ for g, Sg in SIZES.items():
         cv2.fillConvexPoly(ids, pts[i], int(i), lineType=cv2.LINE_8, shift=4)
     j_, i_ = np.nonzero(ids >= 0)
     JJ.append(j_); II.append(i_); T.append(ids[j_, i_]); G.append(np.full(len(j_), g))
-jj, ii, t, tg = map(np.concatenate, (JJ, II, T, G))
-Spx = np.where(tg == 0, SIZES[0], SIZES[1])
-p = np.c_[(ii + 0.5) / Spx, 1 - (jj + 0.5) / Spx]
-a, b, c = uv[t, 0], uv[t, 1], uv[t, 2]
-v0, v1, v2 = b - a, c - a, p - a
-d00 = (v0 * v0).sum(1); d01 = (v0 * v1).sum(1); d11 = (v1 * v1).sum(1); d20 = (v2 * v0).sum(1); d21 = (v2 * v1).sum(1)
-den = d00 * d11 - d01 ** 2; den[np.abs(den) < 1e-20] = 1e-20
-w1 = (d11 * d20 - d01 * d21) / den; w2 = (d00 * d21 - d01 * d20) / den
-bc = np.clip(np.c_[1 - w1 - w2, w1, w2], 0, 1); bc /= bc.sum(1, keepdims=True)
-X = (pos[tri[t]] * bc[..., None]).sum(1)
-N = (nrm[tri[t]] * bc[..., None]).sum(1); N /= np.linalg.norm(N, axis=1, keepdims=True) + 1e-9
-print('texels', len(X), flush=True)
+jj, ii, t, tg = (np.concatenate(JJ).astype(np.int32), np.concatenate(II).astype(np.int32),
+                 np.concatenate(T).astype(np.int32), np.concatenate(G).astype(np.int8))
+del JJ, II, T, G, ids
+NT = len(t)
+X = np.empty((NT, 3), np.float32); N = np.empty((NT, 3), np.float32)
+for a0 in range(0, NT, CHUNK):                       # barycentric position / normal of every texel, in chunks
+    sl = slice(a0, a0 + CHUNK); t_ = t[sl]
+    Spx = np.where(tg[sl] == 0, SIZES[0], SIZES[1])
+    p = np.c_[(ii[sl] + 0.5) / Spx, 1 - (jj[sl] + 0.5) / Spx]
+    a, b, c = uv[t_, 0], uv[t_, 1], uv[t_, 2]
+    v0, v1, v2 = b - a, c - a, p - a
+    d00 = (v0 * v0).sum(1); d01 = (v0 * v1).sum(1); d11 = (v1 * v1).sum(1); d20 = (v2 * v0).sum(1); d21 = (v2 * v1).sum(1)
+    den = d00 * d11 - d01 ** 2; den[np.abs(den) < 1e-20] = 1e-20
+    w1 = (d11 * d20 - d01 * d21) / den; w2 = (d00 * d21 - d01 * d20) / den
+    bc = np.clip(np.c_[1 - w1 - w2, w1, w2], 0, 1); bc /= bc.sum(1, keepdims=True)
+    X[sl] = (pos[tri[t_]] * bc[..., None]).sum(1)
+    n_ = (nrm[tri[t_]] * bc[..., None]).sum(1); N[sl] = n_ / (np.linalg.norm(n_, axis=1, keepdims=True) + 1e-9)
+del p, a, b, c, v0, v1, v2, d00, d01, d11, d20, d21, den, w1, w2, bc, n_
+print('texels', NT, flush=True)
 
 
 def voxel_smooth(X, vals, vs):
@@ -43,20 +53,26 @@ def voxel_smooth(X, vals, vs):
     uk, inv = np.unique(key, return_inverse=True)
     cnt = np.bincount(inv, minlength=len(uk))
     mean = np.stack([np.bincount(inv, vals[:, k], len(uk)) for k in range(vals.shape[1])], -1) / cnt[:, None]
-    f = (X - o) / vs - 0.5; f0 = np.floor(f).astype(np.int64); fr = f - f0
-    out = np.zeros_like(vals); wt = np.zeros(len(X))
-    for dx in (0, 1):
-        for dy in (0, 1):
-            for dz in (0, 1):
-                q = f0 + [dx, dy, dz]
-                k2 = (q[:, 0] * dims[1] + q[:, 1]) * dims[2] + q[:, 2]
-                j = np.clip(np.searchsorted(uk, k2), 0, len(uk) - 1); hit = uk[j] == k2
-                w_ = np.abs((1 - dx) - fr[:, 0]) * np.abs((1 - dy) - fr[:, 1]) * np.abs((1 - dz) - fr[:, 2]) * hit
-                out += w_[:, None] * mean[j]; wt += w_
-    return out / np.maximum(wt, 1e-9)[:, None]
+    del key, inv
+    out = np.zeros(vals.shape, np.float32)
+    for a0 in range(0, len(X), CHUNK):
+        sl = slice(a0, a0 + CHUNK)
+        f = (X[sl] - o) / vs - 0.5; f0 = np.floor(f).astype(np.int64); fr = f - f0
+        acc_ = np.zeros((len(f), vals.shape[1])); wt = np.zeros(len(f))
+        for dx in (0, 1):
+            for dy in (0, 1):
+                for dz in (0, 1):
+                    q = f0 + [dx, dy, dz]
+                    k2 = (q[:, 0] * dims[1] + q[:, 1]) * dims[2] + q[:, 2]
+                    j = np.clip(np.searchsorted(uk, k2), 0, len(uk) - 1); hit = uk[j] == k2
+                    w_ = np.abs((1 - dx) - fr[:, 0]) * np.abs((1 - dy) - fr[:, 1]) * np.abs((1 - dz) - fr[:, 2]) * hit
+                    acc_ += w_[:, None] * mean[j]; wt += w_
+        out[sl] = acc_ / np.maximum(wt, 1e-9)[:, None]
+    return out
 
 
 Ns = voxel_smooth(X, N, 0.012); Ns /= np.linalg.norm(Ns, axis=1, keepdims=True) + 1e-9
+del N
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -64,7 +80,10 @@ import camera      # orthographic or perspective (c['D']) projection shared by a
 
 
 def remap(img, col, row):
-    n = len(col); w_ = 4096; h_ = (n + w_ - 1) // w_
+    n = len(col)
+    if n == 0:
+        return np.zeros((0,) + img.shape[2:], np.float32)
+    w_ = 4096; h_ = (n + w_ - 1) // w_
     mx = np.zeros(h_ * w_, np.float32); my = np.zeros(h_ * w_, np.float32)
     mx[:n] = col; my[:n] = row
     out = cv2.remap(img, mx.reshape(h_, w_), my.reshape(h_, w_), cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
@@ -127,53 +146,65 @@ for n, c in cams.items():
         GAIN[n] = np.clip(np.median(ref[ov] / colv[ov], axis=0), 0.8, 1.25)
         print(f'gain {n:14s} BGR {np.round(GAIN[n], 3)}  overlap {ov.sum()}')
 
-acc = np.zeros((len(X), 3)); wsum = np.zeros(len(X)); wconf = np.zeros(len(X))
-y = X[:, 1]
+acc = np.zeros((len(X), 3), np.float32); wsum = np.zeros(len(X)); wconf = np.zeros(len(X), np.float32)
 for n, c in sorted(cams.items()):
     kind = c['kind']
-    col, row = camera.project(X, c)
-    depth = camera.depth(X, c)                       # larger = closer to the camera
-    ndot = np.einsum('ij,ij->i', Ns, camera.toward(X, c))
     img, ed, m = load_view(n)
     H_, W_ = m.shape
-    inb = (col >= 1) & (col < W_ - 2) & (row >= 1) & (row < H_ - 2)
-    # z-buffer in image space (cell ~ 4 px on the body views; head close-ups are ~3.5x bigger)
+    # z-buffer in image space (cell ~ 4 px on the body views; head close-ups are ~3.5x bigger), built chunk by chunk
     cell = 4                                         # fine grid: a coarse one marks mouth corners / under the lips as hidden
     gw, gh = W_ // cell + 1, H_ // cell + 1
-    k = np.clip((row / cell).astype(int), 0, gh - 1) * gw + np.clip((col / cell).astype(int), 0, gw - 1)
-    zb = np.full(gw * gh, -1e9); np.maximum.at(zb, k[inb], depth[inb])
+    zb = np.full(gw * gh, -1e9)
+    for a0 in range(0, len(X), CHUNK):
+        Xc = X[a0:a0 + CHUNK]
+        col, row = camera.project(Xc, c); depth = camera.depth(Xc, c)
+        inb = (col >= 1) & (col < W_ - 2) & (row >= 1) & (row < H_ - 2)
+        k = np.clip((row / cell).astype(int), 0, gh - 1) * gw + np.clip((col / cell).astype(int), 0, gw - 1)
+        np.maximum.at(zb, k[inb], depth[inb])
     zb = cv2.dilate(zb.reshape(gh, gw).astype(np.float32), np.ones((3, 3), np.uint8)).ravel()
-    vis = depth >= zb[k] - 0.012
     edge_px = 6 if kind != 'head' else 18
     pw = 12.0 if kind == 'head' else PW
-    w = np.clip(ndot, 0, 1) ** pw * vis * inb * np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1) * VW[kind] * HEAD_PRI.get(n, 1.0)
-    headw = np.clip((y - 1.36) / 0.05, 0, 1)
-    if kind == 'head':
-        w *= headw                                    # close-ups only on the head / upper neck
-        if n == 'head_000deg' and os.path.exists(os.path.join(D, 'face_lm33.npy')):
-            # inside the face outline (landmark hull) the frontal close-up owns the texture regardless of the
-            # (noisy) surface normals, so no side close-up can paste a second eye / mouth
-            lmk = np.load(os.path.join(D, 'face_lm33.npy'))[:, :2].astype(np.int32)
-            fm = np.zeros(m.shape, np.uint8); cv2.fillConvexPoly(fm, cv2.convexHull(lmk), 1)
-            fm = cv2.erode(fm, np.ones((61, 61), np.uint8))          # stay inside the face oval (earrings hang just outside)
-            fm = cv2.GaussianBlur(fm.astype(np.float32), (0, 0), 8)
-            inface = remap(fm, col, row) * (ndot > 0.2) * vis * inb
-            w = w + inface * 1e3
-    else:
-        w *= 1 - headw                                # full-body views never paint the head (they would win on
+    fm = None
+    if kind == 'head' and n == 'head_000deg' and os.path.exists(os.path.join(D, 'face_lm33.npy')):
+        # inside the face outline (landmark hull) the frontal close-up owns the texture regardless of the
+        # (noisy) surface normals, so no side close-up can paste a second eye / mouth
+        lmk = np.load(os.path.join(D, 'face_lm33.npy'))[:, :2].astype(np.int32)
+        fm = np.zeros(m.shape, np.uint8); cv2.fillConvexPoly(fm, cv2.convexHull(lmk), 1)
+        fm = cv2.erode(fm, np.ones((61, 61), np.uint8))          # stay inside the face oval (earrings hang just outside)
+        fm = cv2.GaussianBlur(fm.astype(np.float32), (0, 0), 8)
+    gain = GAIN.get(n, np.ones(3))[None, :]
+    used = 0
+    for a0 in range(0, len(X), CHUNK):
+        sl = slice(a0, a0 + CHUNK); Xc = X[sl]
+        col, row = camera.project(Xc, c); depth = camera.depth(Xc, c)
+        ndot = np.einsum('ij,ij->i', Ns[sl], camera.toward(Xc, c))
+        inb = (col >= 1) & (col < W_ - 2) & (row >= 1) & (row < H_ - 2)
+        k = np.clip((row / cell).astype(int), 0, gh - 1) * gw + np.clip((col / cell).astype(int), 0, gw - 1)
+        vis = depth >= zb[k] - 0.012
+        edf = np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1)
+        w = np.clip(ndot, 0, 1) ** pw * vis * inb * edf * VW[kind] * HEAD_PRI.get(n, 1.0)
+        headw = np.clip((Xc[:, 1] - 1.36) / 0.05, 0, 1)
+        if kind == 'head':
+            w *= headw                                # close-ups only on the head / upper neck
+            if fm is not None:
+                w = w + remap(fm, col, row) * (ndot > 0.2) * vis * inb * 1e3
+        else:
+            w *= 1 - headw                            # full-body views never paint the head (they would win on
                                                       # down-facing spots like under the lip and paste their own lips)
-    # confidence uses a gentle power (is this texel seen at all?); blending uses the sharp one (who wins)
-    wc = np.clip(ndot, 0, 1) ** 2 * vis * inb * np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1)
-    if kind == 'head':
-        wc *= headw
-    wconf += wc
-    sel = w > 1e-12
-    acc[sel] += w[sel, None] * remap(img, col[sel], row[sel]) * GAIN.get(n, np.ones(3))[None, :]
-    wsum += w
-    print(f'{n:28s} kind {kind:5s} texels used {sel.sum():9d}', flush=True)
+        # confidence uses a gentle power (is this texel seen at all?); blending uses the sharp one (who wins)
+        wc = np.clip(ndot, 0, 1) ** 2 * vis * inb * edf
+        if kind == 'head':
+            wc *= headw
+        wconf[sl] += wc
+        sel = np.nonzero(w > 1e-12)[0]
+        if len(sel):
+            acc[a0 + sel] += (w[sel, None] * remap(img, col[sel], row[sel]) * gain).astype(np.float32)
+        wsum[sl] += w
+        used += len(sel)
+    print(f'{n:28s} kind {kind:5s} texels used {used:9d}', flush=True)
 
-colr = acc / np.maximum(wsum, 1e-30)[:, None]
-conf = np.clip(wconf / 0.15, 0, 1) * (wsum > 1e-30)
+colr = (acc / np.maximum(wsum, 1e-30)[:, None]).astype(np.float32); del acc
+conf = (np.clip(wconf / 0.15, 0, 1) * (wsum > 1e-30)).astype(np.float32); del wconf
 print('low-confidence texels: %.1f%%' % (100 * (conf < 0.5).mean()), flush=True)
 
 # ---------- fill weak texels by diffusion on a 6 mm voxel grid
