@@ -208,3 +208,25 @@ def test_face_report_uses_mode_thresholds(monkeypatch, ai, fail_limit, status):
     hair = [(level, message) for level, label, message in report if '髮高比' in label]
     assert len(hair) == 2
     assert all(level == status and f'> {fail_limit}% 判 FAIL' in message for level, message in hair)
+
+
+def _zoom(path, k):
+    """redraw one photo with the camera moved closer (k > 1) or farther (k < 1), same centre, white background"""
+    im = cv2.imread(str(path)); h, w = im.shape[:2]
+    M = np.float32([[k, 0, (1 - k) * w / 2], [0, k, (1 - k) * h / 2]])
+    cv2.imwrite(str(path), cv2.warpAffine(im, M, (w, h), borderValue=(255, 255, 255)), [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+
+def test_fixed_camera_distance(broken):
+    """10d: same framing in every full-body ring, a fixed zoom for the close-ups. The clean set passes; one el30
+    view drawn 4 % bigger and one close-up drawn 8 % smaller fail at their own angle only"""
+    rc, out = check(broken)
+    d = [l for l in out.splitlines() if '距離:' in l or '放大倍率' in l]
+    assert len(d) == 23 and all('[PASS]' in l for l in d), d
+    _zoom(broken / 'el30_135deg.jpg', 1.04)
+    _zoom(broken / 'head_045deg.jpg', 0.92)
+    rc, out = check(broken)
+    fails = [l for l in lines(out, 'FAIL') if '距離' in l or '放大倍率' in l]
+    assert any('el30 135° 距離' in l and '畫大了' in l for l in fails), fails
+    assert any('head 45° 放大倍率' in l and '畫小了' in l for l in fails), fails
+    assert len(fails) == 2, fails

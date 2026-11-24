@@ -44,11 +44,15 @@ def ring(phi, el):
     return Vector((math.sin(a) * math.cos(e), -math.cos(a) * math.cos(e), math.sin(e)))
 
 
+# fixed camera distance (input spec): every full-body view (level, +30°, -20°, top) is framed the same, BODY_FRAME
+# wide, aimed at the body centre; the head close-ups are one fixed zoom, HEAD_FRAME wide, aimed at the head centre
+BODY_FRAME, HEAD_ZOOM = 1.95, 4.0
+HEAD_FRAME = BODY_FRAME / HEAD_ZOOM
 body = Vector((0, 0, 0.84)); head = Vector((0, 0, 1.52))
 for i, phi in enumerate(range(0, 360, 45)):
-    shot(f'{i + 1:02d}_{phi:03d}deg_{NAMES[phi]}', body, ring(phi, 0), 1.95)
-    shot(f'el30_{phi:03d}deg', body, ring(phi, 30), 2.1)
-    shot(f'low20_{phi:03d}deg', body, ring(phi, -20), 2.0)
-    shot(f'head_{phi:03d}deg', head, ring(phi, 0), 0.32)
-shot('top', body, Vector((0, 0, 1)), 1.75)
+    shot(f'{i + 1:02d}_{phi:03d}deg_{NAMES[phi]}', body, ring(phi, 0), BODY_FRAME)
+    shot(f'el30_{phi:03d}deg', body, ring(phi, 30), BODY_FRAME)
+    shot(f'low20_{phi:03d}deg', body, ring(phi, -20), BODY_FRAME)
+    shot(f'head_{phi:03d}deg', head, ring(phi, 0), HEAD_FRAME)
+shot('top', body, Vector((0, 0, 1)), BODY_FRAME)
 print('SYNTH done', OUT)

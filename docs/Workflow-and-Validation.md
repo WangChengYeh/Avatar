@@ -14,7 +14,34 @@
 | 仰角 20° 全身 | 8 | `low20_000deg.jpg` |
 | 正上方 | 1 | `top.jpg` |
 
-檔名、JPEG 內容、尺寸、重複角度和相同像素會在輪廓檢查前驗證。頭部近似複製可用 `*_head_review.png` 複核。生圖時固定相機高度、曝光、白平衡與柔光設定，斜角視圖維持正交投影與相同人物比例。
+檔名、JPEG 內容、尺寸、重複角度和相同像素會在輪廓檢查前驗證。頭部近似複製可用 `*_head_review.png` 複核。生圖時固定相機高度、曝光、白平衡與柔光設定，斜角視圖維持正交投影與相同人物比例。相機與人物中心的距離固定：全身圖（水平、俯角、仰角、俯視）同一構圖，畫面寬 1.95 m；頭部特寫同一構圖，放大為全身圖的 4 倍（畫面寬約 0.49 m）。具體構圖與提示詞見下節「生圖規格」。理由見 [Loop engineering 的理論基礎](Loop-Engineering-Theory.md)。
+
+## 生圖規格
+
+相機繞著人物轉，只改角度，距離與對準點不變（理由見 [Loop engineering 的理論基礎](Loop-Engineering-Theory.md)）。生成後用 `check_turnaround.py` 檢查，第 10d 項會量距離。
+
+| 組別 | 相機 | 構圖（2048 × 2048） |
+| --- | --- | --- |
+| 水平、俯角 30°、仰角 20°、俯視 | 對準肚臍高度的身體中心，距離全部相同 | 畫面寬 1.95 m。水平環人物高約佔 85%，頭頂離上緣約 9%，腳底離下緣約 7%，左右置中。同角度的三個環人物左右寬度相同，俯視圖與正面同寬 |
+| 頭部特寫 | 對準點可自選（建議頭部中心），8 張相同；距離全部相同 | 全身圖的 4 倍放大，畫面寬約 0.49 m，頭寬約佔三分之一。頭頂在每張的同一高度（對準頭部中心時離上緣約 24%） |
+
+全身圖每張加上：
+
+```text
+same camera distance and framing in every full-body view, only the camera angle changes,
+camera aimed at the navel, full figure centred, about 85 % of the image height,
+orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion
+```
+
+頭部特寫每張加上：
+
+```text
+head close-up at 4x the full-body zoom, same camera distance in every close-up,
+camera aimed at the centre of the head, head width about one third of the image width,
+head top at the same height in every close-up, orthographic projection, no perspective distortion
+```
+
+其他要求（同一角色、固定種子、相機角度寫法、光線提示詞）見 `python body3d/check_turnaround.py --help` 第九節。
 
 ## 17 步重建
 
@@ -44,6 +71,7 @@ python body3d/run_all.py ./photos ./output --only uv
 | 剪影一致性，第 10 項 | 藍色代表照片有、重建形狀未覆蓋的像素。AI 模式一般視角 ≤ 1% 通過、> 2% 失敗，水平 90°／270° 分別為 ≤ 3% 和 > 4%。Photo 模式使用 ≤ 4% 和 > 7%。紅色顯示形狀超出照片的區域。 |
 | 透視，第 10b 項 | 依對角視角的兩手指尖中點偏移來估距離。在 AI 模式下，跨視角平均偏移 < 2% 半臂展通過、≥ 4% 失敗。 |
 | 輪廓比例，第 10c 項 | 比對俯角／仰角環與同角度主環的手寬／臀寬、頭寬／臀寬。差異 ≥ 3% 警告，≥ 5% 優先複核。 |
+| 相機距離，第 10d 項 | 正交投影下傾角不改變畫面左右座標，同角度的俯角、仰角與水平全身圖人物寬度應相同，俯視圖與 0° 同寬。AI 模式差異 ≤ 1% 通過、> 2% 失敗。頭部特寫的頭寬應為同角度全身圖的 4 倍，差異 ≤ 2% 通過、> 4% 失敗（側面 90°／270° 不比）。完美照片的寬度差 0.0–0.1%。 |
 | 曝光與臉頰亮度 | AI 模式下，膚色亮度與主環的差異目標在 ±3% 內。0° 對 45°／315° 的臉頰粗篩比較取樣區的亮度分位數，最大差目標 ≤ 5/255。 |
 | 臉部一致性，第 11 項 | MediaPipe 在三張頭部特寫檢測五官，並比較眼到嘴／臉高、髮高／臉高。AI 模式校正後偏差絕對值 ≤ 2% 通過、> 4% 失敗。 |
 

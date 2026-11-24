@@ -102,13 +102,23 @@ if not obs:
     print('face33: no face found in the 3/4 close-ups, nothing to do'); sys.exit(0)
 idx = np.nonzero(good)[0]; nL = len(idx)
 names = list(obs)
+# fixed distance and centre within the close-up ring (headreg33): with the ring lock on, the landmarks may only
+# turn a close-up (its angle); scale and position stay those of the ring, so a face drawn bigger is not absorbed
+HEAD_RING = None
+if camera.ring_lock_enabled() and os.path.exists('ring_consistency.json'):
+    HEAD_RING = json.load(open('ring_consistency.json')).get('rings', {}).get('head')
+    if HEAD_RING and not json.load(open('ring_consistency.json')).get('head_locked'):
+        HEAD_RING = None
 
 
 def unpack(x):
     cs = {}
     for j, n in enumerate(names):
         dphi, s, cu, cv = x[4 * j:4 * j + 4]
-        cs[n] = dict(cams[n], phi=cams[n]['phi'] + dphi, s=s, cu=cu, cv=cv)
+        if HEAD_RING:
+            cs[n] = camera.ring_apply(dict(cams[n], phi=cams[n]['phi'] + dphi), HEAD_RING)
+        else:
+            cs[n] = dict(cams[n], phi=cams[n]['phi'] + dphi, s=s, cu=cu, cv=cv)
     return cs, x[4 * len(names):]
 
 
@@ -128,8 +138,11 @@ def residuals(x):
 
 
 x0 = np.concatenate([[0.0, cams[n]['s'], cams[n]['cu'], cams[n]['cv']] for n in names] + [np.zeros(nL)])
-lo = np.concatenate([[-5, cams[n]['s'] * 0.8, -1e5, -1e5] for n in names] + [np.full(nL, -MAX_T)])
-hi = np.concatenate([[5, cams[n]['s'] * 1.2, 1e5, 1e5] for n in names] + [np.full(nL, MAX_T)])
+SW = 1e-6 if HEAD_RING else 0.2                     # ring lock: scale / position are not free (unused in unpack)
+CW = 1e-3 if HEAD_RING else 1e5
+lo = np.concatenate([[-5, cams[n]['s'] * (1 - SW), cams[n]['cu'] - CW, cams[n]['cv'] - CW] for n in names] + [np.full(nL, -MAX_T)])
+hi = np.concatenate([[5, cams[n]['s'] * (1 + SW), cams[n]['cu'] + CW, cams[n]['cv'] + CW] for n in names] + [np.full(nL, MAX_T)])
+print('face33: ring lock ' + ('on: only the close-up angles move' if HEAD_RING else 'off: angle, scale and position per close-up'))
 r_before = np.abs(residuals(x0)[:-nL - len(names)])
 sol = least_squares(residuals, x0, bounds=(lo, hi), loss='soft_l1', f_scale=3.0, x_scale='jac', max_nfev=200)
 r_after = np.abs(sol.fun[:-nL - len(names)])
