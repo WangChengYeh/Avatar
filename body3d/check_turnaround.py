@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.13.0（2026-11-24）
+版本 1.14.0（2026-11-24）
 
 版本紀錄:
+  1.14.0 新增重建輸入格式、角度檔名與重複照片檢查，並輸出頭部局部複核圖。
   1.13.0 新增頭部投影重疊區的烘焙前亮度差檢查（--head-overlap-work）。
   1.12.0 第 10c 項的寬度比差異改為 WARN，由人工比對輪廓、角度與姿勢；差達 5% 標示優先複核。
   1.11.0 依完美（正交渲染）照片校正、收緊門檻：第 10 項藍色 ≤ 1%（> 2% FAIL；主環側面 ≤ 3%）、
@@ -133,16 +134,17 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 所有圖的曝光一致：膚色亮度和主環差 < 12%（本腳本第 9 項）。
 
 七、畫質
-  - 圖高至少 2000 像素（頭部特寫至少 1500），越高越好。
-  - 對焦清楚、無動態模糊、無壓縮色塊；PNG 或高品質 JPG。
+  - 重建輸入全部使用 2048 × 2048 的 JPEG，副檔名為小寫 .jpg。
+  - 對焦清楚、無動態模糊、無明顯壓縮色塊。
   - 不要加浮水印、文字、邊框。
 
 八、檔名（全部放在同一個資料夾）
   A 主環     NN_AAAdeg_說明.jpg   例: 01_000deg_front.jpg … 08_315deg_front_right.jpg
-  B 俯視     top.jpg              （檔名含 "top"）
+  B 俯視     top.jpg
   C 俯角環   el30_AAAdeg.jpg      例: el30_000deg.jpg、el30_045deg.jpg … el30_315deg.jpg
   D 頭部特寫 head_AAAdeg.jpg      例: head_000deg.jpg … head_315deg.jpg
   E 仰角環   low20_AAAdeg.jpg     例: low20_000deg.jpg、low20_045deg.jpg … low20_315deg.jpg
+  - 每組每個角度只放一張，主環正面以 01_000deg 開頭。
   - AAA 是三位數角度；角度方向：數字增加 = 相機往她的左側繞（從上往下看是逆時針）。
 
 九、用 AI 生成時的注意事項
@@ -162,10 +164,11 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     並寫明：camera elevated 30 degrees looking down, same distance and framing as the eye-level views,
     same T-pose, arms horizontal。
 """
-import argparse, glob, json, os, re, sys
+import argparse, hashlib, json, os, re, sys
+from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.13.0'
+__version__ = '1.14.0'
 import numpy as np
 import cv2
 
@@ -744,6 +747,147 @@ def report_head_overlap(folder, work):
               f'（{count} 點）{guidance}')
 
 
+RING_ANGLES = tuple(range(0, 360, 45))
+FRAME_PIXELS = 2048
+PHOTO_SUFFIXES = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.avif'}
+
+
+def photo_slot(stem):
+    if stem == 'top' or stem.startswith('top_'):
+        return 'top', 0
+    match = re.match(r'(el30|head|low20)_(\d{3})deg(?:$|[_\-.])', stem)
+    if match:
+        return match[1], int(match[2])
+    match = re.match(r'\d{2}_(\d{3})deg(?:$|[_\-.])', stem)
+    if match:
+        return 'main', int(match[1])
+    return None
+
+
+def is_canonical_stem(stem, category, angle):
+    if category == 'top':
+        return stem == 'top'
+    if category == 'main':
+        front_prefix = stem.startswith('01_')
+        return front_prefix == (angle == 0) and bool(re.fullmatch(r'\d{2}_\d{3}deg(?:_.+)?', stem))
+    return stem == f'{category}_{angle:03d}deg'
+
+
+def load_photos(folder, out):
+    """Validate the names and bytes that the reconstruction stage will consume."""
+    views = {}
+    extra = {'top': {}, 'el30': {}, 'head': {}, 'low20': {}}
+    out = Path(out).resolve()
+    own_outputs = {out, *(out.with_stem(out.stem + suffix).with_suffix('.png')
+                          for suffix in ('_top_check', '_silhouette_check', '_head_review'))}
+    slots, pixels = {}, {}
+    try:
+        paths = sorted(Path(folder).iterdir())
+    except OSError as error:
+        report(FAIL, '照片資料夾', str(error))
+        return views, extra
+    for path in paths:
+        if not path.is_file() or path.suffix.lower() not in PHOTO_SUFFIXES or path.resolve() in own_outputs:
+            continue
+        slot = photo_slot(path.stem.lower())
+        if slot is None and path.suffix.lower() != '.jpg':
+            continue   # Other preview formats are not read by the reconstruction.
+        if slot is None:
+            report(FAIL, path.name, '檔名不符合重建規格')
+            continue
+
+        category, angle = slot
+        previous = slots.setdefault(slot, path.name)
+        if previous != path.name:
+            report(FAIL, path.name, f'與 {previous} 使用同一個 {category} {angle:03d}° 位置')
+        if (angle not in RING_ANGLES or not is_canonical_stem(path.stem, category, angle)
+                or path.suffix != '.jpg'):
+            report(FAIL, path.name, '需要規格檔名及小寫 .jpg 副檔名')
+            continue
+
+        try:
+            data = path.read_bytes()
+        except OSError as error:
+            report(FAIL, path.name, f'讀不到照片（{error}）')
+            continue
+        if not data.startswith(b'\xff\xd8\xff'):
+            report(FAIL, path.name, '檔案內容須為 JPEG')
+            continue
+        image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            report(FAIL, path.name, 'JPEG 無法解碼')
+            continue
+        height, width = image.shape[:2]
+        if (height, width) != (FRAME_PIXELS, FRAME_PIXELS):
+            report(FAIL, path.name, f'實際尺寸 {width} × {height}，重建需要 {FRAME_PIXELS} × {FRAME_PIXELS}')
+            continue
+
+        digest = hashlib.sha256(image).digest()
+        original = pixels.setdefault(digest, (slot, path.name))
+        if original[0] != slot:
+            report(FAIL, path.name, f'與 {original[1]} 的像素完全相同，須提供不同視角')
+        ring = views if category == 'main' else extra[category]
+        ring.setdefault(angle, dict(name=path.name, im=image))
+    return views, extra
+
+
+def review_head_photos(head_views, out):
+    if len(head_views) > 1:
+        previews = {a: (cv2.resize(v['im'], (128, 128), interpolation=cv2.INTER_AREA).astype(np.float32),
+                        cv2.resize(v['m'].astype(np.uint8), (128, 128), interpolation=cv2.INTER_NEAREST) > 0)
+                    for a, v in head_views.items()}
+        for (a, (image, mask)), (b, (other, other_mask)) in combinations(previews.items(), 2):
+            region = mask | other_mask
+            if region.any() and np.abs(image[region] - other[region]).mean() < 3.0:
+                report(WARN, '頭部疑似重複',
+                       f'{head_views[a]["name"]} 與 {head_views[b]["name"]} 影像很接近，請複核拍攝角度')
+
+    tiles = []
+    for angle in (315, 0, 45):
+        if angle not in head_views:
+            continue
+        view = head_views[angle]
+        mask = view['m']
+        top, bottom, _, _ = bbox(mask)
+        last = top + round(0.72 * (bottom - top))
+        head_bottom = top + round(0.58 * (bottom - top))
+        cols = np.flatnonzero(mask[top:head_bottom + 1].any(axis=0))
+        padding = max(8, round(0.04 * (bottom - top)))
+        image = view['im'][max(0, top - padding):last + 1,
+                           max(0, cols[0] - padding):cols[-1] + 1 + padding]
+        height, width = image.shape[:2]
+        scale = min(360 / width, 430 / height)
+        crop = cv2.resize(image, (max(1, round(width * scale)), max(1, round(height * scale))),
+                          interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
+        tile = np.full((480, 380, 3), 255, np.uint8)
+        left = (tile.shape[1] - crop.shape[1]) // 2
+        tile[42:42 + crop.shape[0], left:left + crop.shape[1]] = crop
+        cv2.putText(tile, view['name'], (12, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (30, 30, 30), 1, cv2.LINE_AA)
+        tiles.append(tile)
+    if tiles:
+        path = str(Path(out).with_suffix(''))
+        path += '_head_review.png'
+        if cv2.imwrite(path, np.hstack(tiles)):
+            print(f'  頭部局部對照圖（複核左右臉頰、鼻翼和嘴角）: {path}')
+        else:
+            report(WARN, '頭部局部對照圖', f'無法寫入 {path}')
+
+
+def finish(out=None):
+    failures = sum(r[0] == FAIL for r in results)
+    warnings = sum(r[0] == WARN for r in results)
+    passes = sum(r[0] == PASS for r in results)
+    print(f'\n總結: {failures} 個 FAIL, {warnings} 個 WARN, {passes} 個 PASS' +
+          (f'   報告圖: {out}' if out else ''))
+    if failures:
+        print('有 FAIL：請先修正列出的問題再重建。')
+    elif warnings:
+        print('只有 WARN：可以用，但結果可能受影響。')
+    else:
+        print('全部通過：這組圖可以開始 3D 重建。')
+    sys.exit(1 if failures else 0)
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(description=f'check_turnaround {__version__}')
@@ -760,32 +904,7 @@ def main():
         report_head_overlap(args.folder, args.head_overlap_work)
         return
 
-    files = sorted(f for f in glob.glob(os.path.join(args.folder, '*'))
-                   if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')))
-    views = {}                                   # A 主環
-    extra = {'top': {}, 'el30': {}, 'head': {}, 'low20': {}}   # B–E
-    for f in files:
-        name = os.path.basename(f); low = name.lower()
-        im = cv2.imread(f)
-        if im is None:
-            print(f'略過（讀不到圖）: {name}')
-            continue
-        mm = re.search(r'(\d{1,3})\s*deg', name, re.I) or re.search(r'_(\d{3})_', name)
-        cat = 'top' if 'top' in low else 'el30' if low.startswith('el') else 'head' if low.startswith('head') \
-            else 'low20' if low.startswith('low') else None
-        if cat == 'top':
-            extra['top'][0] = dict(name=name, im=im)
-            continue
-        if not mm:
-            print(f'略過（檔名沒有角度）: {name}')
-            continue
-        ang = int(mm.group(1)) % 360
-        if cat:
-            extra[cat][ang] = dict(name=name, im=im)
-        else:
-            views[ang] = dict(name=name, im=im)
-    if 0 not in views:
-        sys.exit('需要一張主環 0° 正面圖（檔名含 000deg）')
+    views, extra = load_photos(args.folder, args.out)
     print(f'主環找到 {len(views)} 張: ' + ', '.join(f'{a}°' for a in sorted(views)))
     for k, lab_ in (('top', '俯視'), ('el30', '俯角環'), ('head', '頭部特寫'), ('low20', '仰角')):
         if extra[k]:
@@ -793,7 +912,7 @@ def main():
 
     # ---- 0. completeness
     print('\n0. 完整性（還缺哪些圖）')
-    ring = [0, 45, 90, 135, 180, 225, 270, 315]
+    ring = RING_ANGLES
     miss_card = [a for a in (0, 90, 180, 270) if a not in views]
     miss_diag = [a for a in (45, 135, 225, 315) if a not in views]
     report(FAIL if miss_card else PASS, 'A 主環（正 / 側 / 背）',
@@ -816,6 +935,9 @@ def main():
     report(FAIL if miss else PASS, 'E 仰角環 20°',
            ('全部缺（low20_000deg … low20_315deg）' if len(miss) == 8 else f'缺 {", ".join(f"low20_{a:03d}deg" for a in miss)}')
            if miss else '8 張都有')
+
+    if any(item[0] == FAIL for item in results):
+        finish()
 
     # ---- 1. per image: resolution, background, shadow, segmentation
     print('\n1. 單張檢查（解析度 / 背景 / 地面陰影 / 去背）')
@@ -1166,6 +1288,8 @@ def main():
         else:
             report(PASS, f'{cat} 光線方向', '光線沒有明顯方向性，此項不判斷')
 
+    review_head_photos({a: v for a, v in extra['head'].items() if v.get('m') is not None}, args.out)
+
     # ---- 9. exposure: skin lightness of every image vs. the main ring (big differences show as seams)
     print('\n9. 曝光一致性（每張圖的膚色亮度和主環比較）')
     allimgs = [(f'{a}°', v) for a, v in sorted(good.items())] + \
@@ -1248,16 +1372,7 @@ def main():
     rows = [np.hstack(tiles[i:i + 4] + [np.full_like(tiles[0], 255)] * (4 - len(tiles[i:i + 4]))) for i in range(0, len(tiles), 4)]
     cv2.imwrite(args.out, np.vstack(rows))
 
-    nF = sum(1 for r in results if r[0] == FAIL); nW = sum(1 for r in results if r[0] == WARN)
-    nI = sum(1 for r in results if r[0] == INFO)
-    print(f'\n總結: {nF} 個 FAIL, {nW} 個 WARN, {len(results) - nF - nW - nI} 個 PASS   報告圖: {args.out}')
-    if nF:
-        print('有 FAIL：這組圖不適合直接重建，請依上面的說明重新生成對應的圖。')
-    elif nW:
-        print('只有 WARN：可以用，但結果可能受影響。')
-    else:
-        print('全部通過：這組圖適合做 3D 重建。')
-    sys.exit(1 if nF else 0)
+    finish(args.out)
 
 
 if __name__ == '__main__':

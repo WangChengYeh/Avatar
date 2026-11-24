@@ -27,6 +27,7 @@ def test_clean_set_passes(synth_set, tmp_path):
     assert rc == 0, '\n'.join(lines(out, 'FAIL'))
     assert not lines(out, 'FAIL')
     assert (tmp_path / 'r.png').exists()
+    assert (tmp_path / 'r_head_review.png').exists()
 
 
 def test_missing_top_fails(broken):
@@ -133,3 +134,24 @@ def test_ring_width_ratios(synth_set, persp_set, tmp_path):
     assert any('透視:' in l for l in lines(out, 'FAIL'))
     assert not any('寬度比:' in l for l in lines(out, 'FAIL'))
     assert sum('el30' in l and '寬度比:' in l and '優先複核' in l for l in lines(out, 'WARN')) >= 4
+
+
+def test_preflight_reports_incompatible_and_duplicate_photos(tmp_path):
+    photos = tmp_path / 'photos'
+    photos.mkdir()
+    blank = np.full((2048, 2048, 3), 255, np.uint8)
+    frontal = photos / 'head_000deg.jpg'
+    assert cv2.imwrite(str(frontal), blank)
+    shutil.copyfile(frontal, photos / 'head_045deg.jpg')
+    shutil.copyfile(frontal, photos / 'head_045deg_copy.jpg')
+    shutil.copyfile(frontal, photos / 'head_090deg.jpeg')
+    assert cv2.imwrite(str(photos / 'head_135deg.jpg'), blank[:, :1920])
+
+    rc, out = check(photos)
+    failed = lines(out, 'FAIL')
+    assert rc == 1
+    assert any('head_045deg.jpg' in l and '像素完全相同' in l for l in failed)
+    assert any('head_045deg_copy.jpg' in l and '同一個' in l for l in failed)
+    assert any('head_090deg.jpeg' in l and '小寫 .jpg' in l for l in failed)
+    assert any('head_135deg.jpg' in l and '1920 × 2048' in l for l in failed)
+    assert 'Traceback' not in out

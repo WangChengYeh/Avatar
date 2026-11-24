@@ -17,7 +17,7 @@
 - 輸出：`body_rigged.glb`（無光照，建議）、`body_rigged_lit.glb`、`v2_*.png` 預覽、`turnaround_report.png`、`run_all.log`。
 
 ## 個別工具
-    python body3d/check_turnaround.py 照片資料夾        # 照片規範檢查 1.13.0（規範全文在檔頭註解）
+    python body3d/check_turnaround.py 照片資料夾        # 照片規範檢查 1.14.0（規範全文在檔頭註解）
         # 第 10 項輸出 *_silhouette_check.png 紅藍對照圖：主環重建形狀投影到每張身體圖
         #   藍色 = 照片有、形狀沒有：≤ 1% PASS，> 2% FAIL（主環 90° / 270° ≤ 3%）
         #   紅色 = 形狀超出照片：不設門檻（剪影雕出的形狀一定比身體大，完美照片也有 3–75%）
@@ -29,6 +29,10 @@
     python body3d/fit_report.py 輸出資料夾/work            # 模型投影回每張照片比對剪影（分辨照片問題 / 腳本問題）
 
 分享照片檢查器時，可單獨提供 `check_turnaround.py`。安裝 `numpy` 和 `opencv-python` 後，即可檢查 33 張照片。
+
+重建輸入為 33 張 2048 × 2048 的 JPEG，使用小寫 `.jpg` 與規格檔名。
+同一角度有多個檔案、不同角度使用相同像素或尺寸不符時，會在輪廓檢查前回報。
+頭部疑似近似複製會提示人工複核，另可用 `*_head_review.png` 檢視臉頰、鼻翼和嘴角。
 
 烘焙前會自動比對正面和左右斜面投影到同一份網格時，臉頰接合區的亮度差。
 結果列出對應照片、取樣數與亮度差，記錄在 `run_all.log`。
