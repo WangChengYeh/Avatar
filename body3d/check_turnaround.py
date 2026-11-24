@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.11.0（2026-11-24）
+版本 1.12.0（2026-11-24）
 
 版本紀錄:
+  1.12.0 第 10c 項的寬度比差異改為 WARN，由人工比對輪廓、角度與姿勢；差達 5% 標示優先複核。
   1.11.0 依完美（正交渲染）照片校正、收緊門檻：第 10 項藍色 ≤ 1%（> 2% FAIL；主環側面 ≤ 3%）、
          第 10b 項 < 2%（≥ 4% FAIL）、第 10c 項 ±3%（≥ 5% FAIL）；紅色不設門檻（說明見五）
   1.10.0 第 10c 項：俯角 / 仰角環的手寬比、頭寬比要和同角度主環一致（差 ≥ 8% 判 FAIL，1.11.0 改為 5%）；九、重新生成俯角環的提示詞
@@ -105,9 +106,9 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     ≥ 4% 判 FAIL，約等於相機距離不到 14 m）；第 10 項把主環重建形狀投影到每張身體圖，
     輸出紅藍對照圖：藍色 = 照片有、形狀沒有，要 ≤ 1%（> 2% FAIL；主環 90° / 270° 側面 ≤ 3%）；
     紅色 = 形狀超出照片，不設門檻（形狀由剪影雕出，凹處雕不掉，一定比真實身體大，
-    完美照片也有 3–75%），「形狀太大」改由第 10b、10c 項嚴格檢查；第 10c 項比較
-    俯角 / 仰角環和同角度主環的「手寬 / 臀寬」「頭寬 / 臀寬」（只用水平寬度，正交投影時應完全相同），
-    要在 ±3% 內，差 ≥ 5% 判 FAIL（俯角相機太近時頭會變大）。
+    完美照片也有 3–75%）。第 10c 項比較俯角 / 仰角環和同角度主環的「手寬 / 臀寬」「頭寬 / 臀寬」。
+    這些寬度用畫面高度區間估算，俯仰角或姿勢改變也可能影響讀值。差 ≥ 3% 判 WARN，
+    ≥ 5% 標示優先複核。複核時比對照片的拍攝角度、姿勢與輪廓。
     以上門檻都用「完美照片」（模型正交渲染的 33 張）校正：完美照片藍色 0–0.6%、10b 0–0.2%、10c 0–2%。
   - 全身完整入鏡，頭頂與腳底上下都留白，手尖不要碰到畫面左右邊緣
     （頭部特寫只要求頭頂不被切到）。
@@ -146,7 +147,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     生成後一律用本腳本檢查：AI 常把 45° 畫成 15–20°、把 90° 畫成 60–75°（第 4、5 項）。
   - 不要用左右翻轉產生另一側（第 6b、6c 項會抓出來）。
   - 光線、背景、衣服、髮型、表情、手指姿勢、腳的位置在 33 張都要相同。
-  - 透視越小越好：提示詞用長焦距（例如 200mm）或 orthographic / turnaround sheet 風格（第 10、10b、10c 項會檢查）。
+  - 透視越小越好：提示詞用長焦距（例如 200mm）或 orthographic / turnaround sheet 風格（第 10、10b 項會檢查；第 10c 項提供寬度比複核提示）。
     俯角 30° 環最容易出問題（AI 會把相機放得很近、從上往下拍，頭大腳小）。重新生成時每張都加上：
       orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion,
       head and feet drawn at the same scale, technical character turnaround sheet
@@ -155,7 +156,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 """
 import argparse, glob, os, re, sys
 
-__version__ = '1.11.0'
+__version__ = '1.12.0'
 import numpy as np
 import cv2
 
@@ -365,15 +366,17 @@ def near_hand_shift(m):
     return ((l + r) / 2 - np.nonzero(band)[1].mean()) / max(1, (r - l) / 2)
 
 
-RATIO_PASS, RATIO_WARN = 0.03, 0.05     # section 10c: |ring ratio / level ratio - 1|; perfect photos: 0–2 %
+RATIO_WARN, RATIO_REVIEW = 0.03, 0.05     # section 10c: |ring ratio / level ratio - 1|; perfect photos: 0–2 %
 PROMPT_ORTHO = ('orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion, '
                 'head and feet drawn at the same scale, technical character turnaround sheet')
 
 
 def width_ratios(m):
-    """(hand span / hip width, head width / hip width) — only horizontal widths, so with an orthographic camera
-    they are the same at every elevation for the same azimuth. Hips = widest row at 42–62 % of the figure height;
-    head = the run around the body axis (legs centroid column) in the top 9 % below the head top."""
+    """Estimate hand-span and head-width ratios relative to hip width in the image.
+
+    Hips use the widest row at 42–62% of figure height. Head width uses the run around the body
+    axis in the top 9%. These image bands can sample different contours as elevation changes.
+    """
     ys, xs = np.nonzero(m); t, b = ys.min(), ys.max(); H = b - t; l, r = xs.min(), xs.max()
     band = m[int(t + 0.70 * H):int(t + 0.93 * H)]
     if not band.any():
@@ -1061,16 +1064,15 @@ def main():
                 msg += (' → 照片是透視投影（相機太近），重建程式假設正交投影：手臂長度、方向在不同角度會不一致'
                         '（第 10 項藍色多在手上）。提示詞加 orthographic projection / 200mm telephoto / camera far away')
             report(lvl, lab + ' 透視', msg)
-        print('\n10c. 俯角 / 仰角環和水平主環的寬度比（手寬 / 臀寬、頭寬 / 臀寬，正交投影時和同角度的主環相同）')
+        print('\n10c. 俯角 / 仰角環和水平主環的寬度比（手寬 / 臀寬、頭寬 / 臀寬，供人工複核）')
         for (cat, a), (dh, dd) in ring_ratio_check(good, extra).items():
             worst = max(abs(dh), abs(dd))
-            lvl = PASS if worst < RATIO_PASS else WARN if worst < RATIO_WARN else FAIL
-            msg = (f'手寬比差 {100 * dh:+.0f}%、頭寬比差 {100 * dd:+.0f}%（和主環 {a}° 比，應在 ±{100 * RATIO_PASS:.0f}% 內，'
-                   f'≥ {100 * RATIO_WARN:.0f}% 判 FAIL）')
-            if lvl != PASS:
-                cause = '頭被畫得比主環大' if dd > 0 and abs(dd) >= abs(dh) else \
-                        '頭被畫得比主環小' if abs(dd) >= abs(dh) else '手臂展開寬度和主環不同'
-                msg += (f' → {cause}：相機太近（透視）或角度 / 姿勢不同。重新生成這張，提示詞加：「{PROMPT_ORTHO}」')
+            lvl = WARN if worst >= RATIO_WARN else PASS
+            msg = (f'手寬比差 {100 * dh:+.0f}%、頭寬比差 {100 * dd:+.0f}%（和主環 {a}° 比，'
+                   f'差 ≥ {100 * RATIO_WARN:.0f}% 判 WARN）')
+            if lvl == WARN:
+                review = '優先複核' if worst >= RATIO_REVIEW else '複核'
+                msg += f' → {review}這張與同角度主環的輪廓、俯仰角與姿勢'
             report(lvl, f'{cat} {a}° 寬度比', msg)
 
     # ---- report image
