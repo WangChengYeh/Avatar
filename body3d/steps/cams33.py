@@ -87,17 +87,18 @@ occ, g = carve(main, K=7)
 P = surface_points(occ, g)
 print('main hull surface points', len(P))
 
-NOM = {'el30': 30.0, 'low20': -20.0, 'top': 90.0}
+EXTRA_BODY_RINGS = camera.FIXED_ELEVATION_RINGS | {'top'}
 PERSPECTIVE = os.environ.get('BODY3D_PERSPECTIVE', '1') != '0'
 PERSP_MIN_GAIN = 0.01             # IoU gain a camera distance must bring (0.005 gave false perspective on orthographic photos)
 DS = 4
 for n, v in sorted(views.items()):
-    if v['kind'] not in NOM:
+    if v['kind'] not in EXTRA_BODY_RINGS:
         continue
     m = cv2.imread(f'mask_{n}.png', 0) > 0
     ms = cv2.resize(m.astype(np.uint8), (W // DS, H // DS), interpolation=cv2.INTER_AREA) > 0
     ys_, xs_ = np.nonzero(m)
-    base = dict(phi=float(v['ang']), th=NOM[v['kind']], s=1.0, cu=0.0, cv=0.0)
+    phi, th = camera.nominal(n, v['kind'])
+    base = dict(phi=phi, th=th, s=1.0, cu=0.0, cv=0.0)
 
     def fit_bbox(c):
         cc, rr = project(P, dict(c, s=1.0, cu=0.0, cv=0.0))

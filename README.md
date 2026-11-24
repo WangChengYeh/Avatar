@@ -81,6 +81,8 @@ node scripts/compare_turnaround.mjs --photos ./photos \
   --all-views --out ./comparison
 ```
 
+重建時，俯角環固定 +30°，仰角環固定 −20°。重新驗收舊版時，先從相機校準階段重建，再把新 GLB 與同一次重建的 `cams33.json` 一起用於比對。
+
 `--all-views` 輸出五組總覽圖，以及 `pairs/` 內 33 張逐角度 PNG。移除該旗標可快速輸出全身與耳部對照。提供 `--before ./previous/body_rigged.glb` 可加入修正前模型。全量比對的範例見 [Issue #19](https://github.com/WangChengYeh/Avatar/issues/19)。
 
 例如 v1220 左側面曾看到肩膀接上臂處偏灰綠。先查看同角度原圖是否已有這塊色差；如果原圖正常，就沿著 UV／烘焙貼圖、靜止 GLB 到 Three.js 站姿逐步比較，找出色差第一次出現的位置，再決定要修哪一步。

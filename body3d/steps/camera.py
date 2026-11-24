@@ -55,6 +55,9 @@ def depth(P, c):
 
 # nominal angles of the rings and how far registration may move them: a silhouette alone cannot separate tilt,
 # camera distance and scale, so without limits the fit trades one for the other and the texture lands wrong
+FIXED_ELEVATION_RINGS = frozenset({'el30', 'low20'})
+
+
 NOMINAL_TH = {'main': 0.0, 'el30': 30.0, 'low20': -20.0, 'top': 90.0, 'head': 0.0}
 import json as _json, os as _os
 
@@ -65,7 +68,8 @@ def _limits():
     verified the angles (sections 4 / 8 within ±6°, perspective 10b, ring ratios 10c), so the nominal angles are
     trusted: ±3°. Otherwise (including incomplete face checks): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
     pin the tilt: on perfect photos free fitting turns 30° into 16–27°.
-    Environment variables BODY3D_MAX_DPHI / BODY3D_MAX_DTH override both."""
+    The elevation of the +30° and −20° rings follows the input spec exactly.
+    Environment variables BODY3D_MAX_DPHI / BODY3D_MAX_DTH override the limits on free angles."""
     passed = False
     if _os.path.exists('check_status.json'):
         try:
@@ -87,6 +91,8 @@ def nominal(name, kind):
 
 def within_limits(name, c):
     """True when phi / th stay within MAX_DPHI / MAX_DTH of the file-name angle and the ring's nominal tilt"""
-    ph0, th0 = nominal(name, c.get('kind', 'main'))
+    kind = c.get('kind', 'main')
+    ph0, th0 = nominal(name, kind)
     dphi = (c['phi'] - ph0 + 180) % 360 - 180
-    return abs(dphi) <= MAX_DPHI and abs(c['th'] - th0) <= MAX_DTH and c['th'] <= 90.0
+    tilt_limit = 0.0 if kind in FIXED_ELEVATION_RINGS else MAX_DTH
+    return abs(dphi) <= MAX_DPHI and abs(c['th'] - th0) <= tilt_limit and c['th'] <= 90.0
