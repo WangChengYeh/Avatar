@@ -16,7 +16,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
    8 headreg   頭部特寫相機對位（headreg33.py）
    9 face      MediaPipe 臉部特徵點（face_landmarks.py，選用）
   10 uv        Blender 展 UV（bl_uv33s.py）
-  11 bake      多視角貼圖烘焙（bake33.py）
+  11 bake      頭部投影重疊檢查、多視角貼圖烘焙（bake33.py）
   12 export    Blender 匯出有貼圖的 GLB + 預覽圖（bl_export.py）
   13 joints    從網格量測關節位置（joints.py）
   14 rig       Blender 建 22 根骨頭、自動權重、匯出（rig.py）
@@ -46,12 +46,16 @@ def find_blender(given):
     return None
 
 
-def run(cmd, cwd, log, ok_codes=(0,)):
+def run(cmd, cwd, log, ok_codes=(0,), show_output=False):
     print('   $', ' '.join(os.path.basename(c) if i < 2 else c for i, c in enumerate(cmd)), flush=True)
     t = time.time()
-    with open(log, 'a') as f:
+    with open(log, 'a+') as f:
         f.write('\n$ ' + ' '.join(cmd) + '\n'); f.flush()
+        start = f.tell()
         p = subprocess.run(cmd, cwd=cwd, stdout=f, stderr=subprocess.STDOUT)
+        if show_output:
+            f.seek(start)
+            print(f.read(), end='', flush=True)
     print(f'     ({time.time() - t:.0f} s, exit {p.returncode})', flush=True)
     if p.returncode not in ok_codes:
         tail = open(log, errors='replace').read().splitlines()[-25:]
@@ -101,6 +105,10 @@ def main(argv=None):
         if os.path.exists(f):
             run([py, S('face_landmarks.py'), f, dst], work, log)
 
+    def step_bake():
+        run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work], work, log, show_output=True)
+        run([py, S('bake33.py'), work, img], work, log)
+
     def step_export():
         run(need_blender() + [S('bl_export.py'), '--', work, glb_tex], work, log)
         for f in os.listdir(work):
@@ -128,7 +136,7 @@ def main(argv=None):
         'headreg': lambda: run([py, S('headreg33.py')], work, log),
         'face': step_face,
         'uv': lambda: run(need_blender() + [S('bl_uv33s.py'), '--', work], work, log),
-        'bake': lambda: run([py, S('bake33.py'), work, img], work, log),
+        'bake': step_bake,
         'export': step_export,
         'joints': lambda: run([py, S('joints.py'), 'body33s.ply'], work, log),
         'rig': lambda: run(need_blender() + [S('rig.py'), '--', glb_tex, os.path.join(work, 'joints.json'), lit], work, log),

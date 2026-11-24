@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.12.0（2026-11-24）
+版本 1.13.0（2026-11-24）
 
 版本紀錄:
+  1.13.0 新增頭部投影重疊區的烘焙前亮度差檢查（--head-overlap-work）。
   1.12.0 第 10c 項的寬度比差異改為 WARN，由人工比對輪廓、角度與姿勢；差達 5% 標示優先複核。
   1.11.0 依完美（正交渲染）照片校正、收緊門檻：第 10 項藍色 ≤ 1%（> 2% FAIL；主環側面 ≤ 3%）、
          第 10b 項 < 2%（≥ 4% FAIL）、第 10c 項 ±3%（≥ 5% FAIL）；紅色不設門檻（說明見五）
@@ -156,7 +157,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 """
 import argparse, glob, os, re, sys
 
-__version__ = '1.12.0'
+__version__ = '1.13.0'
 import numpy as np
 import cv2
 
@@ -602,8 +603,15 @@ def main():
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
     ap.add_argument('--out', default='turnaround_report.png')
     ap.add_argument('--min-height', type=int, default=2000)
+    ap.add_argument('--head-overlap-work', metavar='WORK_DIR',
+                    help='用重建中間檔檢查頭部貼圖的重疊區亮度差')
     args = ap.parse_args()
     print(f'check_turnaround 版本 {__version__}')
+    if args.head_overlap_work:
+        from steps.head_overlap import report as report_head_overlap
+
+        report_head_overlap(args.folder, args.head_overlap_work)
+        return
 
     files = sorted(f for f in glob.glob(os.path.join(args.folder, '*'))
                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')))
