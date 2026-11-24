@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.14.0（2026-11-24）
+版本 1.15.0（2026-11-24）
 
 版本紀錄:
+  1.15.0 收緊生圖曝光規格，新增照片臉頰亮度粗篩及烘焙前亮度門檻。
   1.14.0 新增重建輸入格式、角度檔名與重複照片檢查，並輸出頭部局部複核圖。
   1.13.0 新增頭部投影重疊區的烘焙前亮度差檢查（--head-overlap-work）。
   1.12.0 第 10c 項的寬度比差異改為 WARN，由人工比對輪廓、角度與姿勢；差達 5% 標示優先複核。
@@ -131,7 +132,11 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     光源相對於相機固定（每張都是同一側較亮），顏色與亮度一致。
   - 人物與背景顏色要有對比（白衣服配白背景會去背失敗）。
   - 不要有 AI 留下的灰白雜點（黏在身體邊緣的無色色塊，本腳本第 1b 項）。
-  - 所有圖的曝光一致：膚色亮度和主環差 < 12%（本腳本第 9 項）。
+  - 33 張圖鎖定同一組曝光、白平衡、光源方向與強度，各視角不使用自動曝光。
+  - 臉部用均勻柔光，正面和左右斜面的臉頰要保持同一膚色亮度。避免深色帶、局部高光及分區補光。
+  - 第 9 項曝光粗篩：全圖平均膚色亮度相對主環偏差應 ≤ 5%；頭部臉頰取樣亮度差應 ≤ 8 / 255。
+  - 烘焙前投影重疊檢查：共同可見臉頰亮度絕對差的第 90 百分位應 ≤ 15 / 255；
+    > 15 至 25 判 WARN，> 25 判 FAIL。
 
 七、畫質
   - 重建輸入全部使用 2048 × 2048 的 JPEG，副檔名為小寫 .jpg。
@@ -157,6 +162,9 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     生成後一律用本腳本檢查：AI 常把 45° 畫成 15–20°、把 90° 畫成 60–75°（第 4、5 項）。
   - 不要用左右翻轉產生另一側（第 6b、6c 項會抓出來）。
   - 光線、背景、衣服、髮型、表情、手指姿勢、腳的位置在 33 張都要相同。
+  - 每張沿用同一段亮度提示詞：
+      fixed exposure and white balance across all views, even diffuse facial lighting,
+      consistent cheek brightness, no hard shadows or local highlights on the cheeks
   - 透視越小越好：提示詞用長焦距（例如 200mm）或 orthographic / turnaround sheet 風格（第 10、10b 項會檢查；第 10c 項提供寬度比複核提示）。
     俯角 30° 環最容易出問題（AI 會把相機放得很近、從上往下拍，頭大腳小）。重新生成時每張都加上：
       orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion,
@@ -168,7 +176,7 @@ import argparse, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.14.0'
+__version__ = '1.15.0'
 import numpy as np
 import cv2
 
@@ -652,8 +660,11 @@ def camera_depth(P, c):
 FRONT = 'head_000deg'
 CHEEKS = (('左臉頰', 'head_045deg', 1), ('右臉頰', 'head_315deg', -1))
 MIN_SAMPLES = 60
-# Provisional review threshold on the 0–255 luma scale.
-LUMA_REVIEW = 40.0
+# Brightness thresholds use the 0–255 grayscale scale unless noted.
+EXPOSURE_MAX_DIFF = 0.05
+PHOTO_CHEEK_MAX_DIFF = 8.0
+PROJECTED_LUMA_PASS = 15.0
+PROJECTED_LUMA_FAIL = 25.0
 
 
 def projected_samples(points, normals, cam, image, mask):
@@ -719,10 +730,11 @@ def report_head_overlap(folder, work):
             points, normals, cameras[FRONT], frontal_image, frontal_mask)
     except (OSError, KeyError, IndexError, ValueError) as error:
         print(f'[WARN] 頭部投影重疊：未完成檢查（{error}）')
-        return
+        return 0
 
     band = cheek_band(landmarks, frontal_image.shape, col, row)
     face_midline = np.median(landmarks[:, 0])
+    failed = False
     for cheek, side, direction in CHEEKS:
         label = f'{cheek} {FRONT} / {side}'
         try:
@@ -741,10 +753,12 @@ def report_head_overlap(folder, work):
         delta = np.abs(frontal_luma[common] - side_luma[common])
         median = float(np.median(delta))
         p90 = float(np.percentile(delta, 90))
-        status = 'WARN' if p90 >= LUMA_REVIEW else 'PASS'
-        guidance = '，接合處可能出現色帶，請複核照片的亮度及對位' if status == 'WARN' else ''
+        status = PASS if p90 <= PROJECTED_LUMA_PASS else WARN if p90 <= PROJECTED_LUMA_FAIL else FAIL
+        failed |= status == FAIL
+        guidance = '，請複核重疊區亮度和對位' if status != PASS else ''
         print(f'[{status}] {label}：亮度絕對差中位數 {median:.1f}，第 90 百分位 {p90:.1f} / 255'
-              f'（{count} 點）{guidance}')
+              f'（{count} 點，目標 ≤ {PROJECTED_LUMA_PASS:g}，失敗 > {PROJECTED_LUMA_FAIL:g}）{guidance}')
+    return int(failed)
 
 
 RING_ANGLES = tuple(range(0, 360, 45))
@@ -873,6 +887,50 @@ def review_head_photos(head_views, out):
             report(WARN, '頭部局部對照圖', f'無法寫入 {path}')
 
 
+def photo_cheek_percentiles(view, horizontal_position):
+    """Estimate cheek brightness in a silhouette-relative crop, without registration."""
+    small = cv2.resize(view['im'], (512, 512), interpolation=cv2.INTER_AREA)
+    mask = cv2.resize(view['m'].astype(np.uint8), (512, 512), interpolation=cv2.INTER_NEAREST) > 0
+    top, bottom, _, _ = bbox(mask)
+    height = bottom - top
+    luma = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    samples = []
+    # At these heights the centre patch in an oblique view is the visible cheek.
+    for row in range(int(top + 0.42 * height), int(top + 0.54 * height)):
+        columns = np.flatnonzero(mask[row])
+        if columns.size < 16:
+            continue
+        first, last = columns[0], columns[-1]
+        left = round(first + (last - first) * (horizontal_position - 0.06))
+        right = round(first + (last - first) * (horizontal_position + 0.06))
+        samples.extend(luma[row, left:right + 1][mask[row, left:right + 1]])
+    if len(samples) < MIN_SAMPLES:
+        return None
+    return np.percentile(samples, (20, 50, 80))
+
+
+def check_photo_cheek_brightness(head_views):
+    if 0 not in head_views:
+        report(WARN, '臉頰亮度粗篩', '缺少可取樣的正面照片')
+        return
+    for angle, cheek, front_position, side_position in (
+            (45, '左臉頰', 0.73, 0.48), (315, '右臉頰', 0.27, 0.52)):
+        label = f'{cheek} 0° / {angle}° 亮度粗篩'
+        if angle not in head_views:
+            report(WARN, label, '缺少可取樣的斜面照片')
+            continue
+        front = photo_cheek_percentiles(head_views[0], front_position)
+        side = photo_cheek_percentiles(head_views[angle], side_position)
+        if front is None or side is None:
+            report(WARN, label, '臉頰取樣不足，請人工複核')
+            continue
+        difference = float(np.max(np.abs(front - side)))
+        status = PASS if difference <= PHOTO_CHEEK_MAX_DIFF else WARN
+        guidance = '，請比對頭部對照圖及光線' if status == WARN else ''
+        report(status, label, f'亮度分位差最大 {difference:.1f} / 255'
+                              f'（目標 ≤ {PHOTO_CHEEK_MAX_DIFF:g}）{guidance}')
+
+
 def finish(out=None):
     failures = sum(r[0] == FAIL for r in results)
     warnings = sum(r[0] == WARN for r in results)
@@ -901,8 +959,7 @@ def main():
     args = ap.parse_args()
     print(f'check_turnaround 版本 {__version__}')
     if args.head_overlap_work:
-        report_head_overlap(args.folder, args.head_overlap_work)
-        return
+        sys.exit(report_head_overlap(args.folder, args.head_overlap_work))
 
     views, extra = load_photos(args.folder, args.out)
     print(f'主環找到 {len(views)} 張: ' + ', '.join(f'{a}°' for a in sorted(views)))
@@ -1298,12 +1355,14 @@ def main():
     ref_ = [lv[f'{a}°'] for a in good if lv.get(f'{a}°')]
     if ref_:
         med = float(np.median(ref_))
-        odd = [(k, x / med - 1) for k, x in lv.items() if x and abs(x / med - 1) > 0.12]
+        odd = [(k, x / med - 1) for k, x in lv.items() if x and abs(x / med - 1) > EXPOSURE_MAX_DIFF]
         for k, d_ in odd:
-            report(WARN, f'{k} 曝光', f'膚色亮度比主環{"亮" if d_ > 0 else "暗"} {100 * abs(d_):.0f}%（應在 ±12% 內）；'
+            report(WARN, f'{k} 曝光', f'膚色亮度比主環{"亮" if d_ > 0 else "暗"} {100 * abs(d_):.0f}%（應在 ±{100 * EXPOSURE_MAX_DIFF:g}% 內）；'
                                        f'光線 / 曝光要和主環相同，否則重建後會看到色差接縫')
         if not odd:
             report(PASS, '曝光一致', f'{len(lv)} 張的膚色亮度都在主環的 ±12% 內')
+
+    check_photo_cheek_brightness({a: v for a, v in extra['head'].items() if v.get('m') is not None})
 
     # ---- 10. silhouette consistency with the main-ring shape (red / blue sheet)
     if len(good) >= 7:

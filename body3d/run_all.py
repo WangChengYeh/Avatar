@@ -106,7 +106,12 @@ def main(argv=None):
             run([py, S('face_landmarks.py'), f, dst], work, log)
 
     def step_bake():
-        run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work], work, log, show_output=True)
+        rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work],
+                 work, log, ok_codes=(0, 1), show_output=True)
+        if rc and not a.force:
+            raise RuntimeError('頭部重疊區亮度有 FAIL（見 run_all.log）。修正照片，或加 --force 繼續')
+        if rc:
+            print('     頭部重疊區亮度有 FAIL，--force 繼續')
         run([py, S('bake33.py'), work, img], work, log)
 
     def step_export():
