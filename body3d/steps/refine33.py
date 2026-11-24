@@ -8,14 +8,10 @@ body = [n for n in cams if cams[n]['kind'] in ('main', 'el30', 'low20', 'top')]
 MS = {n: cv2.imread(f'mask_{n}.png', 0) > 0 for n in body}
 
 
-def axes(phi, th):
-    p, t = np.radians(phi), np.radians(th)
-    return np.array([np.cos(p), 0, -np.sin(p)]), np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
-
-
-def project(P, c):
-    r, u = axes(c['phi'], c['th'])
-    return c['cu'] + c['s'] * (P @ r), c['cv'] - c['s'] * (P @ u)
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import camera
+project = camera.project
 
 
 def grid(vs):
@@ -66,6 +62,8 @@ for it in range(3):
                 [('phi', 1), ('th', 1), ('cu', 3), ('cv', 3), ('s', c['s'] * 0.007)]
         if cams[n]['kind'] == 'main':                  # level ring: keep it level and the scale from the height
             steps = [st for st in steps if st[0] in ('phi', 'cu')]
+        if c.get('D'):                                 # perspective view: also refine the camera distance
+            steps = steps + [('D', 0.5 if it == 0 else 0.25)]
         improved = True
         while improved:
             improved = False
@@ -73,11 +71,13 @@ for it in range(3):
                 for sg in (1, -1):
                     c2 = dict(c); c2[key] += sg * dv
                     if key == 'th': c2['th'] = min(90.0, c2['th'])
+                    if key == 'D' and c2['D'] < 2.0: continue
+                    if not camera.within_limits(n, c2): continue
                     s2 = iou(Ps, c2, MSS[n])
                     if s2 > sc + 1e-4:
                         sc, c, improved = s2, c2, True
         cams[n] = c
-        print('iter %d %-14s IoU %.3f  phi %6.1f th %5.1f s %7.1f' % (it, n, sc, c['phi'], c['th'], c['s']), flush=True)
+        print('iter %d %-14s IoU %.3f  phi %6.1f th %5.1f s %7.1f D %s' % (it, n, sc, c['phi'], c['th'], c['s'], c.get('D')), flush=True)
 json.dump(cams, open('cams33.json', 'w'), indent=1)
 
 # final hull at 4 mm, tolerate up to 3 disagreeing views out of 25

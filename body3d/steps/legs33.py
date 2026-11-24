@@ -24,10 +24,10 @@ ys = g['y0'] + np.arange(occ.shape[1]) * vs
 zs = g['z0'] + np.arange(occ.shape[2]) * vs
 
 
-def project(P, c):
-    p, t = np.radians(c['phi']), np.radians(c['th'])
-    r = np.array([np.cos(p), 0, -np.sin(p)]); u = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
-    return c['cu'] + c['s'] * (P @ r), c['cv'] - c['s'] * (P @ u)
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import camera
+project = camera.project
 
 
 # crotch = lowest slice above 0.3 m where the legs have merged into one part
@@ -56,6 +56,17 @@ for n, c in cams.items():
     remove |= out
 res = occ.copy()
 res[I[remove], J[remove] + j0, K[remove]] = False
+# remove thin slivers (< ~1.6 cm) left between the legs: a strip hidden behind the other leg in most views and
+# thinner than the silhouette margin survives carving and renders as a dark tail on the inner calf. Real legs are
+# > 8 cm thick at every height, so a 2-D opening of each leg cross-section is safe.
+disk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+thin = 0
+for j in range(j0, j1):
+    sl = res[:, j, :].astype(np.uint8)
+    op = cv2.morphologyEx(sl, cv2.MORPH_OPEN, disk)
+    thin += int(sl.sum() - op.sum())
+    res[:, j, :] = op > 0
+print(f'legs33: removed {thin} voxels of thin slivers')
 # drop tiny islands left in the leg slices
 for j in range(j0, j1):
     sl = res[:, j, :].astype(np.uint8)

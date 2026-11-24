@@ -21,10 +21,12 @@ import numpy as np
 __version__ = '1.0.0'
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'steps'))
+import camera
+
+
 def project(P, c):
-    p, t = np.radians(c['phi']), np.radians(c['th'])
-    r = np.array([np.cos(p), 0, -np.sin(p)]); u = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
-    return np.c_[c['cu'] + c['s'] * (P @ r), c['cv'] - c['s'] * (P @ u)]
+    return np.c_[camera.project(P, c)]
 
 
 def silhouette(V, F, c, shape):

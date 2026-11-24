@@ -57,3 +57,24 @@ def test_legs_strict_carving_removes_gap_strip(synth_set, tmp_path):
     rows = [r for r in fit_report.fit(str(out / 'work')) if r['kind'] == 'main']
     assert np.mean([r['extra'] for r in rows]) < 600
     assert max(r['xor'] for r in rows) < 0.10
+
+
+def _cams(photos, out):
+    import json
+    for step in ('cams', 'refine'):
+        rc, log = run_py('run_all.py', photos, out, '--only', step, timeout=3600)
+        assert rc == 0, log[-2000:]
+    return json.load(open(out / 'work' / 'cams33.json'))
+
+
+def test_perspective_distance_estimated(persp_set, tmp_path):
+    """相機在 4 m 的透視照片：俯角環 8 張裡至少 6 張估出 D 在 2.5–6.5 m"""
+    c = _cams(persp_set, tmp_path / 'p')
+    ds = [v.get('D') for v in c.values() if v['kind'] == 'el30']
+    assert sum(1 for d in ds if d and 2.5 <= d <= 6.5) >= 6, ds
+
+
+def test_orthographic_set_mostly_no_perspective(synth_set, tmp_path):
+    """正交照片：俯角 + 仰角 16 張最多 3 張被誤判成透視"""
+    c = _cams(synth_set, tmp_path / 'o')
+    assert sum(1 for v in c.values() if v['kind'] in ('el30', 'low20') and v.get('D')) <= 3

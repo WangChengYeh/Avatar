@@ -1,10 +1,14 @@
 """Render a clean synthetic 33-view turnaround set (2048x2048 JPG, white background, orthographic) from a GLB.
 Used by the tests as known-good input for check_turnaround.py.
-    blender -b --factory-startup --python render_synth.py -- model.glb OUT_DIR"""
+    blender -b --factory-startup --python render_synth.py -- model.glb OUT_DIR [PERSP_DISTANCE_M]
+With a distance, a perspective camera that far from the target is used instead (same framing), to produce a
+set that violates the "orthographic / long lens" rule."""
 import bpy, sys, math, os
 from mathutils import Vector
 
-GLB, OUT = sys.argv[-2], sys.argv[-1]
+args = sys.argv[sys.argv.index('--') + 1:]
+GLB, OUT = args[0], args[1]
+PERSP = float(args[2]) if len(args) > 2 else None
 os.makedirs(OUT, exist_ok=True)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=GLB)
@@ -20,9 +24,14 @@ NAMES = {0: 'front', 45: 'front_left', 90: 'left', 135: 'back_left', 180: 'back'
 
 
 def shot(name, target, direction, scale):
-    cam.data.ortho_scale = scale
     d = direction.normalized()
-    cam.location = target + d * 6
+    if PERSP:
+        cam.data.type = 'PERSP'; cam.data.sensor_fit = 'HORIZONTAL'
+        cam.data.angle = 2 * math.atan(scale / 2 / PERSP)
+        cam.location = target + d * PERSP
+    else:
+        cam.data.ortho_scale = scale
+        cam.location = target + d * 6
     if abs(d.z) > 0.99:
         cam.rotation_euler = (0, 0, 0)       # straight down: image up = her back, front toward the image bottom
     else:

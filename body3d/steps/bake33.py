@@ -59,12 +59,8 @@ def voxel_smooth(X, vals, vs):
 Ns = voxel_smooth(X, N, 0.012); Ns /= np.linalg.norm(Ns, axis=1, keepdims=True) + 1e-9
 
 
-def axes(c):
-    ph, th = np.radians(c['phi']), np.radians(c['th'])
-    r = np.array([np.cos(ph), 0, -np.sin(ph)])
-    u = np.array([-np.sin(th) * np.sin(ph), np.cos(th), -np.sin(th) * np.cos(ph)])
-    toward = np.array([np.sin(ph) * np.cos(th), np.sin(th), np.cos(ph) * np.cos(th)])   # body -> camera
-    return r, u, toward
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import camera      # orthographic or perspective (c['D']) projection shared by all steps
 
 
 def remap(img, col, row):
@@ -107,12 +103,11 @@ Xs, Ns_s = X[sub], Ns[sub]
 
 
 def view_samples(n, c):
-    r, u, tw = axes(c)
-    col = c['cu'] + c['s'] * (Xs @ r); row = c['cv'] - c['s'] * (Xs @ u)
+    col, row = camera.project(Xs, c)
     img, ed, m = load_view(n)
     H_, W_ = m.shape
     inb = (col >= 1) & (col < W_ - 2) & (row >= 1) & (row < H_ - 2)
-    w = np.clip(Ns_s @ tw, 0, 1) ** 2 * inb * (remap(ed, col, row) > 8)
+    w = np.clip(np.einsum('ij,ij->i', Ns_s, camera.toward(Xs, c)), 0, 1) ** 2 * inb * (remap(ed, col, row) > 8)
     return w, remap(img, col, row)
 
 
@@ -136,10 +131,9 @@ acc = np.zeros((len(X), 3)); wsum = np.zeros(len(X)); wconf = np.zeros(len(X))
 y = X[:, 1]
 for n, c in sorted(cams.items()):
     kind = c['kind']
-    r, u, tw = axes(c)
-    col = c['cu'] + c['s'] * (X @ r)
-    row = c['cv'] - c['s'] * (X @ u)
-    depth = X @ tw                                   # larger = closer to the camera
+    col, row = camera.project(X, c)
+    depth = camera.depth(X, c)                       # larger = closer to the camera
+    ndot = np.einsum('ij,ij->i', Ns, camera.toward(X, c))
     img, ed, m = load_view(n)
     H_, W_ = m.shape
     inb = (col >= 1) & (col < W_ - 2) & (row >= 1) & (row < H_ - 2)
@@ -152,7 +146,7 @@ for n, c in sorted(cams.items()):
     vis = depth >= zb[k] - 0.012
     edge_px = 6 if kind != 'head' else 18
     pw = 12.0 if kind == 'head' else PW
-    w = np.clip(Ns @ tw, 0, 1) ** pw * vis * inb * np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1) * VW[kind] * HEAD_PRI.get(n, 1.0)
+    w = np.clip(ndot, 0, 1) ** pw * vis * inb * np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1) * VW[kind] * HEAD_PRI.get(n, 1.0)
     headw = np.clip((y - 1.36) / 0.05, 0, 1)
     if kind == 'head':
         w *= headw                                    # close-ups only on the head / upper neck
@@ -163,13 +157,13 @@ for n, c in sorted(cams.items()):
             fm = np.zeros(m.shape, np.uint8); cv2.fillConvexPoly(fm, cv2.convexHull(lmk), 1)
             fm = cv2.erode(fm, np.ones((61, 61), np.uint8))          # stay inside the face oval (earrings hang just outside)
             fm = cv2.GaussianBlur(fm.astype(np.float32), (0, 0), 8)
-            inface = remap(fm, col, row) * (Ns @ tw > 0.2) * vis * inb
+            inface = remap(fm, col, row) * (ndot > 0.2) * vis * inb
             w = w + inface * 1e3
     else:
         w *= 1 - headw                                # full-body views never paint the head (they would win on
                                                       # down-facing spots like under the lip and paste their own lips)
     # confidence uses a gentle power (is this texel seen at all?); blending uses the sharp one (who wins)
-    wc = np.clip(Ns @ tw, 0, 1) ** 2 * vis * inb * np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1)
+    wc = np.clip(ndot, 0, 1) ** 2 * vis * inb * np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1)
     if kind == 'head':
         wc *= headw
     wconf += wc

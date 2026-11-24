@@ -59,12 +59,56 @@ for b in eb:
         b.align_roll(Vector((0, -1, 0)))
 bpy.ops.object.mode_set(mode='OBJECT')
 
-# skin with automatic (bone heat) weights
-bpy.ops.object.select_all(action='DESELECT')
-body.select_set(True); arm.select_set(True); bpy.context.view_layer.objects.active = arm
-bpy.ops.object.parent_set(type='ARMATURE_AUTO')
-# every vertex must be weighted; report the unweighted ones
-unw = [v.index for v in body.data.vertices if not any(g.weight > 1e-4 for g in v.groups)]
+# skin with automatic (bone heat) weights. Bone heat sometimes fails at human scale (metres) for numerical
+# reasons ("failed to find solution"); then the weights are solved on a 10x / 100x scaled copy and copied back
+# (same vertex order).
+def unweighted(ob):
+    return [v.index for v in ob.data.vertices if not any(g.weight > 1e-4 for g in v.groups)]
+
+
+def heat_weights(scale):
+    if scale == 1:
+        bpy.ops.object.select_all(action='DESELECT')
+        body.select_set(True); arm.select_set(True); bpy.context.view_layer.objects.active = arm
+        bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+        return
+    b2 = body.copy(); b2.data = body.data.copy(); b2.vertex_groups.clear(); b2.parent = None
+    for md in list(b2.modifiers):
+        b2.modifiers.remove(md)
+    a2 = arm.copy(); a2.data = arm.data.copy()
+    for o in (b2, a2):
+        bpy.context.scene.collection.objects.link(o); o.scale = (scale,) * 3
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in (b2, a2):
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = a2
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bpy.ops.object.select_all(action='DESELECT')
+    b2.select_set(True); a2.select_set(True); bpy.context.view_layer.objects.active = a2
+    bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+    # copy the weights back onto the real mesh
+    for vg in list(body.vertex_groups):
+        body.vertex_groups.remove(vg)
+    names = {g.index: g.name for g in b2.vertex_groups}
+    groups = {nm: body.vertex_groups.new(name=nm) for nm in names.values()}
+    for v in b2.data.vertices:
+        for g in v.groups:
+            if g.weight > 1e-6:
+                groups[names[g.group]].add([v.index], g.weight, 'REPLACE')
+    if body.parent is None:
+        bpy.ops.object.select_all(action='DESELECT')
+        body.select_set(True); arm.select_set(True); bpy.context.view_layer.objects.active = arm
+        bpy.ops.object.parent_set(type='ARMATURE_NAME')        # armature modifier + parent, keeps our groups
+    for o in (b2, a2):
+        bpy.data.objects.remove(o, do_unlink=True)
+
+
+for scale in (1, 10, 100):
+    heat_weights(scale)
+    unw = unweighted(body)
+    print('RIG bone heat at scale', scale, 'unweighted vertices', len(unw))
+    if not unw:
+        break
 print('RIG bones', len(arm_data.bones), 'vertex groups', len(body.vertex_groups), 'unweighted vertices', len(unw))
 if unw:
     # fall back: give unweighted vertices to the nearest bone segment

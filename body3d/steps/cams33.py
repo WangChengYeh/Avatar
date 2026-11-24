@@ -11,16 +11,9 @@ SRC = sys.argv[1]
 H = W = 2048
 
 
-def axes(phi, th):
-    p, t = np.radians(phi), np.radians(th)
-    r = np.array([np.cos(p), 0, -np.sin(p)])
-    u = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
-    return r, u
-
-
-def project(P, c):
-    r, u = axes(c['phi'], c['th'])
-    return c['cu'] + c['s'] * (P @ r), c['cv'] - c['s'] * (P @ u)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import camera
+project = camera.project
 
 
 # ---- views and masks
@@ -95,6 +88,8 @@ P = surface_points(occ, g)
 print('main hull surface points', len(P))
 
 NOM = {'el30': 30.0, 'low20': -20.0, 'top': 90.0}
+PERSPECTIVE = os.environ.get('BODY3D_PERSPECTIVE', '1') != '0'
+PERSP_MIN_GAIN = 0.005
 DS = 4
 for n, v in sorted(views.items()):
     if v['kind'] not in NOM:
@@ -115,22 +110,40 @@ for n, v in sorted(views.items()):
     best = None
     for dphi in (-6, -3, 0, 3, 6):
         for dth in (-8, -4, 0, 4, 8):
+            if not camera.within_limits(n, dict(base, phi=base['phi'] + dphi, th=base['th'] + dth, kind=v['kind'])):
+                continue
             c = fit_bbox(dict(base, phi=base['phi'] + dphi, th=min(90.0, base['th'] + dth)))
             sc = iou_view(P, c, ms, DS)
             if best is None or sc > best[0]:
                 best = (sc, c)
     # local refinement of offsets and scale
-    sc, c = best
-    for step in (8, 4, 2):
-        improved = True
-        while improved:
-            improved = False
-            for key, dv in (('cu', step), ('cu', -step), ('cv', step), ('cv', -step), ('s', c['s'] * 0.01 * step / 4), ('s', -c['s'] * 0.01 * step / 4)):
-                c2 = dict(c); c2[key] += dv
-                s2 = iou_view(P, c2, ms, DS)
-                if s2 > sc + 1e-4:
-                    sc, c, improved = s2, c2, True
+    def local(sc, c):
+        for step in (8, 4, 2):
+            improved = True
+            while improved:
+                improved = False
+                for key, dv in (('cu', step), ('cu', -step), ('cv', step), ('cv', -step), ('s', c['s'] * 0.01 * step / 4), ('s', -c['s'] * 0.01 * step / 4),
+                                ('phi', step / 4), ('phi', -step / 4), ('th', step / 4), ('th', -step / 4)):
+                    c2 = dict(c); c2[key] += dv
+                    if not camera.within_limits(n, dict(c2, kind=v['kind'])):
+                        continue
+                    s2 = iou_view(P, c2, ms, DS)
+                    if s2 > sc + 1e-4:
+                        sc, c, improved = s2, c2, True
+        return sc, c
+    sc, c = local(*best)
+    # perspective: AI images of the elevated / low rings are usually drawn with a close camera. Try camera
+    # distances; keep one only when it clearly fits better than orthographic.
+    if v['kind'] in ('el30', 'low20') and PERSPECTIVE:
+        bestp = (sc, c)
+        for Dm in (12.0, 8.0, 6.0, 5.0, 4.0, 3.0):
+            sp, cp = local(iou_view(P, dict(c, D=Dm), ms, DS), dict(c, D=Dm))
+            if sp > bestp[0]:
+                bestp = (sp, cp)
+        if bestp[0] > sc + PERSP_MIN_GAIN:
+            print('%-14s perspective D %.1f m: IoU %.3f -> %.3f' % (n, bestp[1]['D'], sc, bestp[0]))
+            sc, c = bestp
     c['kind'] = v['kind']
     cams[n] = c
-    print('%-14s IoU %.3f  phi %6.1f th %5.1f s %7.1f cu %7.1f cv %7.1f' % (n, sc, c['phi'], c['th'], c['s'], c['cu'], c['cv']), flush=True)
+    print('%-14s IoU %.3f  phi %6.1f th %5.1f s %7.1f cu %7.1f cv %7.1f D %s' % (n, sc, c['phi'], c['th'], c['s'], c['cu'], c['cv'], c.get('D')), flush=True)
 json.dump(cams, open('cams33.json', 'w'), indent=1)

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.8.0（2026-11-24）
+版本 1.11.0（2026-11-24）
 
 版本紀錄:
+  1.11.0 依完美（正交渲染）照片校正、收緊門檻：第 10 項藍色 ≤ 1%（> 2% FAIL；主環側面 ≤ 3%）、
+         第 10b 項 < 2%（≥ 4% FAIL）、第 10c 項 ±3%（≥ 5% FAIL）；紅色不設門檻（說明見五）
+  1.10.0 第 10c 項：俯角 / 仰角環的手寬比、頭寬比要和同角度主環一致（差 ≥ 8% 判 FAIL，1.11.0 改為 5%）；九、重新生成俯角環的提示詞
+  1.9.0  第 10 項：剪影一致性（主環重建形狀投影到每張身體圖，輸出紅藍對照圖 *_silhouette_check.png，
+         藍色 = 照片有、形狀沒有，照片 ≥ 96% 要落在形狀內）；第 10b 項：透視強度（斜角兩手指尖中點偏移）
   1.8.0  第 1b 項：灰白雜點（AI 留在身體邊緣的無色色塊）；第 9 項：曝光 / 膚色亮度一致性
   1.7.0  第 8 項：俯視圖與主環一致性（主環重建形狀從正上方投影，身體中段覆蓋率 ≥ 97%），輸出 *_top_check.png 對照圖
   1.6.0  第 7c 項：腳踝一致性（相差 180° 的兩張，差 > 8% 判 FAIL）；第 7 項身材比例改判 FAIL
@@ -95,7 +100,15 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 
 五、相機與構圖（本腳本第 2 項會檢查）
   - 主環：相機高度固定在肚臍附近，水平拍攝（俯角環、仰角、俯視依各自規定）。
-  - 每張相機距離與焦距相同；最好用長焦距（或正交投影），減少透視變形。
+  - 每張相機距離與焦距相同；要用長焦距（或正交投影），重建程式假設正交投影。
+    本腳本第 10b 項量透視強度：斜角 4 張的兩手指尖中點要在身體中軸上（偏向近手 < 2% 半臂展，
+    ≥ 4% 判 FAIL，約等於相機距離不到 14 m）；第 10 項把主環重建形狀投影到每張身體圖，
+    輸出紅藍對照圖：藍色 = 照片有、形狀沒有，要 ≤ 1%（> 2% FAIL；主環 90° / 270° 側面 ≤ 3%）；
+    紅色 = 形狀超出照片，不設門檻（形狀由剪影雕出，凹處雕不掉，一定比真實身體大，
+    完美照片也有 3–75%），「形狀太大」改由第 10b、10c 項嚴格檢查；第 10c 項比較
+    俯角 / 仰角環和同角度主環的「手寬 / 臀寬」「頭寬 / 臀寬」（只用水平寬度，正交投影時應完全相同），
+    要在 ±3% 內，差 ≥ 5% 判 FAIL（俯角相機太近時頭會變大）。
+    以上門檻都用「完美照片」（模型正交渲染的 33 張）校正：完美照片藍色 0–0.6%、10b 0–0.2%、10c 0–2%。
   - 全身完整入鏡，頭頂與腳底上下都留白，手尖不要碰到畫面左右邊緣
     （頭部特寫只要求頭頂不被切到）。
   - 每張的人物高度差 < 2%；頭頂與腳底在畫面中的位置差 < 圖高 2%。
@@ -133,11 +146,16 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     生成後一律用本腳本檢查：AI 常把 45° 畫成 15–20°、把 90° 畫成 60–75°（第 4、5 項）。
   - 不要用左右翻轉產生另一側（第 6b、6c 項會抓出來）。
   - 光線、背景、衣服、髮型、表情、手指姿勢、腳的位置在 33 張都要相同。
-  - 透視越小越好：提示詞用長焦距（例如 200mm）或 orthographic / turnaround sheet 風格。
+  - 透視越小越好：提示詞用長焦距（例如 200mm）或 orthographic / turnaround sheet 風格（第 10、10b、10c 項會檢查）。
+    俯角 30° 環最容易出問題（AI 會把相機放得很近、從上往下拍，頭大腳小）。重新生成時每張都加上：
+      orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion,
+      head and feet drawn at the same scale, technical character turnaround sheet
+    並寫明：camera elevated 30 degrees looking down, same distance and framing as the eye-level views,
+    same T-pose, arms horizontal。
 """
 import argparse, glob, os, re, sys
 
-__version__ = '1.8.0'
+__version__ = '1.11.0'
 import numpy as np
 import cv2
 
@@ -326,6 +344,207 @@ def top_consistency(hull, mt, core=0.22):
     ov = np.zeros(ms.shape + (3,), np.uint8)
     ov[full & ms] = (180, 180, 180); ov[ms & ~full] = (0, 0, 255); ov[full & ~ms] = (0, 200, 0)
     return sc, full_iou, s / s0, cover, head_share, ov, where
+
+
+RING_EL = {'main': 0.0, 'el30': 30.0, 'low20': -20.0}
+# section 10, blue = share of the photo outside the main-ring shape. Calibrated on perfect (orthographic, rendered)
+# photos: 0–0.6 % blue, so > 1 % is a real inconsistency. Level-ring side views (90° / 270°) are tested against a
+# hull built without them, which cannot reproduce a profile: perfect photos give 1.8–2.9 % there.
+BLUE_PASS, BLUE_WARN = 0.01, 0.02
+BLUE_SIDE_PASS, BLUE_SIDE_WARN = 0.03, 0.04
+PERSP_PASS, PERSP_WARN = 0.02, 0.04      # near-hand shift of the fingertip midpoint (section 10b); perfect photos: 0–0.2 %
+
+
+def near_hand_shift(m):
+    """fingertip midpoint minus the vertical body axis (legs centroid column), in half arm spans.
+    Orthographic + symmetric T-pose: 0 in every view (also elevated). Perspective: shifted toward the near hand."""
+    ys, xs = np.nonzero(m); t, b = ys.min(), ys.max(); l, r = xs.min(), xs.max()
+    band = m[int(t + 0.70 * (b - t)):int(t + 0.93 * (b - t))]
+    if not band.any():
+        return None
+    return ((l + r) / 2 - np.nonzero(band)[1].mean()) / max(1, (r - l) / 2)
+
+
+RATIO_PASS, RATIO_WARN = 0.03, 0.05     # section 10c: |ring ratio / level ratio - 1|; perfect photos: 0–2 %
+PROMPT_ORTHO = ('orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion, '
+                'head and feet drawn at the same scale, technical character turnaround sheet')
+
+
+def width_ratios(m):
+    """(hand span / hip width, head width / hip width) — only horizontal widths, so with an orthographic camera
+    they are the same at every elevation for the same azimuth. Hips = widest row at 42–62 % of the figure height;
+    head = the run around the body axis (legs centroid column) in the top 9 % below the head top."""
+    ys, xs = np.nonzero(m); t, b = ys.min(), ys.max(); H = b - t; l, r = xs.min(), xs.max()
+    band = m[int(t + 0.70 * H):int(t + 0.93 * H)]
+    if not band.any():
+        return None
+    ax = int(round(np.nonzero(band)[1].mean()))
+    hip = max(np.count_nonzero(m[y]) for y in range(int(t + 0.42 * H), int(t + 0.62 * H)))
+    colhit = np.nonzero(m[:, max(0, ax - 3):ax + 4].any(1))[0]
+    if not len(colhit) or hip == 0:
+        return None
+    top = colhit.min(); hw = 0
+    for y in range(top, int(top + 0.09 * H)):
+        xs_ = np.nonzero(m[y])[0]
+        if not len(xs_):
+            continue
+        rr = np.split(xs_, np.nonzero(np.diff(xs_) > 1)[0] + 1)
+        q = min(rr, key=lambda q: 0 if q[0] <= ax <= q[-1] else min(abs(q[0] - ax), abs(q[-1] - ax)))
+        hw = max(hw, q[-1] - q[0] + 1)
+    return (r - l) / hip, hw / hip
+
+
+def ring_ratio_check(good, extra):
+    """10c. el30 / low20 views vs the level view of the same angle (side views 90° / 270° skipped: the hand span
+    is tiny there and the head outline seen from above differs). Returns {(ring, angle): (dev_hand, dev_head)}."""
+    out = {}
+    for cat in ('el30', 'low20'):
+        for a, v in sorted(extra.get(cat, {}).items()):
+            if a in (90, 270) or a not in good or v.get('m') is None:
+                continue
+            r0, r1 = width_ratios(good[a]['m']), width_ratios(v['m'])
+            if r0 and r1:
+                out[(cat, a)] = (r1[0] / r0[0] - 1, r1[1] / r0[1] - 1)
+    return out
+
+
+def perspective_check(good, extra):
+    """10b. per ring: signed mean of the near-hand shift over the 4 diagonal views (near hand: image right at
+    45° / 225°, image left at 135° / 315°). Leg-asymmetry bias cancels in the signed mean.
+    Returns {ring: (p, est_distance_in_half_spans, {angle: shift})}."""
+    sign = {45: 1, 135: -1, 225: 1, 315: -1}
+    rings = {'main': good, 'el30': extra.get('el30', {}), 'low20': extra.get('low20', {})}
+    out = {}
+    for k, items in rings.items():
+        vals = {a: near_hand_shift(items[a]['m']) for a in sign if a in items and items[a].get('m') is not None}
+        vals = {a: x for a, x in vals.items() if x is not None}
+        if len(vals) >= 3:
+            p = float(np.mean([sign[a] * x for a, x in vals.items()]))
+            out[k] = (p, (np.sin(np.radians(45)) / p) if p > 1e-3 else float('inf'), vals)
+    return out
+
+
+def project_hull(hull, phi, th, s, cu, cv, shape, D=None, Q=4, vs=0.01):
+    """filled silhouette (1/Q resolution) of the voxel hull seen by an orthographic camera (D=None) or a
+    perspective camera D metres from the body centre (same image scale s at the body centre)."""
+    p, t = np.radians(phi), np.radians(th)
+    r = np.array([np.cos(p), 0, -np.sin(p)])
+    u = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
+    f = np.array([np.sin(p) * np.cos(t), np.sin(t), np.cos(p) * np.cos(t)])      # toward the camera
+    a, b = hull @ r, hull @ u
+    k_s = s
+    if D is not None:
+        c0 = np.array([0.0, 0.85, 0.0])
+        k = D / np.maximum(0.3, D - (hull @ f - c0 @ f))
+        a = c0 @ r + (a - c0 @ r) * k; b = c0 @ u + (b - c0 @ u) * k
+        k_s = s * k.max()
+    H_, W_ = shape[0] // Q, shape[1] // Q
+    img = np.zeros((H_, W_), np.uint8)
+    c = ((cu + s * a) / Q).astype(int); rr = ((cv - s * b) / Q).astype(int)
+    ok = (c >= 0) & (c < W_) & (rr >= 0) & (rr < H_)
+    img[rr[ok], c[ok]] = 1
+    kk = 2 * int(np.ceil(k_s * vs / Q)) + 1                 # close the gaps between projected voxels
+    img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, np.ones((kk, kk), np.uint8))
+    ff = img * 255; mk = np.zeros((H_ + 2, W_ + 2), np.uint8)
+    cv2.floodFill(ff, mk, (0, 0), 128)
+    return ff != 128
+
+
+def fit_view(hull, m, phi, th, D=None, init=None, Q=4):
+    """fit scale / offsets (and ±4° of angle) of the hull projection to the photo mask by IoU.
+    Returns (iou, params)."""
+    ms = cv2.resize(m.astype(np.uint8), (m.shape[1] // Q, m.shape[0] // Q), interpolation=cv2.INTER_AREA) > 0
+
+    def score(x):
+        img = project_hull(hull, x[3], x[4], x[0], x[1], x[2], m.shape, D, Q)
+        return (img & ms).sum() / max(1, (img | ms).sum())
+    if init is None:
+        t, b, l, r_ = bbox(m)
+        p, tt = np.radians(phi), np.radians(th)
+        rr = np.array([np.cos(p), 0, -np.sin(p)]); uu = np.array([-np.sin(tt) * np.sin(p), np.cos(tt), -np.sin(tt) * np.cos(p)])
+        a, bb = hull @ rr, hull @ uu
+        s0 = (b - t) / (bb.max() - bb.min())
+        x = [s0, (l + r_) / 2 - s0 * (a.max() + a.min()) / 2, (t + b) / 2 + s0 * (bb.max() + bb.min()) / 2, phi, th]
+    else:
+        x = list(init)
+    best = (score(x), x)
+    for frac in (0.04, 0.015, 0.005):
+        steps = [(0, x[0] * frac), (1, 400 * frac), (2, 400 * frac), (3, 100 * frac), (4, 100 * frac)]
+        improved = True
+        while improved:
+            improved = False
+            for i, d in steps:
+                for sg in (1, -1):
+                    y = list(best[1]); y[i] += sg * d
+                    if i == 3 and abs(y[3] - phi) > 4 or i == 4 and abs(y[4] - th) > 4:
+                        continue
+                    v = score(y)
+                    if v > best[0] + 1e-4:
+                        best = (v, y); improved = True
+    return best
+
+
+def ring_consistency(good, extra, out_png):
+    """10. project the main-ring hull into every body view (main ring leave-one-out, el30, low20), paint
+    red = hull beyond the photo, blue = photo beyond the hull, and test perspective. Returns result rows."""
+    views = [('main', a, v) for a, v in sorted(good.items())] + \
+            [(cat, a, v) for cat in ('el30', 'low20') for a, v in sorted(extra.get(cat, {}).items()) if v.get('m') is not None]
+    full_hull = quick_hull(good)
+    rows, tiles = [], []
+    for cat, a, v in views:
+        hull = quick_hull({k: w for k, w in good.items() if k != a}) if cat == 'main' else full_hull
+        m = v['m']; th = RING_EL[cat]
+        iou_o, x_o = fit_view(hull, m, a, th)
+        Q = 4
+        ms = cv2.resize(m.astype(np.uint8), (m.shape[1] // Q, m.shape[0] // Q), interpolation=cv2.INTER_AREA) > 0
+        img = project_hull(hull, x_o[3], x_o[4], x_o[0], x_o[1], x_o[2], m.shape, None, Q)
+        k3 = np.ones((3, 3), np.uint8)
+        blue = ms & (cv2.dilate(img.astype(np.uint8), k3) == 0)          # photo has body, hull does not
+        red = img & (cv2.dilate(ms.astype(np.uint8), k3) == 0)           # hull has body, photo does not
+        cover = 1 - blue.sum() / max(1, ms.sum())
+        red_fr = red.sum() / max(1, ms.sum())
+        # where is the blue? hands = outer part of the span, head = top, feet = bottom, else body
+        where = {}
+        by, bx = np.nonzero(blue)
+        if len(by):
+            fy, fx = np.nonzero(ms); t_, b_, l_, r_ = fy.min(), fy.max(), fx.min(), fx.max()
+            band = ms[int(t_ + 0.70 * (b_ - t_)):int(t_ + 0.93 * (b_ - t_))]
+            axis = np.nonzero(band)[1].mean() if band.any() else (l_ + r_) / 2
+            half = max(1, (r_ - l_) / 2)
+            hand = np.abs(bx - axis) > 0.55 * half
+            head = ~hand & (by < t_ + 0.14 * (b_ - t_))
+            feet = ~hand & (by > t_ + 0.90 * (b_ - t_))
+            for k_, sel_ in (('手', hand), ('頭', head), ('腳', feet), ('身體 / 腿', ~hand & ~head & ~feet)):
+                if sel_.mean() >= 0.15:
+                    where[k_] = float(sel_.mean())
+        rows.append(dict(cat=cat, ang=a, name=v['name'], iou=iou_o, cover=cover, red=red_fr, where=where))
+        # overlay tile: photo, red / blue painted, cropped to the figure
+        sm = cv2.resize(v['im'], (ms.shape[1], ms.shape[0]), interpolation=cv2.INTER_AREA)
+        sm[red] = (0, 0, 255); sm[blue] = (255, 0, 0)
+        ys, xs = np.nonzero(ms | img)
+        tile = sm[max(0, ys.min() - 8):ys.max() + 8, max(0, xs.min() - 8):xs.max() + 8]
+        sc = 300 / tile.shape[0]; tile = cv2.resize(tile, (max(1, int(tile.shape[1] * sc)), 300))
+        tile = cv2.copyMakeBorder(tile, 40, 0, 0, max(0, 260 - tile.shape[1]), cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        lab = f'{cat} {a}' if cat != 'main' else f'main {a} (LOO)'
+        cv2.putText(tile, lab, (4, 16), 0, 0.5, (0, 0, 0), 1)
+        cv2.putText(tile, f'cover {100 * cover:.1f}%  red {100 * red_fr:.0f}%', (4, 34), 0, 0.45,
+                    (0, 0, 200) if cover < 0.95 else (0, 120, 0), 1)
+        tiles.append(tile)
+    hmax = max(t.shape[0] for t in tiles)
+    tiles = [cv2.copyMakeBorder(t, 0, hmax - t.shape[0], 0, 0, cv2.BORDER_CONSTANT, value=(255, 255, 255)) for t in tiles]
+    per = 8
+    lines_ = []
+    for i in range(0, len(tiles), per):
+        row = tiles[i:i + per]
+        lines_.append(np.hstack(row))
+    wmax = max(l.shape[1] for l in lines_)
+    lines_ = [cv2.copyMakeBorder(l, 0, 0, 0, wmax - l.shape[1], cv2.BORDER_CONSTANT, value=(255, 255, 255)) for l in lines_]
+    sheet = np.vstack(lines_)
+    sheet = cv2.copyMakeBorder(sheet, 0, 30, 0, 0, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    cv2.putText(sheet, 'blue = photo has body, main-ring shape does not (must be ~0)   red = shape beyond photo (info)',
+                (8, sheet.shape[0] - 10), 0, 0.55, (0, 0, 0), 1)
+    cv2.imwrite(out_png, sheet)
+    return rows
 
 
 def grey_blob(im, m):
@@ -803,6 +1022,56 @@ def main():
                                        f'光線 / 曝光要和主環相同，否則重建後會看到色差接縫')
         if not odd:
             report(PASS, '曝光一致', f'{len(lv)} 張的膚色亮度都在主環的 ±12% 內')
+
+    # ---- 10. silhouette consistency with the main-ring shape (red / blue sheet)
+    if len(good) >= 7:
+        print('\n10. 剪影一致性（主環重建形狀投影到每張身體圖，輸出紅藍對照圖）')
+        svp = os.path.splitext(args.out)[0] + '_silhouette_check.png'
+        rows_ = ring_consistency(good, extra, svp)
+        for r_ in rows_:
+            lab = f"{'主環' if r_['cat'] == 'main' else r_['cat']} {r_['ang']}°"
+            blue = 1 - r_['cover']
+            side = r_['cat'] == 'main' and r_['ang'] in (90, 270)
+            bp, bw = (BLUE_SIDE_PASS, BLUE_SIDE_WARN) if side else (BLUE_PASS, BLUE_WARN)
+            lvl = PASS if blue <= bp else WARN if blue <= bw else FAIL
+            msg = (f"藍色（照片有、主環形狀沒有）{100 * blue:.1f}%（應 ≤ {100 * bp:.0f}%，> {100 * bw:.0f}% 判 FAIL"
+                   + ('；側面不參與建形狀，方法本身就有 2–3%' if side else '') + '）；'
+                   f"紅色（形狀超出照片）{100 * r_['red']:.0f}%，只供參考：形狀由剪影雕出，一定比真實身體大，完美照片也有 3–75%")
+            if lvl != PASS:
+                w_ = r_['where']
+                msg += '；藍色在：' + ('、'.join(f'{k}（{100 * x:.0f}%）' for k, x in w_.items()) or '各處')
+                if w_.get('手', 0) + w_.get('頭', 0) >= 0.5 and w_.get('手', 0) >= 0.3:
+                    msg += (' → 靠近相機的手被畫得比主環長 / 方向不同（頭也偏大）：典型的透視（見第 10b 項），'
+                            '或這張的手臂姿勢和主環不同；請用 orthographic / 長焦距、相機拉遠重新生成這張')
+                elif '頭' in w_ and w_['頭'] >= 0.5:
+                    msg += ' → 頭被畫得比主環大：相機太近、透視太強（俯角環最常見），請相機拉遠 / 長焦距重新生成這張'
+                else:
+                    msg += ' → 這張的身體形狀 / 姿勢和主環不一致，請重新生成這張'
+            report(lvl, lab + ' 剪影', msg)
+        print(f'  對照圖: {svp}')
+        print('\n10b. 透視強度（斜角 4 張：兩手指尖中點應在身體中軸上；透視會讓中點偏向靠近相機的手）')
+        for k, (p_, dist_, vals_) in perspective_check(good, extra).items():
+            lab = {'main': '主環', 'el30': '俯角環', 'low20': '仰角環'}[k]
+            lvl = PASS if p_ < PERSP_PASS else WARN if p_ < PERSP_WARN else FAIL
+            msg = (f"指尖中點偏向近手 {100 * p_:.1f}% 半臂展（應 < {100 * PERSP_PASS:.0f}%；"
+                   + '、'.join(f'{a}° {100 * x:+.0f}%' for a, x in sorted(vals_.items())) + '）')
+            if lvl != PASS:
+                msg += f"；估計相機距離約 {dist_:.0f} 倍半臂展（約 {dist_ * 0.78:.1f} m，以身高 1.65 m 計）"
+            if lvl != PASS:
+                msg += (' → 照片是透視投影（相機太近），重建程式假設正交投影：手臂長度、方向在不同角度會不一致'
+                        '（第 10 項藍色多在手上）。提示詞加 orthographic projection / 200mm telephoto / camera far away')
+            report(lvl, lab + ' 透視', msg)
+        print('\n10c. 俯角 / 仰角環和水平主環的寬度比（手寬 / 臀寬、頭寬 / 臀寬，正交投影時和同角度的主環相同）')
+        for (cat, a), (dh, dd) in ring_ratio_check(good, extra).items():
+            worst = max(abs(dh), abs(dd))
+            lvl = PASS if worst < RATIO_PASS else WARN if worst < RATIO_WARN else FAIL
+            msg = (f'手寬比差 {100 * dh:+.0f}%、頭寬比差 {100 * dd:+.0f}%（和主環 {a}° 比，應在 ±{100 * RATIO_PASS:.0f}% 內，'
+                   f'≥ {100 * RATIO_WARN:.0f}% 判 FAIL）')
+            if lvl != PASS:
+                cause = '頭被畫得比主環大' if dd > 0 and abs(dd) >= abs(dh) else \
+                        '頭被畫得比主環小' if abs(dd) >= abs(dh) else '手臂展開寬度和主環不同'
+                msg += (f' → {cause}：相機太近（透視）或角度 / 姿勢不同。重新生成這張，提示詞加：「{PROMPT_ORTHO}」')
+            report(lvl, f'{cat} {a}° 寬度比', msg)
 
     # ---- report image
     tiles = []

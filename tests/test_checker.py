@@ -86,3 +86,48 @@ def test_dark_image_flagged(broken):
     cv2.imwrite(str(f), im.clip(0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
     assert any('90' in l and ('曝光' in l or '亮度' in l) for l in lines(out, 'WARN') + lines(out, 'FAIL'))
+
+
+def test_silhouette_sheet_and_perspective_pass_on_orthographic(synth_set, tmp_path):
+    """第 10 / 10b 項：正交的合成照片要全部通過，並輸出紅藍對照圖"""
+    rc, out = run_py('check_turnaround.py', synth_set, '--out', tmp_path / 'r.png')
+    bad = [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if '剪影:' in l or '透視:' in l]
+    assert not bad, '\n'.join(bad)
+    assert (tmp_path / 'r_silhouette_check.png').exists()
+    assert len([l for l in lines(out, 'PASS') if '剪影' in l]) == 24
+    assert len([l for l in lines(out, 'PASS') if '透視:' in l]) == 3
+
+
+def test_perspective_set_fails(persp_set, tmp_path):
+    """相機在 4 m 的透視照片：三個環的透視都要 FAIL，估計距離要接近 4 m；剪影藍色在手上"""
+    import re
+    rc, out = run_py('check_turnaround.py', persp_set, '--out', tmp_path / 'r.png')
+    assert rc == 1
+    fails = [l for l in lines(out, 'FAIL') if '透視:' in l]
+    assert len(fails) == 3
+    for l in fails:
+        d = float(re.search(r'約 ([\d.]+) m', l).group(1))
+        assert 3.0 < d < 6.5, l
+    sil = [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if '剪影' in l]
+    assert len(sil) >= 8 and all('手' in l for l in sil)
+
+
+def test_widened_view_fails_silhouette(broken):
+    """把一張俯角圖左右拉寬 15%（手臂比主環長）：第 10 項這張要 FAIL，藍色在手上"""
+    f = broken / 'el30_000deg.jpg'
+    im = cv2.imread(str(f)); h, w = im.shape[:2]
+    m = im.min(2) < 235; cx = np.nonzero(m)[1].mean()
+    M = np.float32([[1.15, 0, cx * (1 - 1.15)], [0, 1, 0]])
+    im = cv2.warpAffine(im, M, (w, h), borderValue=(255, 255, 255))
+    cv2.imwrite(str(f), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    hit = [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if 'el30 0° 剪影' in l]
+    assert hit and '手' in hit[0]
+
+
+def test_ring_width_ratios(synth_set, persp_set, tmp_path):
+    """第 10c 項：正交合成照片 12 張全部 PASS；4 m 透視照片的俯角環要 FAIL"""
+    rc, out = run_py('check_turnaround.py', synth_set, '--out', tmp_path / 'a.png')
+    assert len([l for l in lines(out, 'PASS') if '寬度比:' in l]) == 12
+    rc, out = run_py('check_turnaround.py', persp_set, '--out', tmp_path / 'b.png')
+    assert len([l for l in lines(out, 'FAIL') if 'el30' in l and '寬度比:' in l]) >= 4
