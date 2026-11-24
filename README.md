@@ -54,11 +54,11 @@ python -m pytest -q --photos=./photos
 
 - **問題分析與證據**：在 Issue 內嵌原圖、Three.js 渲染、對照圖或回投疊圖，標明角度和版本。記錄差異最早在哪一步出現，以及支撐判斷的量測和門檻。
 - **重要中間結果與修改**：保留 checker 重現的結果、會影響判斷的試修與取捨，以及實際修改的照片、checker 或 3D 步驟。將相關 commit、PR 和檢查報告連回該 Issue。
-- **驗收與下一輪**：在 Issue 內嵌同條件下的修正前後圖，記錄 KPI、PASS／FAIL 與 GLB 版本。GLB 只需記錄版本和驗收結果。驗收後關閉 Issue。下一輪開一個新 Issue，連回上一輪並說明延續的問題或新目標。
+- **驗收與下一輪**：在 Issue 內嵌同條件下的修正前後圖，記錄 KPI、PASS／FAIL 與 GLB 版本。驗收後關閉 Issue。下一輪開一個新 Issue，連回上一輪並說明延續的問題或新目標。
 
 範例見 [耳部重影的分析、試修與驗收 #17](https://github.com/WangChengYeh/Avatar/issues/17)。
 
-1. **比對 Three.js 與原圖。** 在 Three.js 載入目前的 GLB，輸出正面 0°、左側面 90°、背面 180°，有疑點時加上 45°／315° 或局部特寫。把模型擺到與原圖相同的姿勢（例如 T-pose），配對角度、相機投影和尺度，再對照同角度的全身照及頭部特寫。用疊圖和局部放大標出問題位置，記錄角度、部位、量測值及門檻。可依問題量測五官距離、輪廓偏移、亮度差 P90 或肩臂變形。另以 Yoga2 實際站姿和動作確認使用時的外觀。
+1. **比對 Three.js 與原圖。** 在 Three.js 載入目前的 GLB，輸出正面 0°、左側面 90°、背面 180°，有疑點時加上 45°／315° 或局部特寫。渲染前先讓模型重現原圖的姿勢和動作定格。原圖是 T-pose 時，保留 GLB 的原始 T-pose。沿用各張照片的校準相機、投影、尺度及裁切，再直接對照全身照或頭部特寫。用疊圖和局部放大標出問題位置，記錄角度、部位、量測值及門檻。可依問題量測五官距離、輪廓偏移、亮度差 P90 或肩臂變形。另以 Yoga2 實際站姿和動作確認使用時的外觀。
 2. **找出差異最早出現在哪一步。** 先比對原圖之間的同角度全身照與頭部特寫，再看不同角度回投到同一視角後的結果。若原圖已有五官比例、輪廓、色澤或亮度差異，走第 3 步。若原圖一致，以同一組照片逐步核對相機對齊、網格、UV 與貼圖烘焙、骨架權重、GLB 匯出與 Three.js 載入後的結果；修正最早出現差異的步驟，並加入能重現問題的檢查。若兩邊都有問題，分別修正及驗證。
 3. **原圖有問題時，先改 checker，再修圖。** 把規則加到可單獨使用的 [`check_turnaround.py`](body3d/check_turnaround.py)，並先用未修正的照片重跑。如果原圖原本 PASS，先確認新版 checker 能在正確角度和部位報出目標問題。再修照片，用相同指令、門檻和比對條件重跑，確認該項由 FAIL 轉為 PASS，再確認其他角度及既有規則沒有新增 FAIL。保留修圖前後的數值、疊圖與檢查報告。
 4. **重新生成 GLB 並回到 Three.js 驗收。** 用修正後的 33 張照片和最新版腳本，從頭在新的輸出目錄重建，省略 `--force`。確認 GLB 驗證通過，再用第 1 步的相同設定輸出三視圖，重測原本失敗的部位和 KPI。涉及肩臂時，另測站姿與抬手，確認貼圖和網格在動作中也符合預期。本輪試修時若仍超出門檻，在同一個 Issue 回到第 2 步繼續排查。
@@ -68,6 +68,17 @@ python body3d/check_turnaround.py ./photos-before --out report-before.png
 python body3d/check_turnaround.py ./photos-fixed --out report-after.png
 python body3d/run_all.py ./photos-fixed ./output-next --name body
 python body3d/verify_glb.py ./output-next/body_rigged.glb --expect-unlit
+```
+
+### 產出同姿勢對照圖
+
+在 repo 根目錄用 Node.js 20 以上執行 [`scripts/compare_turnaround.mjs`](scripts/compare_turnaround.mjs)。它以 Three.js 載入無光照 GLB 並驗證模型為 T-pose，再用對應原圖的正交相機投影及軟體光柵化，輸出 `full-comparison.png`（正、側、背）及 `ear-comparison.png`（左右側與後斜面）。提供 `--before` 可把舊 GLB 一起排進同一張圖。若耳部裁切需要調整，可用 `--ear-crop x0,y0,x1,y1` 指定原圖像素座標。
+
+```sh
+npm install --no-save --package-lock=false three@0.180.0 sharp
+node scripts/compare_turnaround.mjs --photos ./photos \
+  --cameras ./output/work/cams33.json --model ./output/body_rigged.glb \
+  --before ./previous/body_rigged.glb --out ./comparison
 ```
 
 例如 v1220 左側面曾看到肩膀接上臂處偏灰綠。先查看同角度原圖是否已有這塊色差；如果原圖正常，就沿著 UV／烘焙貼圖、靜止 GLB 到 Three.js 站姿逐步比較，找出色差第一次出現的位置，再決定要修哪一步。
