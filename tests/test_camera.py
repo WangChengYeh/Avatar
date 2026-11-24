@@ -33,6 +33,19 @@ def test_toward_and_depth():
 
 
 def test_angle_limits():
-    assert camera.within_limits('el30_045deg', dict(phi=50, th=25, kind='el30'))
-    assert not camera.within_limits('el30_045deg', dict(phi=60, th=30, kind='el30'))
+    assert camera.within_limits('el30_045deg', dict(phi=45, th=30, kind='el30'))
+    assert not camera.within_limits('el30_045deg', dict(phi=70, th=30, kind='el30'))
     assert not camera.within_limits('low20_000deg', dict(phi=0, th=0, kind='low20'))
+
+
+def test_elevated_and_low_rings_keep_input_elevation(monkeypatch):
+    monkeypatch.setattr(camera, 'MAX_DTH', 16.0)
+    for kind, elevation in (('el30', 30.0), ('low20', -20.0)):
+        for yaw in range(0, 360, 45):
+            name = f'{kind}_{yaw:03d}deg'
+            calibrated = dict(phi=yaw, th=elevation, kind=kind)
+            assert camera.nominal(name, kind) == (yaw, elevation)
+            assert camera.within_limits(name, calibrated)
+            assert not camera.within_limits(name, dict(calibrated, th=elevation - 0.5))
+            assert not camera.within_limits(name, dict(calibrated, th=elevation + 0.5))
+    assert camera.within_limits('head_045deg', dict(phi=45, th=1, kind='head'))
