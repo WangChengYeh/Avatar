@@ -2,8 +2,10 @@
   view direction from the camera toward the body:  d = -(sinφ cosθ, sinθ, cosφ cosθ)   (θ>0: camera above)
   image right r = (cosφ, 0, -sinφ);  image up u' = (-sinθ sinφ, cosθ, -sinθ cosφ)
   pixel:  col = cu + s * (P·r),   row = cv - s * (P·u')
-Main ring: φ,cu from the 8-view fit (v9), s = px/m, cv from feet row.  Other views: registered against the
-main-ring hull by silhouette IoU (φ, θ, s, cu, cv)."""
+Main ring: φ,cu from the 8-view fit (v9), s = px/m from the figure height, cv from feet row.  Other views: registered
+against the main-ring hull by silhouette IoU: φ, cu, cv (θ is the ring's nominal tilt). When the photos passed the
+check (fixed camera distance), s is the main-ring scale; otherwise s is fitted per view as well, and the +30° / −20°
+views may get a perspective distance D (diagnosis of photos that fail the spec)."""
 import numpy as np, cv2, json, glob, os, re, sys, importlib.util
 spec = importlib.util.spec_from_file_location('ct', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'check_turnaround.py'))
 ct = importlib.util.module_from_spec(spec); spec.loader.exec_module(ct)
