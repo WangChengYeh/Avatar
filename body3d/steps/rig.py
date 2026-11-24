@@ -1,6 +1,7 @@
 """Add a 22-bone humanoid skeleton (Mixamo-style names, no prefix) to the textured GLB, skin it with automatic
 weights and export a rigged GLB.   blender -b --python rig.py -- in.glb joints.json out.glb"""
 import bpy, sys, json
+from collections import defaultdict
 from mathutils import Vector
 from mathutils.kdtree import KDTree
 
@@ -132,6 +133,73 @@ def repair_unweighted(indices):
     print('RIG repaired', copied, 'from nearby weights and', len(indices) - copied, 'from bone segments')
 
 
+def smoothstep(start, end, value):
+    ratio = max(0.0, min(1.0, (value - start) / (end - start)))
+    return ratio * ratio * (3 - 2 * ratio)
+
+
+def blend_shoulder_weights():
+    # The heat solution on the split UV mesh can change abruptly around the
+    # deltoid. Give the shoulder cap one continuous torso-to-upper-arm blend.
+    for side in ('Left', 'Right'):
+        joint = gl2b(J[side + 'Arm'])
+        direction = 1 if joint.x > 0 else -1
+        upper_arm = body.vertex_groups.get(side + 'Arm') or body.vertex_groups.new(name=side + 'Arm')
+        shoulder = body.vertex_groups.get(side + 'Shoulder') or body.vertex_groups.new(name=side + 'Shoulder')
+        for vertex in body.data.vertices:
+            lateral = (vertex.co.x - joint.x) * direction
+            vertical = vertex.co.z - joint.z
+            if not (-0.095 < lateral < 0.150 and -0.18 < vertical < 0.12):
+                continue
+            influence = (smoothstep(-0.095, -0.045, lateral) *
+                         (1 - smoothstep(0.106, 0.150, lateral)) *
+                         smoothstep(-0.18, -0.10, vertical) *
+                         (1 - smoothstep(0.065, 0.12, vertical)))
+            if influence <= 1e-6:
+                continue
+            arm_weight = smoothstep(-0.03, 0.073, lateral)
+            indices = [vertex.index]
+            old = {group.group: group.weight for group in vertex.groups if group.weight > 0}
+            total = sum(old.values())
+            weights = {index: (1 - influence) * weight / total for index, weight in old.items()}
+            weights[upper_arm.index] = weights.get(upper_arm.index, 0.0) + influence * arm_weight
+            weights[shoulder.index] = weights.get(shoulder.index, 0.0) + influence * (1 - arm_weight)
+            for index in old:
+                body.vertex_groups[index].remove(indices)
+            ranked = sorted(weights, key=lambda index: (-weights[index], index))[:4]
+            kept = sum(weights[index] for index in ranked)
+            for index in ranked:
+                if weights[index] > 0:
+                    body.vertex_groups[index].add(indices, weights[index] / kept, 'REPLACE')
+
+
+def synchronize_seam_weights():
+    # glTF splits positions at UV seams. Skinning must move those copies together.
+    coincident = defaultdict(list)
+    for vertex in body.data.vertices:
+        coincident[tuple(round(value, 5) for value in vertex.co)].append(vertex.index)
+
+    seams = 0
+    for indices in coincident.values():
+        if len(indices) < 2:
+            continue
+        weights = defaultdict(float)
+        for index in indices:
+            for group in body.data.vertices[index].groups:
+                weights[group.group] += group.weight
+        ranked = sorted(weights, key=lambda group: (-weights[group], group))[:4]
+        total = sum(weights[group] for group in ranked)
+        if total <= 0:
+            continue
+        for group in weights:
+            body.vertex_groups[group].remove(indices)
+        for group in ranked:
+            if weights[group] > 0:
+                body.vertex_groups[group].add(indices, weights[group] / total, 'REPLACE')
+        seams += 1
+    print('RIG synchronized weights for', seams, 'coincident vertex groups')
+
+
 for scale in (1, 10, 100):
     remaining = heat_weights(scale)
     unw = unweighted(body)
@@ -146,6 +214,8 @@ if not any(modifier.type == 'ARMATURE' and modifier.object == arm for modifier i
 print('RIG bones', len(arm_data.bones), 'vertex groups', len(body.vertex_groups), 'unweighted vertices', len(unw))
 if unw:
     repair_unweighted(unw)
+blend_shoulder_weights()
+synchronize_seam_weights()
 # glTF: a skinned mesh node should be a scene root (validator NODE_SKINNED_MESH_NON_ROOT). Unparent it but keep
 # the Armature modifier, so the skin still binds to the skeleton.
 bpy.ops.object.select_all(action='DESELECT'); body.select_set(True); bpy.context.view_layer.objects.active = body
