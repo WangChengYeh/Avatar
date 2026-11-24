@@ -11,7 +11,7 @@ verify_glb.py — 用純 Python 驗證附骨架的人物 GLB（取代 three.js �
   蒙皮    每個 primitive 有 JOINTS_0 / WEIGHTS_0；索引 < 骨頭數；權重加總 = 1；最多 4 根骨頭；inverseBindMatrices 完整
   幾何    高度 ≈ 1.65 m、Y 朝上、腳在地面、Head 在上方、LeftHand 在 +X 且水平（T-pose）、腳尖朝 +Z
   材質    每個材質有 baseColorTexture，貼圖能解碼（尺寸）；--expect-unlit 時檢查 KHR_materials_unlit
-  擺姿勢  以 numpy 做線性蒙皮（LBS）：LeftArm 繞世界 Z 軸往下轉 70°，左手指尖要往下移動；所有頂點為有限值
+  擺姿勢  以 numpy 做線性蒙皮（LBS）：LeftArm 往下轉 70°，檢查指尖、有限值和三角形邊是否異常變長
   頭部渲染 純 Python 把有貼圖的頭部從正面 / 左右 45° / 左右側面算繪成 512x512（--renders 資料夾可存圖），
          在皮膚區域找「又細又長的暗線」（比周圍皮膚暗很多、寬 ≤ 6 px、長 ≥ 5 cm，直的彎的都算）：
          貼圖黑條、對位錯開的接縫會被抓到；睫毛（~3 cm）、嘴線（~4.5 cm）、鼻孔較短，眉毛不夠黑，不算
@@ -23,7 +23,7 @@ verify_glb.py — 用純 Python 驗證附骨架的人物 GLB（取代 three.js �
 import argparse, json, os, shutil, struct, subprocess, sys, tempfile
 import numpy as np
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'
 REQ = ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand',
        'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand', 'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase',
        'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase']
@@ -213,18 +213,18 @@ def verify(path, expect_unlit=False, height=1.65, validator=True, render_dir=Non
     rep('FAIL' if unnorm else 'PASS', '權重加總', f'{unnorm} 個頂點加總 ≠ 1' if unnorm else
         f'所有頂點權重加總 = 1；每個頂點最多 {maxinf} 根骨頭影響' + ('（有 JOINTS_1，超過 4 根）' if any(p['extra'] for p in prims) else ''))
     # ---- rest-pose geometry (world space, skinned with the rest skeleton)
-    def skin_positions(Wm, split=False):
+    def skin_positions(Wm):
         out = []
         for p in prims:
-            mesh_w = Wm[p['node']] if p['node'] in Wm else np.eye(4)
             J = np.stack([Wm[jn] @ ibm[k] for k, jn in enumerate(joint_nodes)])          # (nj, 4, 4)
             P = np.c_[p['pos'], np.ones(len(p['pos']))]
             acc = np.zeros((len(P), 4))
             for c in range(4):
                 acc += p['w'][:, c:c + 1] * np.einsum('nij,nj->ni', J[p['j'][:, c]], P)
             out.append(acc[:, :3])
-        return out if split else np.concatenate(out)
-    rest = skin_positions(W)
+        return out
+    rest_parts = skin_positions(W)
+    rest = np.concatenate(rest_parts)
     lo, hi = rest.min(0), rest.max(0); size = hi - lo
     rep('PASS' if abs(size[1] - height) < 0.05 * height else 'WARN', '尺寸', f'高 {size[1]:.3f} m、寬 {size[0]:.3f} m、厚 {size[2]:.3f} m（Y 朝上）')
     rep('PASS' if abs(lo[1]) < 0.03 else 'WARN', '腳在地面', f'最低點 y = {lo[1]:.3f} m')
@@ -268,7 +268,8 @@ def verify(path, expect_unlit=False, height=1.65, validator=True, render_dir=Non
     Wp = W[parent[la]]
     local[la] = np.linalg.inv(Wp) @ (T @ axis_rot([0, 0, 1], -70) @ Ti) @ W[la]
     W2, _ = world_matrices(gl, local)
-    posed = skin_positions(W2)
+    posed_parts = skin_positions(W2)
+    posed = np.concatenate(posed_parts)
     tip = int(np.argmax(rest[:, 0]))
     d = posed[tip] - rest[tip]
     finite = bool(np.isfinite(posed).all())
@@ -278,6 +279,19 @@ def verify(path, expect_unlit=False, height=1.65, validator=True, render_dir=Non
     foot = int(np.argmin(rest[:, 1]))
     rep('PASS' if moved_other[foot] < 1e-4 else 'FAIL', '只有手臂動', f'腳底頂點移動 {moved_other[foot] * 1000:.2f} mm（應為 0）')
     rep('PASS' if finite else 'FAIL', '數值', '變形後所有頂點都是有限數值' if finite else '變形後出現 NaN / Inf')
+    stretched = 0
+    longest = 0.0
+    for primitive, before, after in zip(prims, rest_parts, posed_parts):
+        tri = primitive['tri']
+        if tri is None:
+            tri = np.arange(len(before) // 3 * 3).reshape(-1, 3)
+        adjacent = np.roll(tri, -1, axis=1)
+        original_edges = np.linalg.norm(before[tri] - before[adjacent], axis=2)
+        posed_edges = np.linalg.norm(after[tri] - after[adjacent], axis=2)
+        stretched += int(((posed_edges > 0.08) & (posed_edges > original_edges * 4)).sum())
+        longest = max(longest, float(posed_edges.max(initial=0)))
+    rep('FAIL' if stretched else 'PASS', '擺姿勢網格連續性',
+        f'{stretched} 條三角形邊同時超過 8 cm 和原長 4 倍；變形後最長邊 {longest:.3f} m')
     # ---- textured head renders: long straight dark lines on the skin (texture stripes, misregistered seams)
     if cv2 is not None:
         texs = {}
@@ -287,7 +301,7 @@ def verify(path, expect_unlit=False, height=1.65, validator=True, render_dir=Non
                 img = gl['images'][gl['textures'][bct['index']]['source']]
                 bv = gl['bufferViews'][img['bufferView']]
                 texs[k] = cv2.imdecode(np.frombuffer(bin_, np.uint8, bv['byteLength'], bv.get('byteOffset', 0)), cv2.IMREAD_COLOR)
-        parts = skin_positions(W, split=True)
+        parts = rest_parts
         neck_y = jp['Neck'][1]
         lines_px, imgs = head_stripe_check(prims, parts, texs, neck_y)
         if render_dir:
