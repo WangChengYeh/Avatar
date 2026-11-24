@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.21.0（2026-11-24）
+版本 1.22.0（2026-11-25）
 
 版本紀錄:
+  1.22.0 烘焙前比對全身照與同角度的頭部特寫，並檢查頭部相機及臉部深度修正。
   1.21.0 --mode ai（預設）/ photo：AI 生成的圖可以重來，門檻改成「完美照片 + 小餘裕」，翻轉複製、光線翻轉、
          解析度、背景 / 陰影等 WARN 在 ai 模式判 FAIL；俯角 / 仰角環大小一致改比相差 180° 的兩張；
          第 11 項：臉部一致性（頭部特寫 0° / 45° / 315° 都要找得到臉；五官比例、頭髮高度 / 臉高要和正面一致，
@@ -45,8 +46,12 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 有重建中間檔時，可另外檢查頭部投影重疊區:
     python check_turnaround.py 照片資料夾 --head-overlap-work 工作資料夾
     工作資料夾需有 cams33.json、uvmesh.npz、face_lm33.npy 和頭部照片遮罩。
-    五官對位另讀取 face_lm33_045.npy 與 face_lm33_315.npy。
-    加 --view-overlay-dir 報告資料夾 可輸出正背面疊圖。
+    全身／頭部比對依 8 個水平角度配對，並使用全身照的遮罩。
+    共同覆蓋 < 60% 判 FAIL，< 80% 提醒複核；共同可見區的亮度差 P90 > 20/255 判 FAIL。
+    有 MediaPipe 與特寫特徵點時，0° / 45° / 315° 另比對眼、鼻、嘴投影。
+    五官對位另讀取 face_lm33_045.npy 與 face_lm33_315.npy。臉部修正前後量測使用
+    body33s_noface.ply、body33s.ply 與 cams33.json 的 pre_face 相機。
+    加 --view-overlay-dir 報告資料夾 可輸出正背面疊圖與 body_head_overlap.png / .csv。
 
 
 結束碼: 有 FAIL 回傳 1，否則 0。報告圖預設存成 turnaround_report.png（每張圖畫出去背輪廓）。
@@ -187,7 +192,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.21.0'
+__version__ = '1.22.0'
 import numpy as np
 import cv2
 
@@ -463,18 +468,25 @@ FACE_BIAS = {'prop': 1.024, 'hair': 1.055}      # 3/4 view / frontal view on per
 FACE_PASS, FACE_FAIL = 0.02, 0.04               # |ratio / bias - 1|; perfect photos: 0–0.6 %
 
 
-def face_measures(im, m):
-    """(eye->mouth / brow->chin, head top->brow / brow->chin, face height px) or None if no face"""
+def detect_face_landmarks(im):
     try:
         import mediapipe as mp
-    except ImportError:
+        face_mesh = mp.solutions.face_mesh.FaceMesh
+    except (ImportError, AttributeError):
         return 'nomp'
     h, w = im.shape[:2]
-    with mp.solutions.face_mesh.FaceMesh(static_image_mode=True, min_detection_confidence=0.3) as fm:
+    with face_mesh(static_image_mode=True, min_detection_confidence=0.3) as fm:
         r = fm.process(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
     if not r.multi_face_landmarks:
         return None
-    L = np.array([[l.x * w, l.y * h] for l in r.multi_face_landmarks[0].landmark])
+    return np.array([[l.x * w, l.y * h] for l in r.multi_face_landmarks[0].landmark])
+
+
+def face_measures(im, m):
+    """(eye->mouth / brow->chin, head top->brow / brow->chin, face height px) or None if no face"""
+    L = detect_face_landmarks(im)
+    if L is None or isinstance(L, str):
+        return L
     foreground_rows = np.flatnonzero(m.any(1))
     if not foreground_rows.size:
         return None
@@ -1107,10 +1119,193 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height, ov
     return failed
 
 
-def report_head_overlap(folder, work, overlay_kpis=None):
+HEAD_YAW_LIMIT = 10.0
+FACE_AUDIT_MIN_PAIRS = 20
+FACE_OUTLINE_FADE_MM = 15.0
+FACE_OVAL = (10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+             397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+             172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109)
+FACE_DEPTH_REGIONS = (
+    ('鼻尖', (1,)),
+    ('右眼窩周圍', (33, 133, 159, 145)),
+    ('左眼窩周圍', (263, 362, 386, 374)),
+)
+
+
+def report_head_yaws(cameras):
+    failed = False
+    for angle in range(0, 360, 45):
+        name = f'head_{angle:03d}deg'
+        if name not in cameras:
+            print(f'[WARN] 頭部相機角度 {name}：沒有相機資料')
+            continue
+        final = cameras[name]
+        stages = [('剪影對位', final['pre_face'])] if isinstance(final.get('pre_face'), dict) else []
+        for label, camera in [*stages, ('最終相機', final)]:
+            yaw = camera.get('phi')
+            if not isinstance(yaw, (float, int)) or not np.isfinite(yaw):
+                print(f'[WARN] 頭部相機角度 {name} {label}：角度無效')
+                continue
+            delta = (yaw - angle + 180) % 360 - 180
+            status = FAIL if abs(delta) > HEAD_YAW_LIMIT + 1e-6 else PASS
+            failed |= status == FAIL
+            print(f'[{status}] 頭部相機角度 {name} {label}：'
+                  f'{yaw % 360:.1f}°，相對檔名 {delta:+.1f}°（上限 ±{HEAD_YAW_LIMIT:g}°）')
+    return failed
+
+
+def load_face_audit_triangles(path):
+    """Read the binary XYZ triangle PLY written by the reconstruction."""
+    with path.open('rb') as stream:
+        header = []
+        for _ in range(32):
+            line = stream.readline(512).strip()
+            if line == b'end_header':
+                break
+            if not line:
+                raise ValueError('PLY 檔頭不完整')
+            if not line.startswith(b'comment '):
+                header.append(line)
+        else:
+            raise ValueError('PLY 檔頭超出支援格式')
+        if (len(header) != 8 or header[:2] != [b'ply', b'format binary_little_endian 1.0']
+                or header[3:6] != [b'property float x', b'property float y', b'property float z']
+                or not header[2].startswith(b'element vertex ') or not header[6].startswith(b'element face ')
+                or header[7] != b'property list uchar int vertex_indices'):
+            raise ValueError('需要重建輸出的 binary little-endian XYZ 三角形 PLY')
+        nv, nf = (int(header[i].split()[-1]) for i in (2, 6))
+        if nv <= 0 or nf <= 0 or path.stat().st_size - stream.tell() != 12 * nv + 13 * nf:
+            raise ValueError('PLY 頂點或面數與檔案長度不符')
+        vertices = np.fromfile(stream, dtype='<f4', count=3 * nv).reshape(-1, 3)
+        faces = np.fromfile(stream, dtype=[('count', 'u1'), ('vertices', '<i4', (3,))], count=nf)
+    indices = faces['vertices']
+    if (not np.isfinite(vertices).all() or (faces['count'] != 3).any()
+            or indices.min() < 0 or indices.max() >= nv):
+        raise ValueError('PLY 包含無效的頂點或三角形')
+    return vertices[indices[(vertices[indices, 1] >= 1.36).any(axis=1)]]
+
+
+def surface_landmarks(triangles, camera, pixels):
+    projected, depth = projected_triangles(triangles, camera)
+    points = np.full((len(pixels), 3), np.nan)
+    normals = points.copy()
+    for index, pixel in enumerate(pixels):
+        point, normal = mesh_point_at(pixel, triangles, projected, depth)
+        if point is not None:
+            points[index], normals[index] = point, normal
+    return points, normals
+
+
+def visible_audit_landmarks(triangles, camera, points, normals, frame_size):
+    projected, depth = projected_triangles(triangles, camera)
+    facing = (normals @ camera_axes(camera['phi'], camera['th'])[2]) > 0.25
+    visible = np.zeros(len(points), dtype=bool)
+    for index in np.flatnonzero(facing):
+        pixel = np.asarray(camera_project(points[index], camera))
+        if not ((0 <= pixel) & (pixel < frame_size)).all():
+            continue
+        hit, _ = mesh_point_at(pixel, triangles, projected, depth)
+        visible[index] = hit is not None and np.linalg.norm(hit - points[index]) <= 0.008
+    return visible
+
+
+def report_face_depth(frontal, scale, depth_change):
+    oval_pixels = frontal[list(FACE_OVAL)].astype(np.float32)
+    hull = cv2.convexHull(oval_pixels)
+    inner_distance = np.array([cv2.pointPolygonTest(hull, tuple(map(float, p)), True) for p in frontal])
+    fade_indices = np.flatnonzero((inner_distance > 0) & (inner_distance <= scale * FACE_OUTLINE_FADE_MM / 1000))
+    regions = (*FACE_DEPTH_REGIONS, ('臉部輪廓', FACE_OVAL),
+               (f'輪廓內 {FACE_OUTLINE_FADE_MM:g} mm 過渡帶', fade_indices))
+    for label, indices in regions:
+        depths = depth_change[list(indices)]
+        depths = depths[np.isfinite(depths)]
+        if not len(depths):
+            print(f'[WARN] 臉部深度 {label}：網格取樣不足')
+            continue
+        print(f'[INFO] 臉部深度 {label}：朝正面為正，修正量中位數 {np.median(depths):+.1f} mm，'
+              f'最大絕對位移 {np.max(np.abs(depths)):.1f} mm（{len(depths)} 點）')
+
+
+def report_face_reconstruction(work, cameras, landmarks, photo_height):
+    """Compare the same visible landmarks before and after face3d."""
+    if len(landmarks) < 468 or cameras[FRONT].get('D'):
+        print('[WARN] 臉部重建一致性：需要正交正面相機與 468 個特徵點')
+        return False
+    frontal = landmarks[:468]
+    try:
+        before_mesh = load_face_audit_triangles(work / 'body33s_noface.ply')
+        after_mesh = load_face_audit_triangles(work / 'body33s.ply')
+    except (OSError, ValueError) as error:
+        print(f'[WARN] 臉部重建一致性：無法驗證修正前後網格（{error}）')
+        return False
+    front_cam = cameras[FRONT]
+    before, normal_before = surface_landmarks(before_mesh, front_cam, frontal)
+    after, normal_after = surface_landmarks(after_mesh, front_cam, frontal)
+    direction = camera_axes(front_cam['phi'], front_cam['th'])[2]
+    depth_change = (after - before) @ direction * 1000
+    failed = False
+    assessed = False
+    for _, side, _ in CHEEKS:
+        camera = cameras.get(side, {})
+        prior = camera.get('pre_face')
+        if not isinstance(prior, dict) or not prior or prior.get('D') or camera.get('D'):
+            print(f'[WARN] 正面／斜面一致性 {side}：缺少 face3d 前後的正交相機')
+            continue
+        try:
+            oblique = np.load(work / f'face_lm33_{side[5:8]}.npy')
+            if oblique.ndim != 2 or oblique.shape[0] < 468 or oblique.shape[1] < 2:
+                raise ValueError('需要 468 個斜面特徵點')
+            oblique = oblique[:468, :2]
+            if not np.isfinite(oblique).all():
+                raise ValueError('斜面特徵點含無效座標')
+        except (OSError, ValueError) as error:
+            print(f'[WARN] 正面／斜面一致性 {side}：{error}')
+            continue
+        observed = ((0 <= oblique) & (oblique < photo_height)).all(axis=1)
+        paired = (observed &
+                  visible_audit_landmarks(before_mesh, prior, before, normal_before, photo_height) &
+                  visible_audit_landmarks(after_mesh, camera, after, normal_after, photo_height))
+        count = int(paired.sum())
+        if count < FACE_AUDIT_MIN_PAIRS:
+            print(f'[WARN] 正面／斜面一致性 {side}：前後共同可見點不足（{count}/468）')
+            continue
+        assessed = True
+        initial_xy = np.column_stack(camera_project(before[paired], prior))
+        final_xy = np.column_stack(camera_project(after[paired], camera))
+        initial_px = np.linalg.norm(initial_xy - oblique[paired], axis=1)
+        final_px = np.linalg.norm(final_xy - oblique[paired], axis=1)
+        initial_mm = initial_px * 1000 / prior['s']
+        final_mm = final_px * 1000 / camera['s']
+        initial_median_px, final_median_px = np.median(initial_px), np.median(final_px)
+        initial_mm_median, final_mm_median = np.median(initial_mm), np.median(final_mm)
+        level = PASS
+        if final_median_px > photo_height * ALIGNMENT_FAIL_FRACTION:
+            level = FAIL
+            failed = True
+        elif final_median_px > photo_height * ALIGNMENT_REVIEW_FRACTION or final_mm_median > initial_mm_median + 0.5:
+            level = WARN
+        print(f'[{level}] 正面／斜面一致性 {side}：中位錯位 '
+              f'{initial_mm_median:.1f} → {final_mm_median:.1f} mm '
+              f'（{initial_median_px:.1f} → {final_median_px:.1f} px），'
+              f'P90 {np.percentile(initial_mm, 90):.1f} → {np.percentile(final_mm, 90):.1f} mm'
+              f'（兩階段共同可見 {count}/468 點）')
+    if assessed:
+        report_face_depth(frontal, front_cam['s'], depth_change)
+    return failed
+
+
+def report_head_overlap(folder, work, overlay_kpis=None, overlay_dir=None):
     folder, work = Path(folder), Path(work)
     try:
         cameras = json.loads((work / 'cams33.json').read_text(encoding='utf-8'))
+        if not isinstance(cameras, dict) or any(not isinstance(camera, dict) for camera in cameras.values()):
+            raise ValueError('cams33.json 需要相機資料物件')
+    except (OSError, ValueError) as error:
+        print(f'[WARN] 頭部投影重疊：未完成檢查（{error}）')
+        return 0
+    failed = report_head_yaws(cameras)
+    failed |= report_body_head_pairs(folder, work, cameras, overlay_dir)
+    try:
         landmarks = np.load(work / 'face_lm33.npy')
         if (landmarks.ndim != 2 or landmarks.shape[0] < 3 or landmarks.shape[1] < 2
                 or not np.isfinite(landmarks[:, :2]).all()):
@@ -1125,11 +1320,10 @@ def report_head_overlap(folder, work, overlay_kpis=None):
             points, normals, cameras[FRONT], frontal_image, frontal_mask)
     except (OSError, KeyError, IndexError, ValueError) as error:
         print(f'[WARN] 頭部投影重疊：未完成檢查（{error}）')
-        return 0
+        return int(failed)
 
     band = cheek_band(landmarks, frontal_image.shape, col, row)
     face_midline = np.median(landmarks[:, 0])
-    failed = False
     for cheek, side, direction in CHEEKS:
         label = f'{cheek} {FRONT} / {side}'
         try:
@@ -1154,8 +1348,9 @@ def report_head_overlap(folder, work, overlay_kpis=None):
         print(f'[{status}] {label}：亮度絕對差中位數 {median:.1f}，第 90 百分位 {p90:.1f} / 255'
               f'（{count} 點，目標 ≤ {PROJECTED_LUMA_PASS:g}，失敗 > {PROJECTED_LUMA_FAIL:g}）{guidance}')
     failed |= report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0], overlay_kpis)
+    failed |= report_face_reconstruction(work, cameras, landmarks, frontal_image.shape[0])
     if failed:
-        print('烘焙前驗證有 FAIL：請修正列出的亮度或五官偏差。')
+        print('烘焙前驗證有 FAIL：請檢查列出的頭部相機、亮度或五官偏差。')
     return int(failed)
 
 
@@ -1273,6 +1468,155 @@ def load_overlay_view(folder, work, name):
     if image is None or mask is None or image.shape[:2] != mask.shape or image.shape[0] != image.shape[1]:
         raise ValueError(f'{name} 缺少同尺寸的正方形照片與遮罩')
     return image, mask
+
+
+BODY_HEAD_MIN_OVERLAP = 0.60
+BODY_HEAD_REVIEW_OVERLAP = 0.80
+BODY_HEAD_MIN_HEIGHT = 1.42  # same head area used for camera scale in head registration
+
+
+def compare_body_head_landmarks(im, work, head, head_camera, body_camera, triangles):
+    """Measure the direct landmark residual in the full-body photo, without a refit."""
+    side = head.removeprefix('head_').removesuffix('deg')
+    path = work / ('face_lm33.npy' if side == '000' else f'face_lm33_{side}.npy')
+    close = np.load(path)
+    if (close.ndim != 2 or close.shape[0] < 468 or close.shape[1] < 2 or
+            not np.isfinite(close[:, :2]).all()):
+        raise ValueError('缺少可用的頭部特寫特徵點')
+    if head_camera.get('D') or body_camera.get('D'):
+        raise ValueError('五官量測需要正交相機')
+    points = triangles.reshape(-1, 3)
+    points = points[points[:, 1] >= BODY_HEAD_MIN_HEIGHT]
+    if not len(points):
+        raise ValueError('網格缺少頭部範圍')
+    projected = np.column_stack(camera_project(points, body_camera))
+    low, high = projected.min(axis=0), projected.max(axis=0)
+    margin = (high - low) * 0.16
+    x0, y0 = np.maximum(np.floor(low - margin), 0).astype(int)
+    x1, y1 = np.minimum(np.ceil(high + margin), list(im.shape[:2][::-1])).astype(int)
+    if x1 - x0 < 32 or y1 - y0 < 32:
+        raise ValueError('全身照的頭部裁切範圍不足')
+    roi = im[y0:y1, x0:x1]
+    scale = max(1.0, 512 / max(roi.shape[:2]))
+    enlarged = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    full = detect_face_landmarks(enlarged)
+    if isinstance(full, str):
+        raise ValueError('全身照五官檢查需要 MediaPipe')
+    if full is None or not np.isfinite(full).all():
+        raise ValueError('全身照的頭部裁切找不到有效五官')
+    full = full * np.array([roi.shape[1] / enlarged.shape[1], roi.shape[0] / enlarged.shape[0]]) + [x0, y0]
+    samples = landmark_correspondences(triangles, head_camera, body_camera, close[:, :2], full)
+    return {label: (float(np.median(np.linalg.norm(expected - observed, axis=1))), len(expected))
+            for label, (expected, observed) in group_landmark_samples(samples).items() if len(expected) >= 3}
+
+
+def compare_body_head_pair(folder, work, body, head, cameras, vertices, faces):
+    close, mask = load_overlay_view(folder, work, head)
+    full, full_mask = load_overlay_view(folder, work, body)
+    size = close.shape[0]
+    _, surface = rasterize_surface(vertices, faces, cameras[head], photo_size=size, with_points=True)
+    depth, _ = rasterize_surface(vertices, faces, cameras[body], size=768, photo_size=full.shape[0])
+    ref = cv2.resize(close, (OVERLAY_SIZE, OVERLAY_SIZE), interpolation=cv2.INTER_AREA)
+    mask = cv2.resize(mask, (OVERLAY_SIZE, OVERLAY_SIZE), interpolation=cv2.INTER_NEAREST) > 0
+    _, head_bottom = camera_project(np.array([0.0, BODY_HEAD_MIN_HEIGHT, 0.0]), cameras[head])
+    mask &= np.arange(OVERLAY_SIZE)[:, None] < (head_bottom + 0.5) * OVERLAY_SIZE / size
+    # The reference denominator comes from the photo, so missing mesh/hair pixels lower coverage.
+    warped, shared, denominator = reproject_photo(surface, mask, cameras[body], depth, full, full_mask)
+    delta = cv2.absdiff(cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY), cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY))
+    coverage = shared.sum() / max(1, denominator)
+    if denominator < MIN_SAMPLES:
+        return None, ref, warped, shared, delta, full
+    p90 = float(np.percentile(delta[shared], 90)) if shared.sum() >= MIN_SAMPLES else None
+    if coverage < BODY_HEAD_MIN_OVERLAP or (p90 is not None and p90 > PROJECTED_LUMA_FAIL):
+        status = FAIL
+    elif coverage < BODY_HEAD_REVIEW_OVERLAP or p90 is None or p90 > PROJECTED_LUMA_PASS:
+        status = WARN
+    else:
+        status = PASS
+    return (coverage, p90, status), ref, warped, shared, delta, full
+
+
+def report_body_head_pairs(folder, work, cameras, overlay_dir=None):
+    body_views = {slot[1]: name for name in cameras
+                  if (slot := photo_slot(name)) and slot[0] == 'main'}
+    if not body_views:
+        print('[WARN] 全身／頭部一致性：缺少水平全身相機')
+        return False
+    try:
+        with np.load(work / 'uvmesh.npz') as mesh:
+            vertices, faces = mesh['pos'], mesh['tri']
+    except (OSError, KeyError, ValueError) as error:
+        print(f'[WARN] 全身／頭部一致性：缺少有效網格（{error}）')
+        return False
+    rows, fields = [], []
+    failed = False
+    triangles = vertices[faces[(vertices[faces, 1] >= 1.36).any(axis=1)]]
+    for angle in range(0, 360, 45):
+        head, body = f'head_{angle:03d}deg', body_views.get(angle)
+        label = f'全身／頭部一致性 {angle:03d}°'
+        if not body or head not in cameras:
+            print(f'[WARN] {label}：缺少同角度的全身照或頭部相機')
+            continue
+        try:
+            metrics, ref, warped, shared, delta, full = compare_body_head_pair(
+                folder, work, body, head, cameras, vertices, faces)
+        except (KeyError, ValueError) as error:
+            print(f'[WARN] {label}：{error}')
+            continue
+        if metrics is None:
+            print(f'[WARN] {label}：頭部參考區域取樣不足')
+            continue
+        coverage, p90, status = metrics
+        geometry = {}
+        geometry_status = 'NOT_APPLICABLE'
+        if angle in FACE_VIEWS:
+            geometry_status = PASS
+            try:
+                geometry = compare_body_head_landmarks(full, work, head, cameras[head], cameras[body], triangles)
+            except (OSError, KeyError, ValueError) as error:
+                print(f'[WARN] {label} 五官：{error}')
+            for part in ('眼部', '鼻部', '嘴部'):
+                if part not in geometry:
+                    if geometry_status == PASS:
+                        geometry_status = 'NOT_MEASURED'
+                    print(f'[WARN] {label} {part}：共同可見五官點不足')
+                    continue
+                pixels, count = geometry[part]
+                equivalent = pixels * cameras[head]['s'] / cameras[body]['s']
+                level = FAIL if equivalent > FRAME_PIXELS * ALIGNMENT_FAIL_FRACTION else (
+                    WARN if equivalent > FRAME_PIXELS * ALIGNMENT_REVIEW_FRACTION else PASS)
+                if level == FAIL or (level == WARN and geometry_status == PASS):
+                    geometry_status = level
+                print(f'[{level}] {label} {part}：中位偏移 {pixels:.1f} px（全身照），'
+                      f'換算頭部特寫 {equivalent:.1f} px（{count} 點）')
+        if geometry_status == FAIL or (geometry_status in (WARN, 'NOT_MEASURED') and status == PASS):
+            status = FAIL if geometry_status == FAIL else WARN
+        failed |= status == FAIL
+        enough = coverage >= BODY_HEAD_MIN_OVERLAP and p90 is not None
+        brightness = f'亮度差 P90 {p90:.1f}/255' if enough else '亮度差取樣不足'
+        print(f'[{status}] {label} {body} → {head}：頭部共同覆蓋 {coverage:.1%}，{brightness}')
+        if overlay_dir is not None:
+            luma_caption = f'P90 {p90:.1f}/255' if enough else 'P90 unavailable'
+            rows.append(render_overlay_row(f'{body} to {head}', f'Coverage {coverage:.1%} | {luma_caption} | {status}',
+                                           ref, warped, shared, delta))
+            geometry_fields = tuple(f'{geometry[p][0]:.1f}' if p in geometry else '' for p in ('眼部', '鼻部', '嘴部'))
+            fields.append((angle, body, head, f'{100 * coverage:.2f}', f'{p90:.1f}' if enough else '',
+                           *geometry_fields, geometry_status, status))
+    if rows:
+        output = Path(overlay_dir)
+        try:
+            output.mkdir(parents=True, exist_ok=True)
+            with (output / 'body_head_overlap.csv').open('w', encoding='utf-8', newline='') as handle:
+                table = csv.writer(handle)
+                table.writerow(('angle', 'source_body', 'reference_head', 'coverage_percent', 'luma_p90',
+                                'eye_median_body_px', 'nose_median_body_px', 'mouth_median_body_px',
+                                'geometry_status', 'status'))
+                table.writerows(fields)
+            if not cv2.imwrite(str(output / 'body_head_overlap.png'), np.vstack(rows)):
+                raise OSError('無法寫入全身／頭部疊圖')
+        except (OSError, cv2.error) as error:
+            print(f'[WARN] 全身／頭部疊圖：{error}')
+    return failed
 
 
 def render_overlay_row(label, detail, ref, warped, shared, delta):
@@ -1614,7 +1958,7 @@ def main():
     print(f'check_turnaround 版本 {__version__}（模式 {args.mode}：' + ('AI 生成圖，嚴格門檻' if MODE['ai'] else '真實照片，較寬門檻') + '）')
     if args.head_overlap_work:
         overlay_kpis = {} if args.view_overlay_dir else None
-        status = report_head_overlap(args.folder, args.head_overlap_work, overlay_kpis)
+        status = report_head_overlap(args.folder, args.head_overlap_work, overlay_kpis, args.view_overlay_dir)
         if args.view_overlay_dir:
             try:
                 report_view_overlays(args.folder, args.head_overlap_work, args.view_overlay_dir, overlay_kpis)

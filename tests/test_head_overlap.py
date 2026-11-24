@@ -44,6 +44,73 @@ def test_missing_landmarks_reports_incomplete_check(tmp_path):
     assert any('未完成檢查' in line for line in lines(output, 'WARN')), output
 
 
+def test_head_yaw_limit_checks_before_and_after_face_alignment(capsys):
+    assert checker.report_head_yaws({
+        'head_000deg': {'phi': 359},
+        'head_045deg': {'phi': 56, 'pre_face': {'phi': 50}},
+        'head_090deg': {'phi': 107},
+    })
+    output = capsys.readouterr().out
+    assert any('head_000deg' in line and '-1.0°' in line for line in lines(output, 'PASS'))
+    assert any('head_045deg 最終相機' in line for line in lines(output, 'FAIL'))
+    assert any('head_090deg 最終相機' in line and '+17.0°' in line for line in lines(output, 'FAIL'))
+
+
+@pytest.mark.parametrize('right_shift, expected', [(0, checker.PASS), (35, checker.FAIL)])
+def test_face_audit_checks_each_oblique_view_against_frontal_mesh(tmp_path, right_shift, expected, capsys):
+    base = np.array([[-.2, 1.38, .1], [.2, 1.38, .1], [.2, 1.69, .1], [-.2, 1.69, .1]], dtype='<f4')
+    raised = base + np.array([0, 0, .008], dtype='<f4')
+    header = (b'ply\nformat binary_little_endian 1.0\nelement vertex 4\n'
+              b'property float x\nproperty float y\nproperty float z\nelement face 2\n'
+              b'property list uchar int vertex_indices\nend_header\n')
+    faces = np.array([(3, (0, 1, 2)), (3, (0, 2, 3))],
+                     dtype=[('count', 'u1'), ('vertices', '<i4', (3,))])
+    for name, vertices in [('body33s_noface.ply', base), ('body33s.ply', raised)]:
+        (tmp_path / name).write_bytes(header + vertices.tobytes() + faces.tobytes())
+
+    x, y = np.meshgrid(np.linspace(-.10, .10, 26), np.linspace(1.46, 1.62, 18))
+    points = np.column_stack((x.ravel(), y.ravel(), np.full(x.size, .108)))
+    front = dict(phi=0, th=0, s=3000, cu=1024, cv=5600)
+    frontal = np.column_stack(checker.camera_project(points, front))
+    cameras = {'head_000deg': front}
+    for angle, dx in [(45, 0), (315, right_shift)]:
+        camera = dict(front, phi=angle)
+        cameras[f'head_{angle:03d}deg'] = dict(camera, pre_face=dict(camera, cu=984))
+        photo = np.column_stack(checker.camera_project(points, camera)) + [dx, 0]
+        np.save(tmp_path / f'face_lm33_{angle:03d}.npy', photo)
+    assert checker.report_face_reconstruction(tmp_path, cameras, frontal, 2048) is (expected == checker.FAIL)
+    output = capsys.readouterr().out
+    assert any('head_045deg' in line and '→ 0.0 mm' in line for line in lines(output, 'PASS'))
+    assert any('head_315deg' in line for line in lines(output, expected))
+    assert '鼻尖：朝正面為正，修正量中位數 +8.0 mm' in output
+
+
+@pytest.mark.parametrize('delta, same_mask, level', [(0, True, 'PASS'), (35, True, 'FAIL'), (0, False, 'FAIL')])
+def test_body_head_pair_reprojects_same_nominal_angle(tmp_path, delta, same_mask, level, capsys):
+    body, head = '05_180deg_back', 'head_180deg'
+    work = tmp_path / 'work'
+    work.mkdir()
+    mask = np.zeros((512, 512), np.uint8)
+    mask[60:280, 156:356] = 255
+    for name, shade in [(body, 145), (head, 145 + delta)]:
+        assert cv2.imwrite(str(tmp_path / f'{name}.jpg'), np.full((512, 512), shade, np.uint8))
+        image_mask = mask if same_mask or name == head else np.roll(mask, 220, axis=1)
+        assert cv2.imwrite(str(work / f'mask_{name}.png'), image_mask)
+    cam = dict(phi=180, th=0, s=1000, cu=256, cv=1700)
+    np.savez(work / 'uvmesh.npz',
+             pos=[[-.1, 1.42, 0], [.1, 1.42, 0], [.1, 1.64, 0], [-.1, 1.64, 0]],
+             tri=[[0, 1, 2], [0, 2, 3]])
+    out = tmp_path / 'overlays'
+    assert checker.report_body_head_pairs(tmp_path, work, {body: cam, head: cam}, out) is (level == 'FAIL')
+    output = capsys.readouterr().out
+    assert any(f'{body} → {head}' in line for line in lines(output, level))
+    assert (out / 'body_head_overlap.png').is_file()
+    row = (out / 'body_head_overlap.csv').read_text().splitlines()[1]
+    assert row.startswith(f'180,{body},{head},') and row.endswith(f',{level}')
+    if not same_mask:
+        assert '亮度差取樣不足' in output
+
+
 def test_photo_cheek_brightness_uses_local_samples(monkeypatch):
     monkeypatch.setattr(checker, 'results', [])
     mask = np.ones((512, 512), bool)
