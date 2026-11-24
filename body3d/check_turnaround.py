@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.17.0（2026-11-24）
+版本 1.18.0（2026-11-24）
 
 版本紀錄:
+  1.18.0 收緊曝光、臉頰亮度與五官門檻，關鍵尺寸或位置嚴重偏差會擋下烘焙。
   1.17.0 五官投影檢查加入眼距、鼻寬、口寬、臉型等尺寸及縮放後比例差。
   1.16.0 烘焙前比對正面與左右斜面的五官投影，列出整體縮放和平移試算前後的偏移。
   1.15.0 收緊生圖曝光規格，新增照片臉頰亮度粗篩及烘焙前亮度門檻。
@@ -137,9 +138,9 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 不要有 AI 留下的灰白雜點（黏在身體邊緣的無色色塊，本腳本第 1b 項）。
   - 33 張圖鎖定同一組曝光、白平衡、光源方向與強度，各視角不使用自動曝光。
   - 臉部用均勻柔光，正面和左右斜面的臉頰要保持同一膚色亮度。避免深色帶、局部高光及分區補光。
-  - 第 9 項曝光粗篩：全圖平均膚色亮度相對主環偏差應 ≤ 5%；頭部臉頰取樣亮度差應 ≤ 8 / 255。
-  - 烘焙前投影重疊檢查：共同可見臉頰亮度絕對差的第 90 百分位應 ≤ 15 / 255；
-    > 15 至 25 判 WARN，> 25 判 FAIL。
+  - 第 9 項曝光粗篩：全圖平均膚色亮度相對主環偏差應 ≤ 3%；頭部臉頰取樣亮度差應 ≤ 5 / 255。
+  - 烘焙前投影重疊檢查：共同可見臉頰亮度絕對差的第 90 百分位應 ≤ 12 / 255；
+    > 12 至 20 判 WARN，> 20 判 FAIL。
 
 七、畫質
   - 重建輸入全部使用 2048 × 2048 的 JPEG，副檔名為小寫 .jpg。
@@ -179,7 +180,7 @@ import argparse, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.17.0'
+__version__ = '1.18.0'
 import numpy as np
 import cv2
 
@@ -664,10 +665,10 @@ FRONT = 'head_000deg'
 CHEEKS = (('左臉頰', 'head_045deg', 1), ('右臉頰', 'head_315deg', -1))
 MIN_SAMPLES = 60
 # Brightness thresholds use the 0–255 grayscale scale unless noted.
-EXPOSURE_MAX_DIFF = 0.05
-PHOTO_CHEEK_MAX_DIFF = 8.0
-PROJECTED_LUMA_PASS = 15.0
-PROJECTED_LUMA_FAIL = 25.0
+EXPOSURE_MAX_DIFF = 0.03
+PHOTO_CHEEK_MAX_DIFF = 5.0
+PROJECTED_LUMA_PASS = 12.0
+PROJECTED_LUMA_FAIL = 20.0
 
 
 def projected_samples(points, normals, cam, image, mask):
@@ -722,6 +723,8 @@ FEATURE_POINTS = (
     ('嘴部', (61, 291, 13, 14, 17, 0)),
 )
 ALIGNMENT_REVIEW_FRACTION = 0.01
+ALIGNMENT_FAIL_FRACTION = 0.015
+ALIGNMENT_FAIL_MIN_POINTS = 3
 
 # Tuple endpoints use the mean image position of the specified landmarks.
 RIGHT_EYE_CENTER, LEFT_EYE_CENTER = (33, 133), (362, 263)
@@ -749,8 +752,15 @@ FACE_DIMENSIONS = (
 FEATURE_ANCHORS = tuple(dict.fromkeys(
     [(index,) for _, indices in FEATURE_POINTS for index in indices] +
     [anchor for _, first, second in FACE_DIMENSIONS for anchor in (first, second)]))
-DIMENSION_REVIEW_FRACTION = 0.05
+DIMENSION_REVIEW_FRACTION = 0.04
 DIMENSION_REVIEW_MIN_PX = 2.0
+DIMENSION_FAIL_FRACTION = 0.08
+DIMENSION_FAIL_MIN_PX = 5.0
+# Gate stable dimensions with reliable paired landmarks. Openings/face outlines stay advisory.
+CRITICAL_DIMENSIONS = {
+    '眼距（眼角中點）', '內眼角距', '外眼角距', '右眼寬', '左眼寬',
+    '鼻翼寬', '鼻樑至鼻尖', '嘴寬',
+}
 
 
 def mesh_point_at(pixel, triangles, projected, depths):
@@ -832,8 +842,19 @@ def group_landmark_samples(samples):
     return pairs
 
 
+def dimension_status(label, difference, fraction, calibrated):
+    if (calibrated and label in CRITICAL_DIMENSIONS
+            and abs(difference) > DIMENSION_FAIL_MIN_PX
+            and abs(fraction) > DIMENSION_FAIL_FRACTION):
+        return FAIL
+    if abs(difference) > DIMENSION_REVIEW_MIN_PX and abs(fraction) > DIMENSION_REVIEW_FRACTION:
+        return WARN
+    return PASS
+
+
 def report_face_dimensions(side, samples, scale):
     """Compare distances in the same view, before and after correcting global scale."""
+    failed = False
     for label, first, second in FACE_DIMENSIONS:
         if first not in samples or second not in samples:
             print(f'[INFO] 五官尺寸 {side} {label}：共同可見點不足')
@@ -849,12 +870,13 @@ def report_face_dimensions(side, samples, scale):
         reference = expected * scale if scale is not None else expected
         difference = observed - reference
         fraction = difference / reference
-        mismatch = abs(difference) > DIMENSION_REVIEW_MIN_PX and abs(fraction) > DIMENSION_REVIEW_FRACTION
-        level = WARN if mismatch else PASS
+        level = dimension_status(label, difference, fraction, scale is not None)
+        failed |= level == FAIL
         resized = f'，縮放後投影 {reference:.1f} px' if scale is not None else ''
         suffix = '縮放後差' if scale is not None else '原始差'
         print(f'[{level}] 五官尺寸 {side} {label}：原始投影 {expected:.1f} px，照片 {observed:.1f} px'
               f'{resized}；{suffix} {difference:+.1f} px（{100 * fraction:+.1f}%）')
+    return failed
 
 
 # Each endpoint comes from the side where it faces the camera.
@@ -892,6 +914,7 @@ def report_bilateral_dimensions(frontal, back_projected):
     """Compare frontal spans using one visible endpoint from each oblique view."""
     right = back_projected.get('head_315deg', {})
     left = back_projected.get('head_045deg', {})
+    failed = False
     for label, first, second in BILATERAL_DIMENSIONS:
         if first not in right or second not in left:
             print(f'[INFO] 五官尺寸 斜面回投正面 {label}：左右可見端點不足')
@@ -903,10 +926,11 @@ def report_bilateral_dimensions(frontal, back_projected):
         estimated = float(np.linalg.norm(right[first] - left[second]))
         difference = estimated - reference
         fraction = difference / reference
-        mismatch = abs(difference) > DIMENSION_REVIEW_MIN_PX and abs(fraction) > DIMENSION_REVIEW_FRACTION
-        level = WARN if mismatch else PASS
+        level = dimension_status(label, difference, fraction, calibrated=True)
+        failed |= level == FAIL
         print(f'[{level}] 五官尺寸 斜面回投正面 {label}：正面照片 {reference:.1f} px，'
               f'左右斜面回投 {estimated:.1f} px；差 {difference:+.1f} px（{100 * fraction:+.1f}%）')
+    return failed
 
 
 def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
@@ -914,17 +938,19 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
     sides = [(f'head_{angle}deg', work / f'face_lm33_{angle}.npy') for angle in ('045', '315')]
     if len(frontal) < min_count or not any(path.is_file() for _, path in sides):
         print('[WARN] 五官投影：取樣資料不足，需要正面與斜面特徵點')
-        return
+        return False
     try:
         with np.load(work / 'uvmesh.npz') as mesh:
             triangles = vertices[mesh['tri']]
         triangles = triangles[(triangles[:, :, 1] >= 1.36).any(1)]
     except (OSError, KeyError, IndexError, ValueError) as error:
         print(f'[WARN] 五官投影：無法讀取三角網格（{error}）')
-        return
+        return False
 
     limit = photo_height * ALIGNMENT_REVIEW_FRACTION
+    fail_limit = photo_height * ALIGNMENT_FAIL_FRACTION
     back_projected = {}
+    failed = False
     for side, path in sides:
         if not path.is_file() or side not in cameras:
             print(f'[WARN] 五官投影 {side}：缺少斜面特徵點或相機')
@@ -963,18 +989,25 @@ def report_landmark_alignment(work, cameras, frontal, vertices, photo_height):
             dx, dy = np.median(offsets, axis=0)
             fitted = scale * points + shift if fit is not None else points
             after = float(np.median(np.linalg.norm(targets - fitted, axis=1)))
-            level = WARN if before > limit or after > limit else PASS
+            if fit is not None and len(points) >= ALIGNMENT_FAIL_MIN_POINTS and after > fail_limit:
+                level = FAIL
+                failed = True
+            else:
+                level = WARN if before > limit or after > limit else PASS
             correction = f'{before:.1f} → {after:.1f} px' if fit is not None else f'{before:.1f} px'
             guidance = '；整體校正後仍需複核局部對位' if fit is not None and after > limit else ''
+            if level == FAIL:
+                guidance += f'（校正後失敗門檻 > {fail_limit:.1f} px）'
             print(f'[{level}] 五官投影 {side} {label}：中位偏移 {correction}'
                   f'（{len(points)} 點，目標 ≤ {limit:.1f} px）；'
                   f'原始偏移 x {dx:+.1f}、y {dy:+.1f} px（右、下為正）{guidance}')
-        report_face_dimensions(side, samples, fit[0] if fit is not None else None)
+        failed |= report_face_dimensions(side, samples, fit[0] if fit is not None else None)
         if fit is not None:
             back_projected[side] = oblique_endpoints_to_front(
                 side, samples, fit, triangles, cameras[FRONT], cameras[side])
     if len(back_projected) == len(sides):
-        report_bilateral_dimensions(frontal, back_projected)
+        failed |= report_bilateral_dimensions(frontal, back_projected)
+    return failed
 
 
 def report_head_overlap(folder, work):
@@ -1023,7 +1056,9 @@ def report_head_overlap(folder, work):
         guidance = '，請複核重疊區亮度和對位' if status != PASS else ''
         print(f'[{status}] {label}：亮度絕對差中位數 {median:.1f}，第 90 百分位 {p90:.1f} / 255'
               f'（{count} 點，目標 ≤ {PROJECTED_LUMA_PASS:g}，失敗 > {PROJECTED_LUMA_FAIL:g}）{guidance}')
-    report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0])
+    failed |= report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0])
+    if failed:
+        print('烘焙前驗證有 FAIL：請修正列出的亮度或五官偏差。')
     return int(failed)
 
 
@@ -1201,14 +1236,14 @@ def finish(out=None):
     failures = sum(r[0] == FAIL for r in results)
     warnings = sum(r[0] == WARN for r in results)
     passes = sum(r[0] == PASS for r in results)
-    print(f'\n總結: {failures} 個 FAIL, {warnings} 個 WARN, {passes} 個 PASS' +
+    print(f'\n照片初篩總結: {failures} 個 FAIL, {warnings} 個 WARN, {passes} 個 PASS' +
           (f'   報告圖: {out}' if out else ''))
     if failures:
         print('有 FAIL：請先修正列出的問題再重建。')
     elif warnings:
-        print('只有 WARN：可以用，但結果可能受影響。')
+        print('照片初篩有 WARN：請複核，烘焙前仍需檢查投影。')
     else:
-        print('全部通過：這組圖可以開始 3D 重建。')
+        print('照片初篩通過：可以開始重建，烘焙前仍需檢查投影。')
     sys.exit(1 if failures else 0)
 
 
