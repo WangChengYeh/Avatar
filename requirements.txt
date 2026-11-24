@@ -1,0 +1,8 @@
+numpy
+opencv-python
+scipy
+scikit-image
+trimesh
+fast-simplification
+mediapipe==0.10.14   # 選用：臉部特徵點（沒有的話臉部改用一般混合）
+pytest
