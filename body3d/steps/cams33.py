@@ -89,6 +89,10 @@ print('main hull surface points', len(P))
 
 EXTRA_BODY_RINGS = camera.FIXED_ELEVATION_RINGS | {'top'}
 PERSPECTIVE = os.environ.get('BODY3D_PERSPECTIVE', '1') != '0'
+LOCK = camera.ring_lock_enabled()
+S_BODY = camera.body_scale(cams)                # every full-body view has the level ring's scale (fixed distance)
+if LOCK:
+    print('fixed distance: full-body views share the level-ring scale %.1f px/m' % S_BODY)
 PERSP_MIN_GAIN = 0.01             # IoU gain a camera distance must bring (0.005 gave false perspective on orthographic photos)
 DS = 4
 for n, v in sorted(views.items()):
@@ -105,6 +109,8 @@ for n, v in sorted(views.items()):
         # scale from the larger of width / height extents, offsets from bbox centres
         sw = (xs_.max() - xs_.min()) / (cc.max() - cc.min()); sh = (ys_.max() - ys_.min()) / (rr.max() - rr.min())
         s = sh if v['kind'] != 'top' else sw
+        if LOCK:
+            s = S_BODY
         cu = (xs_.max() + xs_.min()) / 2 - s * (cc.max() + cc.min()) / 2
         cv_ = (ys_.max() + ys_.min()) / 2 - s * (rr.max() + rr.min()) / 2
         return dict(c, s=s, cu=cu, cv=cv_)
@@ -125,6 +131,8 @@ for n, v in sorted(views.items()):
                 improved = False
                 for key, dv in (('cu', step), ('cu', -step), ('cv', step), ('cv', -step), ('s', c['s'] * 0.01 * step / 4), ('s', -c['s'] * 0.01 * step / 4),
                                 ('phi', step / 4), ('phi', -step / 4), ('th', step / 4), ('th', -step / 4)):
+                    if LOCK and key == 's':
+                        continue
                     c2 = dict(c); c2[key] += dv
                     if not camera.within_limits(n, dict(c2, kind=v['kind'])):
                         continue

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.22.0（2026-11-25）
+版本 1.23.0（2026-11-25）
 
 版本紀錄:
+  1.23.0 第 10d 項：相機距離固定。全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物寬度要相同；頭部特寫
+         固定放大 HEAD_ZOOM = 4 倍（畫面寬 1.95 / 0.4875 m）。
   1.22.0 烘焙前比對全身照與同角度的頭部特寫，並檢查頭部相機及臉部深度修正。
   1.21.0 --mode ai（預設）/ photo：AI 生成的圖可以重來，門檻改成「完美照片 + 小餘裕」，翻轉複製、光線翻轉、
          解析度、背景 / 陰影等 WARN 在 ai 模式判 FAIL；俯角 / 仰角環大小一致改比相差 180° 的兩張；
@@ -176,6 +178,19 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
       "camera directly overhead, looking straight down"
       "camera raised, tilted down 30 degrees"     "camera at knee height, tilted up 20 degrees"
     生成後一律用本腳本檢查：AI 常把 45° 畫成 15–20°、把 90° 畫成 60–75°（第 4、5 項）。
+  - 相機距離固定（第 10d 項）：相機繞著人物轉，只改角度，距離和對準點不變。
+    全身圖（水平、俯角 30°、仰角 20°、俯視）全部同一個構圖：畫面寬 1.95 m，對準肚臍高度的身體中心。
+      水平環：人物高約佔畫面高 85%，頭頂離上緣約 9%，腳底離下緣約 7%，人物左右置中。
+      同一角度的水平、俯角、仰角圖，人物左右寬度（指尖到指尖）要相同；俯視圖和正面一樣寬。
+    頭部特寫全部同一個構圖：放大為全身圖的 4 倍（畫面寬約 0.49 m），頭寬約佔畫面寬三分之一。
+      對準點可自選（建議頭部中心：頭頂離上緣約 24%），但 8 張必須相同：頭頂在每張的同一高度。
+    全身圖每張加上：
+      same camera distance and framing in every full-body view, only the camera angle changes,
+      camera aimed at the navel, full figure centred, about 85 % of the image height
+    頭部特寫每張加上：
+      head close-up at 4x the full-body zoom, same camera distance in every close-up, camera aimed at the
+      centre of the head, head width about one third of the image width, head top at the same height in
+      every close-up
   - 不要用左右翻轉產生另一側（第 6b、6c 項會抓出來）。
   - 光線、背景、衣服、髮型、表情、手指姿勢、腳的位置在 33 張都要相同。
   - 每張沿用同一段亮度提示詞：
@@ -192,7 +207,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.22.0'
+__version__ = '1.23.0'
 import numpy as np
 import cv2
 
@@ -460,6 +475,58 @@ def ring_ratio_check(good, extra):
     return out
 
 
+# section 10d, fixed camera distance (input spec): every full-body view (level, +30°, -20°, top) is framed the
+# same, BODY_FRAME wide; the head close-ups are one fixed zoom, HEAD_FRAME wide. Orthographic image columns do not
+# depend on the tilt (col = cu + s P·r, r has no tilt term), so at the same azimuth the full-body silhouette must be
+# exactly as wide in every ring, and the top view as wide as the 0° view. The close-ups must show the head
+# HEAD_ZOOM times as wide as the 0°-ring view of the same angle. Perfect photos: width 0.0–0.1 %, zoom −0.7–−0.4 %.
+BODY_FRAME, HEAD_ZOOM = 1.95, 4.0              # metres across a full-body image; close-up zoom (same in steps/camera.py)
+HEAD_FRAME = BODY_FRAME / HEAD_ZOOM            # 0.4875 m across a close-up
+WIDTH_PASS, WIDTH_FAIL = 0.01, 0.02            # |ring width / level width - 1|
+ZOOM_PASS, ZOOM_FAIL = 0.02, 0.04              # |close-up head width / level head width / HEAD_ZOOM - 1|
+
+
+def silhouette_width(m):
+    cols = np.flatnonzero(m.any(0))
+    return int(cols[-1] - cols[0] + 1) if cols.size else 0
+
+
+def head_width(m, span):
+    """widest row of the silhouette within `span` px below its top (head and hair, above the shoulders)"""
+    rows = np.flatnonzero(m.any(1))
+    if not rows.size:
+        return 0
+    best = 0
+    for y in range(rows[0], min(m.shape[0], rows[0] + int(span))):
+        x = np.flatnonzero(m[y])
+        if x.size and x[0] > 0 and x[-1] < m.shape[1] - 1:
+            best = max(best, int(x[-1] - x[0] + 1))
+    return best
+
+
+def distance_check(good, extra):
+    """10d. {(cat, angle): deviation}: full-body width vs the level view; head zoom vs HEAD_ZOOM"""
+    out = {}
+    for cat in ('el30', 'low20', 'top'):
+        for a, v in sorted(extra.get(cat, {}).items()):
+            ref = good.get(0 if cat == 'top' else a)
+            if ref is None or v.get('m') is None or ref.get('m') is None:
+                continue
+            w0 = silhouette_width(ref['m'])
+            if w0:
+                out[(cat, a)] = silhouette_width(v['m']) / w0 - 1
+    for a, v in sorted(extra.get('head', {}).items()):
+        ref = good.get(a)
+        if a in (90, 270) or ref is None or v.get('m') is None or ref.get('m') is None:
+            continue                          # side views: the arms reach into the close-up frame
+        rows = np.flatnonzero(ref['m'].any(1))
+        s = (rows[-1] - rows[0]) / 1.65        # px per metre of the level view (figure height 1.65 m)
+        w0, w1 = head_width(ref['m'], 0.18 * s), head_width(v['m'], 0.18 * s * HEAD_ZOOM)
+        if w0 and w1:
+            out[('head', a)] = w1 / w0 / HEAD_ZOOM - 1
+    return out
+
+
 # section 11, face consistency of the head close-ups (needs mediapipe). Ratios of vertical distances only, so with
 # level orthographic cameras they are the same in every view; MediaPipe itself reads 3/4 faces a little
 # differently, so the 3/4 views are compared with the bias measured on perfect (rendered) photos.
@@ -582,9 +649,9 @@ def project_hull(hull, phi, th, s, cu, cv, shape, D=None, Q=4, vs=0.01):
     return ff != 128
 
 
-def fit_view(hull, m, phi, th, D=None, init=None, Q=4):
-    """fit scale / offsets (and ±4° of angle) of the hull projection to the photo mask by IoU.
-    Returns (iou, params)."""
+def fit_view(hull, m, phi, th, D=None, init=None, Q=4, scale=None):
+    """fit scale / offsets (and ±4° of angle) of the hull projection to the photo mask by IoU; a given scale
+    (fixed camera distance, section 10d) is kept. Returns (iou, params)."""
     ms = cv2.resize(m.astype(np.uint8), (m.shape[1] // Q, m.shape[0] // Q), interpolation=cv2.INTER_AREA) > 0
 
     def score(x):
@@ -595,13 +662,13 @@ def fit_view(hull, m, phi, th, D=None, init=None, Q=4):
         p, tt = np.radians(phi), np.radians(th)
         rr = np.array([np.cos(p), 0, -np.sin(p)]); uu = np.array([-np.sin(tt) * np.sin(p), np.cos(tt), -np.sin(tt) * np.cos(p)])
         a, bb = hull @ rr, hull @ uu
-        s0 = (b - t) / (bb.max() - bb.min())
+        s0 = (b - t) / (bb.max() - bb.min()) if scale is None else scale
         x = [s0, (l + r_) / 2 - s0 * (a.max() + a.min()) / 2, (t + b) / 2 + s0 * (bb.max() + bb.min()) / 2, phi, th]
     else:
         x = list(init)
     best = (score(x), x)
     for frac in (0.04, 0.015, 0.005):
-        steps = [(0, x[0] * frac), (1, 400 * frac), (2, 400 * frac), (3, 100 * frac), (4, 100 * frac)]
+        steps = [(0, x[0] * frac), (1, 400 * frac), (2, 400 * frac), (3, 100 * frac), (4, 100 * frac)][scale is not None:]
         improved = True
         while improved:
             improved = False
@@ -623,10 +690,15 @@ def ring_consistency(good, extra, out_png):
             [(cat, a, v) for cat in ('el30', 'low20') for a, v in sorted(extra.get(cat, {}).items()) if v.get('m') is not None]
     full_hull = quick_hull(good)
     rows, tiles = [], []
+    main_scales = []
     for cat, a, v in views:
         hull = quick_hull({k: w for k, w in good.items() if k != a}) if cat == 'main' else full_hull
         m = v['m']; th = RING_EL[cat]
-        iou_o, x_o = fit_view(hull, m, a, th)
+        # fixed camera distance: the tilted rings are drawn at the level ring's scale (section 10d checks it)
+        scale = float(np.median(main_scales)) if cat != 'main' and main_scales else None
+        iou_o, x_o = fit_view(hull, m, a, th, scale=scale)
+        if cat == 'main':
+            main_scales.append(x_o[0])
         Q = 4
         ms = cv2.resize(m.astype(np.uint8), (m.shape[1] // Q, m.shape[0] // Q), interpolation=cv2.INTER_AREA) > 0
         img = project_hull(hull, x_o[3], x_o[4], x_o[0], x_o[1], x_o[2], m.shape, None, Q)
@@ -2436,6 +2508,29 @@ def main():
                 review = '優先複核' if worst >= RATIO_REVIEW else '複核'
                 msg += f' → {review}這張與同角度主環的輪廓、俯仰角與姿勢'
             report(lvl, f'{cat} {a}° 寬度比', msg)
+
+    # ---- 10d. fixed camera distance
+    dist = distance_check(good, extra) if args.pose == 'tpose' else {}
+    if dist:
+        print(f'\n10d. 相機距離固定（全身圖同寬 {BODY_FRAME} m 構圖；頭部特寫放大 {HEAD_ZOOM:.2f} 倍，{HEAD_FRAME:.2f} m 構圖）')
+        for (cat, a), dv in dist.items():
+            head = cat == 'head'
+            p_, f_ = (ZOOM_PASS, ZOOM_FAIL) if head else (WIDTH_PASS, WIDTH_FAIL)
+            p_, f_ = T(p_, 2.5 * p_), T(f_, 2.5 * f_)
+            lvl = PASS if abs(dv) <= p_ else WARN if abs(dv) <= f_ else FAIL
+            if head:
+                msg = (f'頭寬是主環 {a}° 的 {HEAD_ZOOM * (1 + dv):.2f} 倍，規格 {HEAD_ZOOM:.2f} 倍（差 {100 * dv:+.1f}%，'
+                       f'應 ≤ {100 * p_:.0f}%）')
+                tag = f'head {a}° 放大倍率'
+            else:
+                ref = '主環 0°' if cat == 'top' else f'主環 {a}°'
+                msg = f'人物寬度和{ref}差 {100 * dv:+.1f}%（應 ≤ {100 * p_:.0f}%：正交投影下傾角不改變寬度）'
+                tag = f'{cat} {a}° 距離' if cat != 'top' else 'top 距離'
+            if lvl != PASS:
+                msg += (' → 相機距離 / 構圖和規格不同：這張畫' + ('大' if dv > 0 else '小') + '了。'
+                        + (f'頭部特寫一律用同一個距離，頭寬約為畫面寬的 {100 * 0.16 / HEAD_FRAME:.0f}%，重新生成這張'
+                           if head else '所有全身圖（水平、俯角、仰角、俯視）用同一個相機距離與構圖，重新生成這張'))
+            report(lvl, tag, msg)
 
     # ---- 11. face consistency of the head close-ups
     face_results = []

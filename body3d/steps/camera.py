@@ -89,6 +89,90 @@ def nominal(name, kind):
     return (float(m.group(1)) if m else 0.0), NOMINAL_TH.get(kind, 0.0)
 
 
+def ring_lock_enabled():
+    """Fixed camera distance and centre within each ring (see docs/Loop-Engineering-Theory.md).
+    On by default when the photos passed the strict check, like the ±3° angle limit; BODY3D_RING_LOCK=1 / 0
+    forces it on / off."""
+    v = _os.environ.get('BODY3D_RING_LOCK')
+    return CHECK_PASSED if v is None else v != '0'
+
+
+# ---- fixed distance and centre within a ring.
+# The imaginary camera orbits the figure: within one ring only the angle changes. So every view of the ring has
+# the same scale s (orthographic: fixed distance = fixed px per metre), the same tilt, and is aimed at the same
+# point Q, which therefore lands on the same pixel (U, V) in every view:
+#     cu = U - s (Q·r),   cv = V + s (Q·u)        (orthographic; r, u from the view's own phi / th)
+# Q·u is the same for every view of a level ring, so Q_y is fixed and only (U, V, Qx, Qz) are fitted.
+RING_KEYS = ('s', 'U', 'V', 'qx', 'qz')
+# Fixed distance across rings too (input spec, same values in check_turnaround.py section 10d): every full-body view
+# (level, +30°, -20°, top) is framed BODY_FRAME metres wide, so they all share the level ring's scale, which the
+# figure height fixes exactly; the head close-ups are framed HEAD_FRAME wide: HEAD_ZOOM times that scale.
+BODY_FRAME, HEAD_ZOOM = 1.95, 4.0
+HEAD_FRAME = BODY_FRAME / HEAD_ZOOM
+
+
+def body_scale(cams):
+    """px per metre of every full-body view: the level ring's (from the figure height)"""
+    return float(np.median([c['s'] for c in cams.values() if c.get('kind') == 'main']))
+
+
+def ring_views(cams, kind):
+    return sorted(n for n, c in cams.items() if c.get('kind') == kind)
+
+
+def ring_apply(c, ring):
+    """camera c (phi, th, D kept) placed on the ring: shared scale and aim point"""
+    r, u, _ = axes(c['phi'], c['th'])
+    Q = np.array([ring['qx'], ring['qy'], ring['qz']])
+    out = dict(c, s=float(ring['s']), cu=float(ring['U'] - ring['s'] * (Q @ r)), cv=float(ring['V'] + ring['s'] * (Q @ u)))
+    if ring.get('D'):
+        out['D'] = float(ring['D'])
+    else:
+        out.pop('D', None)
+    return out
+
+
+def ring_fit(cams, kind, qy=None, s=None):
+    """shared ring parameters from freely fitted per-view cameras: scale s (given by the spec, else the median of
+    the free fits) and the least-squares aim point"""
+    names = ring_views(cams, kind)
+    s = float(np.median([cams[n]['s'] for n in names]) if s is None else s)
+    qy = float(C0[1] if qy is None else qy)
+    A, b = [], []
+    for n in names:
+        c = cams[n]
+        r, u, _ = axes(c['phi'], c['th'])
+        A.append([1, 0, -s * r[0], -s * r[2]]); b.append(c['cu'])
+        A.append([0, 1, s * u[0], s * u[2]]); b.append(c['cv'] - s * u[1] * qy)
+    U, V, qx, qz = np.linalg.lstsq(np.array(A, float), np.array(b, float), rcond=None)[0]
+    Ds = [cams[n].get('D') for n in names]
+    D = float(np.median([d for d in Ds if d])) if sum(1 for d in Ds if d) * 2 > len(Ds) else None
+    return dict(s=s, U=float(U), V=float(V), qx=float(qx), qy=qy, qz=float(qz), D=D)
+
+
+def ring_deviation(cams, kind, ring):
+    """how far each freely fitted camera is from the ring model: scale (%) and aim-point offset (mm)"""
+    out = {}
+    for n in ring_views(cams, kind):
+        c, m = cams[n], ring_apply(cams[n], ring)
+        Q = np.array([ring['qx'], ring['qy'], ring['qz']])
+        col0, row0 = project(Q[None], c); col1, row1 = project(Q[None], m)
+        out[n] = dict(scale_pct=100 * (c['s'] / ring['s'] - 1),
+                      centre_mm=float(1000 * np.hypot(col0[0] - col1[0], row0[0] - row1[0]) / ring['s']))
+    return out
+
+
+def ring_report(cams, kind, ring, label):
+    dev = ring_deviation(cams, kind, ring)
+    if not dev:
+        return dev
+    sc = max(abs(d['scale_pct']) for d in dev.values()); ce = max(d['centre_mm'] for d in dev.values())
+    print(f'{label} {kind}: shared scale {ring["s"]:.1f} px/m, aim point ({ring["qx"]:+.3f}, {ring["qy"]:.2f}, '
+          f'{ring["qz"]:+.3f}) m at pixel ({ring["U"]:.0f}, {ring["V"]:.0f}); free fit deviates up to '
+          f'{sc:.1f}% scale / {ce:.0f} mm centre', flush=True)
+    return dev
+
+
 def within_limits(name, c):
     """True when phi / th stay within MAX_DPHI / MAX_DTH of the file-name angle and the ring's nominal tilt"""
     kind = c.get('kind', 'main')

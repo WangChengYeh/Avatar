@@ -49,3 +49,54 @@ def test_elevated_and_low_rings_keep_input_elevation(monkeypatch):
             assert not camera.within_limits(name, dict(calibrated, th=elevation - 0.5))
             assert not camera.within_limits(name, dict(calibrated, th=elevation + 0.5))
     assert camera.within_limits('head_045deg', dict(phi=45, th=1, kind='head'))
+
+
+def _ring(th, s=950.0, U=1020.0, V=1010.0, q=(0.02, 0.85, -0.05), kind='el30'):
+    ring = dict(s=s, U=U, V=V, qx=q[0], qy=q[1], qz=q[2], D=None)
+    return {f'{kind}_{a:03d}deg': camera.ring_apply(dict(phi=float(a), th=th, kind=kind), ring) for a in range(0, 360, 45)}, ring
+
+
+def test_ring_model_recovers_fixed_distance_and_centre():
+    """a camera orbiting at a fixed distance, aimed at one point: same scale, the aim point on the same pixel"""
+    for th, kind in ((0.0, 'main'), (30.0, 'el30'), (-20.0, 'low20')):
+        cams, truth = _ring(th, kind=kind)
+        fit = camera.ring_fit(cams, kind)
+        for k in ('s', 'U', 'V', 'qx', 'qz'):
+            assert abs(fit[k] - truth[k]) < 1e-6 * max(1, abs(truth[k])), (kind, k)
+        Q = np.array([truth['qx'], truth['qy'], truth['qz']])[None]
+        pix = {n: np.c_[camera.project(Q, c)][0] for n, c in cams.items()}
+        assert all(np.allclose(p, (truth['U'], truth['V'])) for p in pix.values())
+        dev = camera.ring_deviation(cams, kind, fit)
+        assert max(abs(d['scale_pct']) for d in dev.values()) < 1e-6
+        assert max(d['centre_mm'] for d in dev.values()) < 1e-6
+
+
+def test_ring_deviation_flags_a_view_drawn_bigger_and_shifted():
+    cams, _ = _ring(30.0)
+    bad = 'el30_135deg'
+    cams[bad] = dict(cams[bad], s=cams[bad]['s'] * 1.08, cu=cams[bad]['cu'] + 40)
+    fit = camera.ring_fit(cams, 'el30')
+    dev = camera.ring_deviation(cams, 'el30', fit)
+    worst = max(dev, key=lambda n: abs(dev[n]['scale_pct']))
+    assert worst == bad and dev[bad]['scale_pct'] > 7
+    assert max(dev, key=lambda n: dev[n]['centre_mm']) == bad
+    locked = camera.ring_apply(cams[bad], fit)
+    assert abs(locked['s'] - fit['s']) < 1e-9
+
+
+def test_ring_lock_follows_check_and_env(monkeypatch):
+    monkeypatch.setattr(camera, 'CHECK_PASSED', True)
+    monkeypatch.delenv('BODY3D_RING_LOCK', raising=False)
+    assert camera.ring_lock_enabled()
+    monkeypatch.setenv('BODY3D_RING_LOCK', '0')
+    assert not camera.ring_lock_enabled()
+    monkeypatch.setattr(camera, 'CHECK_PASSED', False)
+    monkeypatch.delenv('BODY3D_RING_LOCK')
+    assert not camera.ring_lock_enabled()
+
+
+def test_fixed_distance_spec_matches_checker():
+    import check_turnaround as ct
+    assert (camera.BODY_FRAME, camera.HEAD_ZOOM) == (ct.BODY_FRAME, ct.HEAD_ZOOM) == (1.95, 4.0)
+    cams = {'01_000deg': dict(kind='main', s=1000.0), '02_045deg': dict(kind='main', s=1010.0), 'el30_000deg': dict(kind='el30', s=900.0)}
+    assert camera.body_scale(cams) == 1005.0
