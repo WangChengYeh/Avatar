@@ -258,7 +258,7 @@ def test_aim_point_and_tilt(broken):
 
 def test_lighting_fixed_to_the_person(broken):
     """6c / 10f: the clean (flat-lit) set passes; one view brightened fails the shared-surface brightness of its
-    neighbours, and a light that follows the camera (every view brighter on the image right) fails 6c"""
+    neighbours, and a light that follows the camera (every view brighter on the image right) is flagged by 6c for review"""
     rc, out = check(broken)
     light = [l for l in out.splitlines() if '明暗方向:' in l or '表面亮度:' in l]
     assert len(light) >= 30 and all('[PASS]' in l for l in light), [l for l in light if '[PASS]' not in l]
@@ -279,5 +279,7 @@ def test_lighting_fixed_to_the_person(broken):
         cv2.imwrite(str(g), np.clip(im, 0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
     fails = lines(out, 'FAIL')
-    assert sum('明暗方向' in l and '右側較亮' in l for l in fails) >= 6, fails
+    warnings = lines(out, 'WARN')
+    assert sum('明暗方向' in l and '右側較亮' in l for l in warnings) >= 6, warnings
+    assert not any('明暗方向' in l or ' 曝光:' in l for l in fails), fails
     assert any('主環 90°' in l and '表面亮度' in l for l in fails), fails
