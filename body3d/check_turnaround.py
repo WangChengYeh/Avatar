@@ -6,6 +6,8 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 版本紀錄:
   1.38.0 移除 --mode ai / photo：照片一律要先經 AI 修正才能進來，只有一套門檻（原 ai 模式：完美照片 + 小餘裕，
          翻轉複製、光線翻轉、解析度、地面陰影等判 FAIL）。--mode photo 的較寬門檻刪除。
+         臉部檢查改為必要：沒裝 mediapipe 時第 11 / 11b 項判 FAIL（原 WARN）。移除 --camera-check 與結束碼 3：
+         0 FAIL 就回傳 0，臉部 WARN 不再讓流程放寬相機角度。
   1.37.0 會直接造成重建缺陷、完美照片又遠在門檻內的 WARN 改判 FAIL：第 10f 項同一表面亮度中位數（含避開邊界）> 6 / 255；
          第 10h 項耳朵 > 5 mm（原 8）；特寫放大倍率 > 3%（原 4%）；俯角 / 仰角距離 > 2%（原 2.5%）；俯仰角 > 4°（原 5°）。
   1.36.0 新增第 11b 項頭部朝向：0° / 45° / 315° 用 MediaPipe 3D 特徵點量臉的轉向，要等於檔名角度（≤ 8° 通過、> 12° FAIL），
@@ -1122,7 +1124,7 @@ def head_yaw_check(views, extra):
             crop = body_head_crop(views[a]['im'], views[a]['m'])
             body = face_yaw(crop) if crop is not None else None
         if 'nomp' in (close, body):
-            return [(WARN, '頭部朝向', '沒有安裝 mediapipe，第 11b 項無法檢查')]
+            return [(FAIL, '頭部朝向', '沒有安裝 mediapipe，第 11b 項無法檢查（必裝：pip install "mediapipe==0.10.14"）')]
         for what, y in (('head', close), ('全身', body)):
             if y is None:
                 continue
@@ -1156,7 +1158,7 @@ def face_check(extra):
             continue
         r = face_measures(v['im'], v['m'])
         if r == 'nomp':
-            return [(WARN, '臉部一致性', '沒有安裝 mediapipe，第 11 項無法檢查（pip install "mediapipe==0.10.14"）')]
+            return [(FAIL, '臉部一致性', '沒有安裝 mediapipe，第 11 項無法檢查（必裝：pip install "mediapipe==0.10.14"）')]
         if r is None:
             out.append((FAIL, f'head {a}° 臉部', '找不到臉（MediaPipe）：正面 / 3/4 頭部特寫要清楚看到五官，'
                                                    '不要被頭髮遮住，也不要轉超過 45°'))
@@ -2706,7 +2708,7 @@ def check_photo_cheek_brightness(head_views):
                               f'（目標 ≤ {PHOTO_CHEEK_MAX_DIFF:g}）{guidance}')
 
 
-def finish(out=None, camera_verified=True):
+def finish(out=None):
     failures = sum(r[0] == FAIL for r in results)
     warnings = sum(r[0] == WARN for r in results)
     passes = sum(r[0] == PASS for r in results)
@@ -2718,9 +2720,7 @@ def finish(out=None, camera_verified=True):
         print('照片初篩有 WARN：請複核，烘焙前仍需檢查投影。')
     else:
         print('照片初篩通過：可以開始重建，烘焙前仍需檢查投影。')
-    if not failures and not camera_verified:
-        print('臉部一致性未通過完整驗證，相機使用較寬的搜尋範圍。')
-    sys.exit(1 if failures else 0 if camera_verified else 3)
+    sys.exit(1 if failures else 0)
 
 
 # ---------------------------------------------------------------- main
@@ -2738,8 +2738,6 @@ def main():
                     help='用重建中間檔檢查頭部重疊區亮度及五官對位')
     ap.add_argument('--view-overlay-dir', metavar='DIR', help='輸出各角度回投到正面/背面的疊圖與 CSV')
     ap.add_argument('--region-luma-dir', metavar='DIR', help='輸出 OpenCV 分區檢查疊圖與亮度 CSV')
-    ap.add_argument('--camera-check', action='store_true',
-                    help='供相機校準使用：若無 FAIL 但第 11 項未全數通過，回傳 3')
     args = ap.parse_args()
     set_spec_height(args.height)
     if args.view_overlay_dir and not args.head_overlap_work:
@@ -3417,7 +3415,6 @@ def main():
             report(lvl, f'head {a}° 耳朵位置', msg)
 
     # ---- 11. face consistency of the head close-ups
-    face_results = []
     if extra.get('head'):
         print('\n11. 臉部一致性（頭部特寫 0° / 45° / 315°：找得到臉、五官比例、頭髮高度和臉的比例要一致）')
         face_results = face_check(extra)
@@ -3445,8 +3442,7 @@ def main():
     rows = [np.hstack(tiles[i:i + 4] + [np.full_like(tiles[0], 255)] * (4 - len(tiles[i:i + 4]))) for i in range(0, len(tiles), 4)]
     cv2.imwrite(args.out, np.vstack(rows))
 
-    camera_verified = bool(face_results) and all(lvl == PASS for lvl, _, _ in face_results)
-    finish(args.out, camera_verified=not args.camera_check or camera_verified)
+    finish(args.out)
 
 
 if __name__ == '__main__':

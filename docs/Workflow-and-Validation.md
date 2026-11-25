@@ -122,7 +122,7 @@ python body3d/run_all.py ./photos ./output --name body --template makehuman
 以 `--region-luma-dir <資料夾>` 輸出每張照片的分區疊圖及 `region_brightness.csv`。疊圖標色依序為腳部米黃、上衣粉紅、褲子藍色、頭髮橙色、皮膚綠色。分區規則適用這組白底、玫瑰色上衣、深色褲子、赤腳的照片。換裝、髮色或背景改變時，先用疊圖複核分區。
 | 臉部一致性，第 11 項 | MediaPipe 在三張頭部特寫檢測五官，並比較眼到嘴／臉高、髮高／臉高。扣掉偵測偏差後偏差絕對值 ≤ 4.5% 通過、> 7% 失敗。 |
 
-流程以 `work/check_status.json` 記錄照片是否符合較窄相機搜尋的條件。符合時，相機角度只能偏離檔名 ±3°，而且相機距離固定：全身圖都用主環由身高算出的縮放，頭部特寫用其 4 倍，全身圖共用旋轉軸上離地半個身高的點（1.65 m 時為 82.5 cm），投影固定於畫面正中央（`BODY3D_RING_LOCK=1／0` 可強制開關）。Three.js 對照預設套用同一個全身對準點，查看原擬合相機時可加 `--fitted-cameras`。各張自由擬合與固定值的差距記在 `work/ring_consistency.json`。未安裝 MediaPipe 或第 11 項未全部通過時，會採用較寬的搜尋範圍。
+流程以 `work/check_status.json` 記錄照片檢查是否 0 FAIL（WARN 不影響）。0 FAIL 時，相機角度只能偏離檔名 ±3°，而且相機距離固定：全身圖都用主環由身高算出的縮放，頭部特寫用其 4 倍，全身圖共用旋轉軸上離地半個身高的點（1.65 m 時為 82.5 cm），投影固定於畫面正中央（`BODY3D_RING_LOCK=1／0` 可強制開關）。Three.js 對照預設套用同一個全身對準點，查看原擬合相機時可加 `--fitted-cameras`。各張自由擬合與固定值的差距記在 `work/ring_consistency.json`。只有帶 FAIL 用 `--force` 繼續時，才改用較寬的搜尋範圍（±10° / ±16°）。臉部是必要步驟：沒裝 MediaPipe 時 checker 第 11 / 11b 項判 FAIL，face / face3d 步驟直接報錯；找不到臉時兩步也會停下，只有 `--force` 才繼續。
 
 ## 烘焙前驗收與疊圖 KPI
 

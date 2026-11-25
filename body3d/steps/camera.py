@@ -73,7 +73,7 @@ def _limits():
     """How far registration may move phi / th from the nominal angles.
     Photos that passed the strict photo check (run_all writes check_status.json in the work dir): the checker has
     verified the angles (sections 4 / 8: level ring within 5°, tilted rings within 7°, perspective 10b, ring ratios 10c, distance 10d, aim and tilt 10e), so the nominal angles are
-    trusted: azimuth fixed to the file-name angle (±0°), tilt ±3°. Otherwise (including incomplete face checks): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
+    trusted: azimuth fixed to the file-name angle (±0°), tilt ±3°. Otherwise (photos with a FAIL, run with --force): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
     pin the tilt: on perfect photos free fitting turns 30° into 16–27°.
     The elevation of the +30° and −20° rings follows the input spec exactly.
     Environment variables BODY3D_MAX_DPHI / BODY3D_MAX_DTH override the limits on free angles."""

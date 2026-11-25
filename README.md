@@ -50,7 +50,7 @@ python -m pytest -q
 python -m pytest -q --photos=./photos
 ```
 
-可單獨分享 `check_turnaround.py`。照片初篩基本功能需要 `numpy` 和 `opencv-python`，第 11 項的臉部檢查另外使用 MediaPipe。
+可單獨分享 `check_turnaround.py`。照片初篩基本功能需要 `numpy` 和 `opencv-python`，第 11 / 11b 項的臉部檢查必須安裝 MediaPipe（`mediapipe==0.10.14`），沒裝時判 FAIL。
 
 ## Loop engineering
 

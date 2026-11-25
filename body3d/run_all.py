@@ -14,8 +14,8 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
    6 legs      腿部嚴格雕刻：兩腿之間的外殼殘留（legs33.py）
    7 mesh      Marching cubes + 平滑 + 減面 → body33s.ply（mesh33s.py）
    8 headreg   頭部特寫相機對位（headreg33.py）
-   9 face      MediaPipe 臉部特徵點（face_landmarks.py，選用）
-  10 face3d    用臉部特徵點對齊 3/4 頭部特寫相機、補出鼻子 / 眼窩（face33.py，選用）
+   9 face      MediaPipe 臉部特徵點（face_landmarks.py，必要）
+  10 face3d    用臉部特徵點對齊 3/4 頭部特寫相機、補出鼻子 / 眼窩（face33.py，必要）
   11 uv        Blender 展 UV（bl_uv33s.py）；--template makehuman：擬合 MakeHuman 人體（mh33.py）
   12 bake      頭部投影重疊檢查、多視角貼圖烘焙（bake33.py）
   13 export    Blender 匯出有貼圖的 GLB + 預覽圖（bl_export.py）
@@ -33,7 +33,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.8.0'
+__version__ = '2.9.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
@@ -109,16 +109,14 @@ def main(argv=None):
         if os.path.exists(status_path):
             os.remove(status_path)
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--pose', a.pose,
-                  '--camera-check', '--out', os.path.join(out, 'turnaround_report.png')],
-                 out, log, ok_codes=(0, 1, 3))
+                  '--out', os.path.join(out, 'turnaround_report.png')],
+                 out, log, ok_codes=(0, 1))
         with open(status_path, 'w') as f:
             json.dump(dict(passed=rc == 0), f)
         if rc == 1 and not a.force:
             raise RuntimeError('照片檢查有 FAIL（見 run_all.log / turnaround_report.png）。修正照片，或加 --force 繼續')
         if rc == 1:
             print('     照片檢查有 FAIL，--force 繼續')
-        if rc == 3:
-            print('     臉部一致性未通過完整驗證，相機使用較寬的搜尋範圍。')
 
     def step_face():
         for angle in ('000', '045', '315'):
@@ -127,8 +125,10 @@ def main(argv=None):
             dst = os.path.join(work, name)
             if os.path.exists(dst):
                 os.remove(dst)
-            if os.path.exists(f):
-                run([py, S('face_landmarks.py'), f, dst], work, log)
+            if not os.path.exists(f):
+                raise RuntimeError(f'缺少頭部特寫 {f}：臉部步驟是必要的')
+            # exit 2 = no face found: the photo check has already failed it, so only --force goes on
+            run([py, S('face_landmarks.py'), f, dst], work, log, ok_codes=(0, 2) if a.force else (0,))
 
     def step_bake():
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work,
@@ -183,7 +183,7 @@ def main(argv=None):
                          run([py, S('mesh33s.py'), 'occ33d.npy', 'body33s.ply'], work, log)),
         'headreg': lambda: run([py, S('headreg33.py')], work, log),
         'face': step_face,
-        'face3d': lambda: run([py, S('face33.py'), img], work, log),
+        'face3d': lambda: run([py, S('face33.py'), img], work, log, ok_codes=(0, 2) if a.force else (0,)),
         'uv': lambda: run(need_blender() + [S('bl_uv33s.py'), '--', work], work, log),
         'bake': step_bake,
         'export': step_export,
