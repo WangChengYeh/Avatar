@@ -4,6 +4,12 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## body3d 2.8.0 · MakeHuman 模板（選用）
+
+- `run_all.py --template makehuman`：從第 11 步起把 MakeHuman 人體擬合到外殼，換成乾淨的四邊形拓樸、Mixamo 骨架（52 根骨頭，含手指）與 MakeHuman 權重。新步驟 `mh33.py`、`mh_prep.py`、`mh_fit.py`、`mh_build.py`、`mh_export.py`、`mh_common.py`；需要 Blender 的 MPFB 擴充。
+- 完美合成照片：最終 fit 7.3%（PASS，外殼流程 5.0%），GLB 驗證 0 FAIL／0 WARN（蒙皮網格放在根節點）。v1240：16.7%（外殼流程 15.3%，兩者都因照片未過檢查而 FAIL）。
+- 手臂下垂時肩膀圓弧自然、有手指；臉部鼻嘴周圍有白點（內部幾何與碎 UV，已知問題）。預設仍為外殼流程。
+- 測試：`--template` 選項；`--e2e-makehuman` 在完美照片跑完整 18 步。
 ## 照片檢查器 1.34.0 · 完美照片改用正確模型（Yoga2 luna-v1）
 
 完美照片原本用舊測試模型 `body_rigged.glb`（本身由 AI 照片重建）渲染，門檻貼著那個體型：同一版 checker 對 Yoga2 的教練 `luna-v1.glb`（T-pose 渲染）有 23 FAIL／24 WARN。改為 `tests/data/luna-v1.glb`（CC0）為參考模型，以新舊兩個模型都 0 FAIL／0 WARN 校準：
