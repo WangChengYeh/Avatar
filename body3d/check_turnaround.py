@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.31.0（2026-11-25）
+版本 1.32.0（2026-11-25）
 
 版本紀錄:
+  1.32.0 依完美照片重新校準（完美照片 0 WARN）。第 10e 項左右置中改用鏡像對的旋轉軸對畫面中央（取代逐張
+         水平：逐張的左右邊界是指尖，手臂畫斜會被當成對準偏差）；逐張只量上下對準，≤ 15 mm 通過、> 30 mm FAIL
+         （完美照片最多 11.3 mm）。第 9b 項只報 WARN，俯角／仰角對同角度水平圖、頭部特寫對其他特寫、俯視只比頭髮
+         與皮膚（完美照片原有 11 個 WARN：看到的是不同表面）。
   1.31.0 第 10e 項逐張檢查全身 3D 對準點距畫面中央的絕對偏差。
   1.30.0 全身視角共用身體幾何中心，規格身高 1.65 m 時離地 0.825 m。
   1.29.0 亮度 FAIL 改由第 9b 項逐區判定，量測區和主環參考區至少 500 像素，中位亮差 ≥ 30 / 255。
@@ -147,9 +151,9 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     俯視圖與正面同寬。AI 模式差 ≤ 1% 通過，俯角／仰角差 > 2.5% FAIL，正上方差 > 2% FAIL。
     頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL）。
     構圖數字與提示詞見第九節。
-  - 對準點與俯仰角（第 10e 項）：相差 180° 的兩張剪影左右對稱，由此求出旋轉軸，所有全身圖與俯視圖要在同一位置
-    25 張全身圖逐張估算 3D 身體中心的投影，水平與垂直偏差均 ≤ 10 mm 通過，AI 模式任一軸 > 25 mm 判 FAIL。
-    （AI 模式差 ≤ 5 mm 通過，俯角／仰角差 > 12 mm FAIL，其餘 > 10 mm FAIL），頭部特寫另成一組。
+  - 對準點與俯仰角（第 10e 項）：相差 180° 的兩張剪影左右對稱，由此求出旋轉軸，所有全身圖與俯視圖的旋轉軸要在
+    畫面正中央（AI 模式差 ≤ 5 mm 通過，俯角／仰角差 > 12 mm FAIL，其餘 > 10 mm FAIL），頭部特寫另成一組。
+    25 張全身圖逐張估算身體中心（離地半個身高）的上下位置，距畫面中央 ≤ 15 mm 通過，> 30 mm FAIL。
     俯角 / 仰角環的人物高度要符合 +30° / −20° 正交投影的縮短
     （換算俯仰角差 ≤ 2°，AI 模式 > 5° FAIL），對準高度在同一環內一致（差 ≤ 10 mm，AI 模式 > 25 mm FAIL）。
   - 要用長焦距（或正交投影），重建程式假設正交投影。
@@ -174,8 +178,8 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     光源不可跟著相機轉：否則同一塊皮膚在不同角度亮度不同，烘焙後有色差接縫。
     第 6c 項粗篩畫面左右亮度差（AI 模式 > 6% 判 WARN）。第 10f 項比較共同表面的亮度
     （AI 模式下，中位數絕對差 > 3 或 P90 > 18 / 255 報 WARN）。
-    第 9b 項逐區比較 Lab L 中位數。該區及至少三張水平主環的同區均有 500 個有效像素
-    （量測影像長邊最多 768 像素）時，亮差絕對值 ≥ 30 / 255 判 FAIL。
+    第 9b 項粗篩各區 Lab L 中位數（俯角／仰角對同角度水平圖，水平主環與頭部特寫對同組其他張，
+    俯視只比頭髮與皮膚），亮差 > 18 / 255 只報 WARN。
   - 人物與背景顏色要有對比（白衣服配白背景會去背失敗）。
   - 不要有 AI 留下的灰白雜點（黏在身體邊緣的無色色塊，本腳本第 1b 項）。
   - 33 張圖鎖定同一組曝光、白平衡、光源方向與強度，各視角不使用自動曝光。
@@ -573,9 +577,14 @@ def distance_check(good, extra):
 
 # section 10e, the camera aims at one point and the rings have their nominal tilt.
 #   centring: orthographic views 180° apart see mirrored silhouettes, so the midpoint of their left / right edges is
-#     the column of the rotation axis, exactly, whatever the body shape. With one aim point and one framing it is the
-#     same column for every pair of every full-body ring (and the top view is centred like the front view); the head
-#     close-ups have their own column. Perfect photos: 0.0–0.5 mm.
+#     the column of the rotation axis, exactly, whatever the body shape. The spec puts the body centre Q at the image
+#     centre, so for every pair of every full-body ring (and the top view, centred like the front view) that column
+#     is compared with the image centre; the head close-ups have their own column (median of the close-ups).
+#     Perfect photos: 0–1 mm. A single view's horizontal position is not used: its left / right bounds are the
+#     fingertips, so an arm drawn slanted would read as an aim error (v1240 main ring: ±50 mm per view while the
+#     mirror pairs agree to 8 mm).
+#   absolute vertical aim: per view, the head-top / foot bounds against the main-ring hull projected at the nominal
+#     angle give the row of the body centre (half the figure height); perfect photos: up to 11.3 mm.
 #   tilt: with the view's own scale divided out (lower-body width vs the level view), the figure height of a +30° / −20° view
 #     fixes its tilt; the main-ring hull gives the height for each tilt. Side views 90° / 270° skipped (the arms
 #     point at the camera, the hull is too deep there). Perfect photos: within 0.75°.
@@ -588,7 +597,9 @@ TILT_AI_FAIL = 5.0
 AIMROW_PASS, AIMROW_FAIL = 0.010, 0.020        # metres off the median aim row of the ring
 AIMROW_AI_FAIL = 0.025
 BODY_CENTRE_HEIGHT = 1.65 / 2
-ABS_AIM_PASS, ABS_AIM_FAIL = 0.010, 0.025  # metres from the image centre, on either axis
+# vertical offset of the body centre from the image centre, per view; perfect photos: up to 11.3 mm (the hull and
+# the head-top / foot bounds), so the pass band is that plus a small margin
+ABS_AIM_PASS, ABS_AIM_FAIL = 0.015, 0.030
 
 
 def edge_mid(m, rows=None):
@@ -615,7 +626,8 @@ def absolute_aim_offset(hull, mask, scale, angle, elevation):
 
 def aim_check(good, extra):
     """10e. {'centre': {(cat, a): metres}, 'head_centre': {...}, 'tilt': {(cat, a): degrees},
-    'aim_row': {(cat, a): metres}, 'absolute': {(cat, a): (dx, dy) in metres}}"""
+    'aim_row': {(cat, a): metres}, 'absolute': {(cat, a): (dx, dy) in metres}}; centre is against the image centre,
+    only the dy of 'absolute' is reported (dx follows the fingertips)"""
     out = dict(centre={}, head_centre={}, tilt={}, aim_row={}, absolute={})
     if 0 not in good or good[0].get('m') is None:
         return out
@@ -632,9 +644,9 @@ def aim_check(good, extra):
     top = next(iter(extra.get('top', {}).values()), None)
     if top is not None and top.get('m') is not None and U:
         U[('top', 0)] = edge_mid(top['m']) - edge_mid(good[0]['m']) + U.get(('main', 0), np.median(list(U.values())))
-    if len(U) >= 3:
-        med = np.median([u for k, u in U.items() if k[0] != 'top'])
-        out['centre'] = {k: (u - med) / s for k, u in U.items()}
+    if U:
+        mid = good[0]['m'].shape[1] / 2                   # spec: the body centre Q projects to the image centre
+        out['centre'] = {k: (u - mid) / s for k, u in U.items()}
     # head close-ups: the same mirror pairs on the head rows only (above the shoulders)
     heads, Uh = extra.get('head', {}), {}
     sh = s * HEAD_ZOOM
@@ -1048,10 +1060,14 @@ REGION_LIGHTNESS = {
     'hair': ('頭髮', (55, 170, 240)),
     'skin': ('身體皮膚', (90, 225, 80)),
 }
-REGION_LUMA_LIMIT = 18.0  # 8-bit OpenCV Lab L channel
-REGION_LUMA_FAIL = 30.0
-REGION_LUMA_FAIL_PIXELS = 500  # after scaling the image to at most 768 pixels on the long edge
+REGION_LUMA_LIMIT = 18.0  # 8-bit OpenCV Lab L channel; coarse screen, WARN only (10f checks the same surface)
+REGION_LUMA_RELIABLE_PIXELS = 500  # after scaling the image to at most 768 pixels on the long edge
 REGION_LUMA_REFERENCE_VIEWS = 3
+# The same region seen from another direction is a different surface (a close-up shows only the collar, the top
+# view the shoulder tops, the front hair includes the hairline), so like is compared with like: a +30° / −20° view
+# with the level view at the same azimuth, a level view or close-up with the median of the other views of its
+# group; the single top view compares only its hair and skin with the level ring.
+REGION_TOP_VIEW = ('hair', 'skin')
 
 
 def photo_region_lightness(im, mask, category):
@@ -1120,9 +1136,8 @@ def report_region_lightness(views, extra, output_dir=None):
             overlay[labels == 0] = picture[labels == 0]
             cv2.imwrite(str(output_dir / (Path(photo['name']).stem + '_regions.png')), overlay)
     rows = []
-    print(f'\n9b. 分區亮度（各區域 Lab L 中位數，相對水平主環，亮差 > {REGION_LUMA_LIMIT:g}/255 報 WARN；'
-          f'該區和至少 {REGION_LUMA_REFERENCE_VIEWS} 張主環同區各有 {REGION_LUMA_FAIL_PIXELS} 個有效像素，'
-          f'亮差 ≥ {REGION_LUMA_FAIL:g}/255 判 FAIL）')
+    print(f'\n9b. 分區亮度粗篩（各區域 Lab L 中位數，俯角／仰角對同角度水平圖，水平主環與頭部特寫對同組其他張，俯視圖只比頭髮和皮膚。'
+          f'亮差 > {REGION_LUMA_LIMIT:g}/255 報 WARN，只供複核，同一表面的亮度由第 10f 項驗收）')
     for cat, angle, photo in photos:
         name = photo['name']
         stats = samples[cat, angle]
@@ -1130,25 +1145,29 @@ def report_region_lightness(views, extra, output_dir=None):
         levels = []
         for region, (label, _) in REGION_LIGHTNESS.items():
             lightness, count = stats.get(region, (None, 0))
-            reference = [v[region] for (ring, a), v in samples.items()
-                         if ring == 'main' and (cat != 'main' or a != angle) and region in v]
-            large_reference = [value for value, pixels in reference if pixels >= REGION_LUMA_FAIL_PIXELS]
-            reliable_reference = len(large_reference) >= REGION_LUMA_REFERENCE_VIEWS
+            if cat in ('el30', 'low20'):          # the level view at the same azimuth sees nearly the same surface
+                reference, needed = ([samples['main', angle][region]]
+                                     if region in samples.get(('main', angle), {}) else []), 1
+            else:                                 # level ring / close-ups: the other views of the same group
+                ring_ref = 'main' if cat == 'top' else cat
+                reference = [v[region] for (ring, a), v in samples.items()
+                             if ring == ring_ref and (ring, a) != (cat, angle) and region in v]
+                needed = REGION_LUMA_REFERENCE_VIEWS
+            if cat == 'top' and region not in REGION_TOP_VIEW:
+                reference = []
+            large_reference = [value for value, pixels in reference if pixels >= REGION_LUMA_RELIABLE_PIXELS]
+            reliable_reference = len(large_reference) >= needed
             reference_values = large_reference if reliable_reference else [value for value, _ in reference]
-            ref = float(np.median(reference_values)) if len(reference_values) >= REGION_LUMA_REFERENCE_VIEWS else None
+            ref = float(np.median(reference_values)) if len(reference_values) >= needed else None
             delta = None if lightness is None or ref is None else lightness - ref
             if lightness is None:
                 level = 'NOT_MEASURED'
                 details.append(f'{label}未量測')
             elif delta is None:
                 level = 'NO_REFERENCE'
-                details.append(f'{label} L={lightness:.1f}（主環參考不足）')
+                details.append(f'{label} L={lightness:.1f}（不比較：同環參考不足或看到的是不同表面）')
             else:
-                can_fail = count >= REGION_LUMA_FAIL_PIXELS and reliable_reference
-                if can_fail and abs(delta) >= REGION_LUMA_FAIL:
-                    level = FAIL
-                else:
-                    level = WARN if abs(delta) > REGION_LUMA_LIMIT else PASS
+                level = WARN if abs(delta) > REGION_LUMA_LIMIT else PASS
                 levels.append(level)
                 evidence = '' if level == PASS else f'，{count} px、{len(large_reference)} 張足量參考'
                 details.append(f'{label} L={lightness:.1f}（差 {delta:+.1f}/255，{level}{evidence}）')
@@ -2957,11 +2976,12 @@ def main():
                 ai_fail = CENTRE_TILTED_FAIL if cat in ('el30', 'low20') else CENTRE_FAIL
                 lvl, p_, f_ = lvl3(dv, CENTRE_PASS, CENTRE_FAIL, ai_fail)
                 where = f'{name[cat]} 俯視 vs 正面' if cat == 'top' else f'{name[cat]} {a}° / {a + 180}°'
-                msg = (f'旋轉軸偏離共同位置 {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:g} mm，'
+                ref_ = '本組共同位置' if key == 'head_centre' else '畫面中央'
+                msg = (f'旋轉軸偏離{ref_} {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:g} mm，'
                        f'偏差絕對值 > {1000 * f_:g} mm 判 FAIL）')
                 if lvl != PASS:
-                    msg += (' → 相機沒有對準同一個中心：這一對照片的人物左右位置不一致（常見：手臂斜、構圖跟著人物外框置中），'
-                            '重新生成，人物身體中心固定在畫面同一位置')
+                    msg += (' → 相機沒有對準身體中心：這一對照片的旋轉軸不在' + ('同組其他張的位置' if key == 'head_centre' else '畫面正中央')
+                            + '（常見：手臂斜、構圖跟著人物外框置中），重新生成，旋轉軸（身體中心）固定在畫面正中央')
                 report(lvl, f'{where} 置中', msg)
         for (cat, a), (dv, ratio, expect) in aim['tilt'].items():
             lvl, p_, f_ = lvl3(dv, TILT_PASS, TILT_FAIL, TILT_AI_FAIL)
@@ -2981,11 +3001,16 @@ def main():
             if lvl != PASS:
                 msg += ' → 這張相機對準的高度和同環其他張不同，重新生成，人物在畫面中的上下位置和同環其他張一致'
             report(lvl, f'{cat} {a}° 對準高度', msg)
-        for (cat, a), (dx, dy) in aim['absolute'].items():
-            lvl, p_, f_ = lvl3(max(abs(dx), abs(dy)), ABS_AIM_PASS, ABS_AIM_FAIL)
-            msg = (f'身體中心相對畫面正中央：水平 {1000 * dx:+.1f} mm、垂直 {1000 * dy:+.1f} mm'
-                   f'（向右、向下為正；兩軸均 ≤ {1000 * p_:g} mm 通過，任一軸絕對值 > {1000 * f_:g} mm 判 FAIL）')
-            report(lvl, f'{name[cat]} {a}° 絕對對準', msg)
+        # vertical only: the horizontal position is the mirror-pair axis above (exact); a single view's left /
+        # right bounds are the fingertips, so arm drawing errors would read as aim errors there
+        for (cat, a), (_, dy) in aim['absolute'].items():
+            lvl, p_, f_ = lvl3(dy, ABS_AIM_PASS, ABS_AIM_FAIL)
+            msg = (f'身體中心（離地半個身高）相對畫面正中央：垂直 {1000 * dy:+.1f} mm（向下為正；'
+                   f'應 ≤ {1000 * p_:g} mm，偏差絕對值 > {1000 * f_:g} mm 判 FAIL）')
+            if lvl != PASS:
+                msg += (' → 人物在畫面中整體偏' + ('低' if dy > 0 else '高') + '：相機沒有對準離地半個身高的身體中心，'
+                        '重新生成，頭頂和腳底到畫面上下緣的距離相同')
+            report(lvl, f'{name[cat]} {a}° 上下對準', msg)
 
     # ---- 10f. lighting fixed to the person: same surface, same brightness in every view
     surf = surface_luma_check(good, extra) if args.pose == 'tpose' and len(good) >= 6 else {}

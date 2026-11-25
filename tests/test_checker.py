@@ -242,17 +242,20 @@ def _shift(path, dx=0, dy=0, sy=1.0):
 
 
 def test_aim_point_and_tilt(broken):
-    """10e: the clean set passes; a low20 view shifted sideways fails centring, an el30 view moved up fails the aim
+    """10e: the clean set passes; a low20 view shifted sideways, or an el30 pair framed off the image centre, fails centring, an el30 view moved up fails the aim
     height, and a low20 view drawn without the −20° foreshortening (4 % taller) fails the tilt"""
     rc, out = check(broken)
     e = [l for l in out.splitlines() if '置中:' in l or '俯仰角:' in l or '對準高度:' in l]
     assert len(e) >= 40 and all('[PASS]' in l for l in e), [l for l in e if '[PASS]' not in l]
     _shift(broken / 'low20_045deg.jpg', dx=40)
+    for g in ('el30_000deg.jpg', 'el30_180deg.jpg'):     # a whole pair framed off-centre: invisible to a ring median
+        _shift(broken / g, dx=20)
     _shift(broken / 'el30_090deg.jpg', dy=-40)
     _shift(broken / 'low20_000deg.jpg', sy=1.04)
     rc, out = check(broken)
     fails = lines(out, 'FAIL')
     assert any('仰角環 45° / 225° 置中' in l for l in fails), fails
+    assert any('俯角環 0° / 180° 置中' in l for l in fails), fails
     assert any('el30 90° 對準高度' in l for l in fails), fails
     assert any('low20 0° 俯仰角' in l and '沒有依投影縮短' in l for l in fails), fails
 
@@ -302,7 +305,9 @@ def test_lighting_fixed_to_the_person(broken):
     assert any('主環 90°' in l and '表面亮度' in l for l in warnings), warnings
 
 
-def test_region_luma_fails_only_with_enough_pixels_and_reference_views(monkeypatch, tmp_path):
+def test_region_luma_only_warns_and_compares_like_with_like(monkeypatch, tmp_path):
+    """9b is a coarse screen: never FAIL. A +30° / −20° view is compared with the level view at the same azimuth,
+    close-ups with the other close-ups (they show only the collar of the top), the top view only on hair and skin."""
     import csv
     from body3d import check_turnaround as checker
 
@@ -313,13 +318,14 @@ def test_region_luma_fails_only_with_enough_pixels_and_reference_views(monkeypat
         0: photo('main0.jpg', (100, 500), (100, 500)),
         45: photo('main45.jpg', (100, 500), (100, 500)),
         90: photo('main90.jpg', (100, 500), (100, 499)),
-        135: photo('main135.jpg', (110, 499), (100, 499)),
+        135: photo('main135.jpg', (130, 499), (100, 499)),
     }
     extras = {'el30': {
         0: photo('large.jpg', (130, 500), (65, 600)),
         45: photo('small.jpg', (135, 499), (100, 600)),
-        90: photo('near_limit.jpg', (71, 600), (100, 600)),
-    }}
+        135: photo('same_as_level.jpg', (131, 600), (100, 600)),
+    }, 'head': {a: photo(f'head{a}.jpg', (150, 900), (100, 900)) for a in (0, 45, 90, 135)},
+       'top': {0: photo('top.jpg', (160, 900), (101, 900))}}
     image = np.zeros((1, 1, 3), np.uint8)
     labels = np.zeros((1, 1), np.uint8)
     monkeypatch.setattr(checker, 'photo_region_lightness', lambda stats, mask, category: (image, labels, stats))
@@ -329,13 +335,14 @@ def test_region_luma_fails_only_with_enough_pixels_and_reference_views(monkeypat
     with (tmp_path / 'region_brightness.csv').open(encoding='utf-8-sig') as file:
         rows = {(row['image'], row['region']): row for row in csv.DictReader(file)}
 
-    assert rows['large.jpg', 'top']['status'] == 'FAIL'
-    assert float(rows['large.jpg', 'top']['delta_l']) == 30
+    assert 'FAIL' not in statuses.values() and all(r['status'] != 'FAIL' for r in rows.values())
+    assert rows['large.jpg', 'top']['status'] == 'WARN' and float(rows['large.jpg', 'top']['delta_l']) == 30
     assert rows['large.jpg', 'hair']['status'] == 'WARN'
     assert rows['small.jpg', 'top']['status'] == 'WARN'
-    assert rows['near_limit.jpg', 'top']['status'] == 'WARN'
-    assert statuses['large.jpg 分區亮度'] == 'FAIL'
-    assert statuses['small.jpg 分區亮度'] == 'WARN'
+    assert rows['same_as_level.jpg', 'top']['status'] == 'PASS'            # vs level 135°, not the ring median
+    assert all(rows[f'head{a}.jpg', 'top']['status'] == 'PASS' for a in (0, 45, 90, 135))
+    assert rows['top.jpg', 'top']['status'] == 'NO_REFERENCE' and rows['top.jpg', 'hair']['status'] == 'PASS'
+    assert statuses['large.jpg 分區亮度'] == 'WARN' and statuses['top.jpg 分區亮度'] == 'PASS'
 
 
 def test_surface_luma_reports_coverage_and_boundary_sensitivity():
