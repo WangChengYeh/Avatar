@@ -26,6 +26,8 @@ Blender 可從 PATH、Homebrew 或系統應用程式目錄尋找。也可用 `--
 | `output/v2_*.png` | Blender 預覽圖 |
 | `output/fit_report.json` | 最終驗收：成品投影回 24 張全身原圖的剪影不一致（平均 > 10% 判 FAIL） |
 | `output/run_all.log` | 18 步流程日誌，含檢查結果與可用的峰值記憶體紀錄 |
+| `output/client/index.html` | 給客戶看的中文頁面：製作進度（每一步更新）、各階段圖（照片總覽、頭部對照、模型預覽、原圖對模型）、驗收總表與未通過／需複核清單（[SOP](docs/SOP.md#每個階段給客戶看什麼)） |
+| `output/progress.json` | 18 個步驟的狀態與時間 |
 | `output/work/` | 重跑單一步驟或進階檢查用的中間檔 |
 
 照片初篩、烘焙前檢查、GLB 驗證或最後一步成品與原圖比對（`fit`）出現 `FAIL` 時，流程會停止或以結束碼 1 結束。`--force` 可繼續輸出供診斷，最終 GLB 驗證與比對仍會執行，但輸出不能交付（`gates.json` 的 `deliverable` 為 `false`，見 [SOP](docs/SOP.md)）。`--from STEP` 和 `--only STEP` 會使用既有的 `output/work/`。

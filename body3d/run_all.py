@@ -30,11 +30,13 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
     {name}_rigged_lit.glb    一般 PBR 材質
     v2_*.png                 Blender 預覽圖
     gates.json               4 道關卡各自的 FAIL / WARN / PASS / 共計、force、deliverable（見 docs/SOP.md）
+    client/index.html        給客戶看的進度與各階段圖（中文，每一步更新；client_report.py）
+    progress.json            18 個步驟的狀態與時間
     turnaround_report.png    照片檢查報告；work/ 內是中間檔
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.11.0'
+__version__ = '2.12.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
@@ -133,6 +135,23 @@ def main(argv=None):
         json.dump(dict(gates={g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
                        force=bool(a.force), deliverable=deliverable),
                   open(os.path.join(out, 'gates.json'), 'w'), ensure_ascii=False, indent=1)
+
+    def client_report(quick=False):
+        """progress and pictures for the (internal) client, in Chinese, FAIL / WARN included: OUT/client/index.html.
+        quick: during the run (progress and the pictures that already exist, no Blender render)"""
+        try:
+            import client_report as cr
+            cr.main([img, out, '--name', a.name] + (['--blender', blender] if blender else [])
+                    + (['--no-render'] if quick else []))
+        except Exception as error:                     # the report must never hide the run's own result
+            print(f'  client_report 失敗：{error}')
+
+    progress = {}
+
+    def save_progress():
+        tmp = os.path.join(out, 'progress.json.tmp')
+        json.dump(progress, open(tmp, 'w'), ensure_ascii=False, indent=1)
+        os.replace(tmp, os.path.join(out, 'progress.json'))
 
     def step_check():
         status_path = os.path.join(work, 'check_status.json')
@@ -237,15 +256,28 @@ def main(argv=None):
     todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
     print(f'body3d {__version__}  照片: {img}  輸出: {out}  Blender: {blender or "(找不到)"}')
     t0 = time.time()
+    progress.update(started=t0, state='running', force=bool(a.force),
+                    steps=[dict(name=s, status='pending', seconds=None) for s in todo])
     try:
         for i, s in enumerate(todo):
             print(f'[{STEPS.index(s) + 1:2d}/{len(STEPS)}] {s}', flush=True)
+            st = progress['steps'][i]; st['status'] = 'running'; ts = time.time()
+            save_progress(); client_report(quick=True)
             actions[s]()
+            st['status'] = 'done'; st['seconds'] = round(time.time() - ts, 1)
+            save_progress()
     except RuntimeError as e:
+        st['status'] = 'failed'; st['seconds'] = round(time.time() - ts, 1)
+        progress.update(state='stopped', stopped_at=s, reason=str(e).split('\n')[0], finished=time.time())
+        save_progress()
         gate_table()
+        client_report()
         print(f'\n失敗於步驟 {s}: {e}', file=sys.stderr)
         return 1
+    progress.update(state='done', finished=time.time())
+    save_progress()
     gate_table()
+    client_report()
     print(f'\n完成（{(time.time() - t0) / 60:.1f} 分鐘）')
     if 'unlit' in todo or 'verify' in todo:
         print(f'  {unlit}\n  {lit}')
