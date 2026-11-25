@@ -4,6 +4,12 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## body3d 2.12.0 · 每個階段給客戶看的圖（client_report.py）
+
+- `client_report.py`：`OUT/client/` 產生照片總覽、頭部對照、模型預覽、原圖對模型（主環 8 角度、頭部特寫 8 角度）與 `index.html`（驗收總表、可交付與否、每道關卡的 FAIL／WARN 清單、剪影吻合度）。`run_all.py` 結束時（含中途停止）自動執行，失敗只提示、不影響流程結果。
+- `steps/bl_client_render.py`：Blender 用輸入照片的規格相機（正交、畫面寬 1.95 m、對準身體中心；頭部特寫 4 倍、對準頭頂下 12.8 cm）渲染 GLB，平面著色、Standard 色彩轉換、白底，可直接和原圖並排。Blender 匯入 glTF 時會加一顆骨頭顯示用的 Icosphere，量身高時排除。
+- SOP 新增「每個階段給客戶看什麼」。
+
 ## body3d 2.11.0 · 標準作業流程（SOP）
 
 - 新增 [docs/SOP.md](docs/SOP.md)：四道關卡、PASS／WARN／FAIL 的處理方式、`--force` 規則、交付條件與一輪的步驟。

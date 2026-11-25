@@ -30,11 +30,12 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
     {name}_rigged_lit.glb    一般 PBR 材質
     v2_*.png                 Blender 預覽圖
     gates.json               4 道關卡各自的 FAIL / WARN / PASS / 共計、force、deliverable（見 docs/SOP.md）
+    client/index.html        給客戶看的各階段圖：照片總覽、頭部對照、模型預覽、原圖對模型（client_report.py）
     turnaround_report.png    照片檢查報告；work/ 內是中間檔
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.11.0'
+__version__ = '2.12.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
@@ -133,6 +134,14 @@ def main(argv=None):
         json.dump(dict(gates={g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
                        force=bool(a.force), deliverable=deliverable),
                   open(os.path.join(out, 'gates.json'), 'w'), ensure_ascii=False, indent=1)
+
+    def client_report():
+        """pictures for the (internal) client at every stage, FAIL / WARN included: OUT/client/index.html"""
+        try:
+            import client_report as cr
+            cr.main([img, out, '--name', a.name] + (['--blender', blender] if blender else []))
+        except Exception as error:                     # the report must never hide the run's own result
+            print(f'  client_report 失敗：{error}')
 
     def step_check():
         status_path = os.path.join(work, 'check_status.json')
@@ -243,9 +252,11 @@ def main(argv=None):
             actions[s]()
     except RuntimeError as e:
         gate_table()
+        client_report()
         print(f'\n失敗於步驟 {s}: {e}', file=sys.stderr)
         return 1
     gate_table()
+    client_report()
     print(f'\n完成（{(time.time() - t0) / 60:.1f} 分鐘）')
     if 'unlit' in todo or 'verify' in todo:
         print(f'  {unlit}\n  {lit}')

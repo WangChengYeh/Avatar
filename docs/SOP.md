@@ -59,6 +59,19 @@ AI 生圖 / 修圖（33 張）
 
 `gates.json` 另記 `force`（這次有沒有加 `--force`）和 `deliverable`（四道關卡都有結果、全部 0 FAIL、沒有 `--force`）。
 
+## 每個階段給客戶看什麼
+
+客戶是內部客戶：每個階段都給圖，FAIL 和 WARN 照實列出，不隱藏。`run_all.py` 結束時（包括中途停止）自動產生 `OUT/client/index.html`，也可以單獨執行 `python body3d/client_report.py PHOTOS OUT`。
+
+| 階段 | 圖 | 客戶看什麼 |
+| --- | --- | --- |
+| 1 照片 | `01_photos.jpg`：33 張總覽（主環、+30°、−20°、頭部特寫、俯視） | 人、髮型、服裝、表情對不對；照片檢查的 FAIL / WARN 清單 |
+| 2 烘焙前（頭部） | `02_head_review.png`、`02_head_overlap.png` | 全身照和頭部特寫的頭部是否一致；烘焙前檢查清單 |
+| 3 模型 | `03_preview.jpg`：正面、3/4、側面、背面渲染 | 整體外觀、比例、貼圖；GLB 驗證清單 |
+| 4 成品對照 | `04_body_compare.jpg`、`05_head_compare.jpg`：用輸入照片的規格相機拍模型，左原圖、右模型 | 兩邊應該一樣：臉的朝向、五官、輪廓、顏色；剪影吻合度（平均 ≥ 92% 通過） |
+
+頁首另有驗收總表與「可交付／不可交付」。交付時把 `client/` 整個資料夾連同 GLB 一起給，Yoga2 的站姿、抬手截圖另外附上（目前要手動拍）。
+
 ## PASS / WARN / FAIL 怎麼處理
 
 | 結果 | 意思 | 處理 |
