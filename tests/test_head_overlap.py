@@ -11,7 +11,7 @@ import check_turnaround as checker
 from conftest import lines, run_py
 
 
-@pytest.mark.parametrize(("delta", "level"), [(12, "PASS"), (20, "WARN"), (60, "WARN")])
+@pytest.mark.parametrize(("delta", "level"), [(12, "PASS"), (26, "WARN"), (60, "WARN")])   # cheek P90 target 20 (perfect photos 13–16)
 def test_head_overlap_compares_each_cheek(tmp_path, delta, level, monkeypatch):
     work = tmp_path / 'work'
     work.mkdir()
@@ -56,7 +56,7 @@ def test_head_yaw_limit_checks_before_and_after_face_alignment(capsys):
     assert any('head_090deg 最終相機' in line and '+17.0°' in line for line in lines(output, 'FAIL'))
 
 
-@pytest.mark.parametrize('right_shift, expected', [(0, checker.PASS), (35, checker.FAIL)])
+@pytest.mark.parametrize('right_shift, expected', [(0, checker.PASS), (50, checker.FAIL)])   # FAIL > 2 % of 2048 px
 def test_face_audit_checks_each_oblique_view_against_frontal_mesh(tmp_path, right_shift, expected, capsys):
     base = np.array([[-.2, 1.38, .1], [.2, 1.38, .1], [.2, 1.69, .1], [-.2, 1.69, .1]], dtype='<f4')
     raised = base + np.array([0, 0, .008], dtype='<f4')
@@ -85,7 +85,7 @@ def test_face_audit_checks_each_oblique_view_against_frontal_mesh(tmp_path, righ
     assert '鼻尖：朝正面為正，修正量中位數 +8.0 mm' in output
 
 
-@pytest.mark.parametrize('delta, same_mask, level', [(0, True, 'PASS'), (35, True, 'WARN'), (0, False, 'FAIL')])
+@pytest.mark.parametrize('delta, same_mask, level', [(0, True, 'PASS'), (45, True, 'WARN'), (0, False, 'FAIL')])   # P90 target 35
 def test_body_head_pair_reprojects_same_nominal_angle(tmp_path, delta, same_mask, level, capsys):
     body, head = '05_180deg_back', 'head_180deg'
     work = tmp_path / 'work'
@@ -140,19 +140,19 @@ def test_landmark_alignment_reserves_mouth_as_validation(tmp_path, capsys):
             frontal[index] = checker.camera_project(point, front_cam)
             oblique[index] = np.array(checker.camera_project(point, side_cam)) * 1.10 + [15, 5]
             if group == '嘴部':
-                oblique[index, 1] += 32
+                oblique[index, 1] += 50
     np.save(tmp_path / 'face_lm33_045.npy', oblique)
     kpis = {}
     assert checker.report_landmark_alignment(
         tmp_path, {'head_000deg': front_cam, 'head_045deg': side_cam}, frontal, vertices, 2048, kpis)
     error, level = kpis['head_045deg']['嘴部']
-    assert error == pytest.approx(32)
+    assert error == pytest.approx(50)
     assert level == checker.FAIL
     output = capsys.readouterr().out
     assert '1.100×' in output
     assert '嘴部用於驗證' in output
     mouth = next(line for line in lines(output, 'FAIL') if 'head_045deg 嘴部' in line)
-    assert '→ 32.0 px' in mouth and '局部對位' in mouth
+    assert '→ 50.0 px' in mouth and '局部對位' in mouth
     assert 'head_315deg：缺少斜面特徵點' in output
 
 
@@ -174,11 +174,12 @@ def test_face_dimensions_compare_proportions_after_scale(capsys):
         (98,): (np.array([20, 40]), np.array([40, 50])),
         (327,): (np.array([60, 40]), np.array([100, 50])),
     }
-    assert checker.report_face_dimensions('head_045deg', samples, scale=1.2)
+    # feature sizes are diagnostic only (#28: perfect photos differ by up to 29 %): never a failure
+    assert not checker.report_face_dimensions('head_045deg', samples, scale=1.2)
     output = capsys.readouterr().out
-    eyes = next(line for line in lines(output, 'PASS') if '眼距（眼角中點）' in line)
+    eyes = next(line for line in lines(output, 'INFO') if '眼距（眼角中點）' in line)
     assert '原始投影 100.0' in eyes and '照片 120.0' in eyes and '縮放後差 +0.0' in eyes
-    nose = next(line for line in lines(output, 'FAIL') if '鼻翼寬' in line)
+    nose = next(line for line in lines(output, 'INFO') if '鼻翼寬' in line)
     assert '縮放後差 +12.0 px（+25.0%）' in nose
     assert '嘴寬：共同可見點不足' in output
 
@@ -188,25 +189,20 @@ def test_bilateral_spans_use_one_visible_eye_from_each_side(capsys):
     frontal[list(checker.RIGHT_EYE_CENTER), 0] = 100
     frontal[list(checker.LEFT_EYE_CENTER), 0] = 300
     kpis = {}
-    assert checker.report_bilateral_dimensions(frontal, {
+    assert not checker.report_bilateral_dimensions(frontal, {
         'head_315deg': {checker.RIGHT_EYE_CENTER: np.array([90, 0])},
         'head_045deg': {checker.LEFT_EYE_CENTER: np.array([320, 0])},
     }, kpis)
-    assert kpis['bilateral_eye_span'] == (15.0, checker.FAIL)
+    assert kpis['bilateral_eye_span'] == (15.0, 'INFO')
     output = capsys.readouterr().out
-    eye_distance = next(line for line in lines(output, 'FAIL') if '眼距（眼角中點）' in line)
+    eye_distance = next(line for line in lines(output, 'INFO') if '眼距（眼角中點）' in line)
     assert '正面照片 200.0 px' in eye_distance and '左右斜面回投 230.0 px' in eye_distance
     assert '差 +30.0 px（+15.0%）' in eye_distance
 
 
-@pytest.mark.parametrize(('label', 'pixels', 'fraction', 'calibrated', 'level'), [
-    ('鼻翼寬', 5.0, 0.12, True, checker.WARN),
-    ('鼻翼寬', 6.0, 0.08, True, checker.WARN),
-    ('鼻翼寬', 6.0, 0.09, True, checker.FAIL),
-    ('鼻翼寬', 6.0, 0.09, False, checker.WARN),
-    ('唇部開合', 6.0, 0.09, True, checker.WARN),
-    ('顴部寬', 150.0, 0.24, True, checker.WARN),
-    ('嘴寬', 2.0, 0.11, True, checker.PASS),
+@pytest.mark.parametrize(('label', 'pixels', 'fraction', 'calibrated'), [
+    ('鼻翼寬', 6.0, 0.09, True), ('顴部寬', 150.0, 0.24, True), ('嘴寬', 2.0, 0.11, False),
 ])
-def test_dimension_gate_requires_calibration_and_both_limits(label, pixels, fraction, calibrated, level):
-    assert checker.dimension_status(label, pixels, fraction, calibrated) == level
+def test_dimension_sizes_are_diagnostic_only(label, pixels, fraction, calibrated):
+    """#28: MediaPipe on 3/4 close-ups against the silhouette-built face differs by up to 29 % on perfect photos"""
+    assert checker.dimension_status(label, pixels, fraction, calibrated) == 'INFO'

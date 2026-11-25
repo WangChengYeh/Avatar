@@ -144,3 +144,15 @@ def test_final_acceptance_thresholds():
 def test_fit_step_is_last():
     import run_all
     assert run_all.STEPS[-2:] == ['verify', 'fit']
+
+
+@pytest.mark.slow
+def test_synthetic_end_to_end_needs_no_force(synth_set, tmp_path):
+    """#28: perfect photos run through all 18 steps without --force: the photo check, the pre-bake head check
+    (spec angles, thresholds calibrated on perfect photos) and the final fit all pass"""
+    out = tmp_path / 'e2e'
+    rc, log = run_py('run_all.py', synth_set, out, '--name', 'body', timeout=7200)
+    assert rc == 0, log[-3000:]
+    text = open(out / 'run_all.log', errors='replace').read()
+    prebake = text.split('--head-overlap-work', 1)[1].split('bake33.py', 1)[0]
+    assert '[FAIL]' not in prebake, [l for l in prebake.splitlines() if '[FAIL]' in l]

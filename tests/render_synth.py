@@ -48,7 +48,16 @@ def ring(phi, el):
 # wide, aimed at the body centre; the head close-ups are one fixed zoom, HEAD_FRAME wide, aimed at the head centre
 BODY_FRAME, HEAD_ZOOM = 1.95, 4.0
 HEAD_FRAME = BODY_FRAME / HEAD_ZOOM
-body = Vector((0, 0, 0.84)); head = Vector((0, 0, 1.52))
+# body centre (input spec): on the vertical axis, half the figure height above the feet, measured from the model
+# (meshes standing on the floor); the head close-ups aim at the head centre
+dg = bpy.context.evaluated_depsgraph_get(); zs = []
+for o in s.objects:                 # meshes standing on the floor (the test GLB also holds a unit helper sphere)
+    if o.type == 'MESH':
+        z = [(o.matrix_world @ v.co).z for v in o.evaluated_get(dg).to_mesh().vertices]
+        if z and min(z) > -0.05:
+            zs += z
+body = Vector((0, 0, (min(zs) + max(zs)) / 2)); head = Vector((0, 0, 1.52))
+print('SYNTH body centre', round(body.z, 4), 'height', round(max(zs) - min(zs), 4))
 for i, phi in enumerate(range(0, 360, 45)):
     shot(f'{i + 1:02d}_{phi:03d}deg_{NAMES[phi]}', body, ring(phi, 0), BODY_FRAME)
     shot(f'el30_{phi:03d}deg', body, ring(phi, 30), BODY_FRAME)

@@ -8,7 +8,8 @@ import sharp from 'sharp';
 
 const photoSize = 2048;
 const renderSize = 920;
-const bodyCenterHeight = 1.65 / 2;
+const specHeight = 1.65;                 // body3d/steps/camera.py SPEC_HEIGHT: the GLB is always this tall
+const bodyCenterHeight = specHeight / 2;
 const bodyElevation = {main: 0, el30: 30, low20: -20, top: 90};
 
 function lockBodyCameras(cameras) {

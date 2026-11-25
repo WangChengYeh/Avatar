@@ -220,17 +220,19 @@ def _zoom(path, k):
 
 def test_fixed_camera_distance(broken):
     """10d: same framing in every full-body ring, a fixed zoom for the close-ups. The clean set passes; one el30
-    view drawn 4 % bigger and one close-up drawn 8 % smaller fail at their own angle only"""
+    view drawn 4 % bigger, one close-up drawn 8 % smaller and a side close-up 8 % bigger fail at their own angle only"""
     rc, out = check(broken)
     d = [l for l in out.splitlines() if '距離:' in l or '放大倍率' in l]
-    assert len(d) == 23 and all('[PASS]' in l for l in d), d
+    assert len(d) == 25 and all('[PASS]' in l for l in d), d      # 16 full-body widths, top, 8 close-ups
     _zoom(broken / 'el30_135deg.jpg', 1.04)
     _zoom(broken / 'head_045deg.jpg', 0.92)
+    _zoom(broken / 'head_270deg.jpg', 1.08)          # side close-ups are checked too
     rc, out = check(broken)
     fails = [l for l in lines(out, 'FAIL') if '距離' in l or '放大倍率' in l]
     assert any('el30 135° 距離' in l and '畫大了' in l for l in fails), fails
     assert any('head 45° 放大倍率' in l and '畫小了' in l for l in fails), fails
-    assert len(fails) == 2, fails
+    assert any('head 270° 放大倍率' in l and '畫大了' in l for l in fails), fails
+    assert len(fails) == 3, fails
 
 
 def _shift(path, dx=0, dy=0, sy=1.0):
@@ -373,3 +375,27 @@ def test_surface_luma_reports_coverage_and_boundary_sensitivity():
 
     no_samples = (base[0], np.zeros_like(base[1]), base[2])
     assert compare_surface_luma(base, no_samples) == ((None, None, 0), (None, None, 0))
+
+
+def test_head_closeup_lighting_and_ears(broken):
+    """10g / 10h: the clean set passes; a close-up drawn 10 % brighter warns on its lighting, and a close-up whose ear
+    band is drawn 12 mm further back than in the full-body view fails the ear position"""
+    rc, out = check(broken)
+    e = [l for l in out.splitlines() if '特寫亮度:' in l or '耳朵位置:' in l]
+    assert len(e) == 14 and all('[PASS]' in l for l in e), e
+    f = broken / 'head_135deg.jpg'
+    im = cv2.imread(str(f)).astype(np.float32)
+    m = im.min(2) < 235
+    im[m] = np.clip(im[m] * 1.10, 0, 255)
+    cv2.imwrite(str(f), im.astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    f = broken / 'head_090deg.jpg'
+    im = cv2.imread(str(f)); m = im.min(2) < 235
+    top = int(np.flatnonzero(m.any(1))[0])
+    from body3d.check_turnaround import HEAD_ZOOM
+    s = 2048 / 1.95 * HEAD_ZOOM                         # px per metre of the close-up (spec framing)
+    band = slice(top + int(0.07 * s), top + int(0.13 * s))
+    im[band] = np.roll(im[band], int(0.012 * s), axis=1)
+    cv2.imwrite(str(f), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    assert any('head 135° 特寫亮度' in l and '特寫比全身圖亮' in l for l in lines(out, 'WARN')), out
+    assert any('head 90° 耳朵位置' in l for l in lines(out, 'FAIL')), [l for l in out.splitlines() if '耳朵' in l]
