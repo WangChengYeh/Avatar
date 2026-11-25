@@ -419,3 +419,19 @@ def test_framing_head_top_and_outline_sharpness(broken):
     assert any('構圖佔比' in l and '太緊' in l for l in warns), [l for l in out.splitlines() if '構圖佔比' in l]
     assert any('特寫頭頂位置' in l for l in warns), [l for l in out.splitlines() if '特寫頭頂' in l]
     assert any('輪廓清晰度' in l and 'el30_090deg' in l for l in warns), [l for l in out.splitlines() if '輪廓' in l]
+
+
+def test_head_yaw_check(monkeypatch):
+    """11b: the face must be turned by the file angle, in the close-up and the full-body view alike"""
+    from body3d import check_turnaround as checker
+    m = np.zeros((100, 100), bool); m[10:90, 40:60] = True
+    views = {a: {'im': ('body', a), 'm': m} for a in (0, 45, 315)}
+    extra = {'head': {a: {'im': ('head', a)} for a in (0, 45, 315)}}
+    yaw = {('head', 0): 0, ('body', 0): 1, ('head', 45): 30, ('body', 45): 44, ('head', 315): 44, ('body', 315): 42}
+    monkeypatch.setattr(checker, 'body_head_crop', lambda im, mask: im)
+    monkeypatch.setattr(checker, 'face_yaw', lambda im: yaw[im])
+    res = {lab: lvl for lvl, lab, _ in checker.head_yaw_check(views, extra)}
+    assert res['head 45° 頭部朝向'] == 'FAIL' and res['全身 45° 頭部朝向'] == 'PASS'
+    assert res['head 45° 特寫對全身朝向'] == 'FAIL'
+    assert res['head 315° 頭部朝向'] == 'PASS' and res['head 315° 特寫對全身朝向'] == 'PASS'
+    assert res['head 0° 頭部朝向'] == 'PASS'

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.35.0（2026-11-25）
+版本 1.36.0（2026-11-26）
 
 版本紀錄:
+  1.36.0 新增第 11b 項頭部朝向：0° / 45° / 315° 用 MediaPipe 3D 特徵點量臉的轉向，要等於檔名角度（≤ 8° 通過、> 12° FAIL），
+         特寫和同角度全身圖一致（≤ 4° 通過、> 8° FAIL）。完美照片 40–47°、兩者差 ≤ 1°。
   1.35.0 角度門檻依完美照片收緊：水平環 ≤ 3° 通過、> 5° FAIL（原 5° / 8°）；俯角 / 仰角環 ≤ 5°、> 7° FAIL（原 6° / 9°）。
   1.34.0 完美照片改用 Yoga2 教練 luna-v1.glb（T-pose），以新舊兩個模型都 0 FAIL / 0 WARN 校準：去背改用整張畫面的
          背景（手臂伸到畫面邊緣時不再被當背景）；外殼的旋轉軸改用鏡像對；第 10c 項只提醒（手 > 6%、頭 > 12%）；
@@ -142,7 +144,8 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
         A-pose 的手臂在側面會疊在身體上，身體側面的形狀就無法判斷。）
   - 若用 A-pose（--pose apose）：手臂約 45° 往下張開，所有角度張開程度一致。
   - 雙腳與肩同寬、平行站立，腳尖朝前，重心平均，站直。
-  - 頭朝正前方，不轉頭、不歪頭、不低頭；表情自然固定。
+  - 頭朝正前方，不轉頭、不歪頭、不低頭；表情自然固定。第 11b 項量 0° / 45° / 315° 臉的轉向：要等於檔名角度
+    （≤ 8° 通過、> 12° FAIL），特寫和同角度全身圖一致（≤ 4° 通過、> 8° FAIL）。AI 常把斜角的臉轉向鏡頭。
   - 左右兩手高度對稱（差 < 身高 3%）。
   - 每一張都是同一個姿勢：只有「相機換了位置」，手、腳、頭的相對位置不能變。
   - 不要用左右翻轉來產生另一側（例如把 45° 翻成 315°）：臉、髮線、衣服的不對稱
@@ -213,7 +216,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 重建輸入全部使用 2048 × 2048 的 JPEG，副檔名為小寫 .jpg。
   - 對焦清楚、無動態模糊、無明顯壓縮色塊。第 8b 項量人物輪廓的邊緣過渡寬度：≤ 4.5 px 通過，> 8 px 判 FAIL
     （完美照片 1.6–3.2 px；貼圖本身的清晰度隨角度變化太大，不拿來判斷）。
-  - 沒有自動檢查的：掌心朝下、手指併攏、不轉頭、腳尖朝前、表情固定、衣服邊界高度（衣服邊緣不是水平線，
+  - 沒有自動檢查的：掌心朝下、手指併攏、歪頭 / 低頭、腳尖朝前、表情固定、衣服邊界高度（衣服邊緣不是水平線，
     完美照片各角度也差 2.4%）、浮水印與文字。請人工確認。
   - 不要加浮水印、文字、邊框。
 
@@ -266,7 +269,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.35.0'
+__version__ = '1.36.0'
 import numpy as np
 import cv2
 
@@ -1068,6 +1071,81 @@ def face_measures(im, m):
     if not np.isfinite(L).all() or face <= 0 or mouth <= eye or brow <= top:
         return None
     return (mouth - eye) / face, (brow - top) / face, face
+
+
+# section 11b, head direction. MediaPipe's 3D face landmarks give the face yaw (angle of the cheek-to-cheek line
+# 234 -> 454 to the image plane). The spec: the head faces straight ahead, so in the 45° / 315° views the face is
+# turned 45° from the camera, in the close-up and in the full-body view alike. Perfect photos (old test model and
+# luna-v1): 40–47°, close-up and full-body head of the same angle within 1°. v1240: close-ups 35–36° against 47° in
+# the full-body views (close-ups under-rotated); polished set: 26–32° in both (head turned toward the camera).
+YAW_PASS, YAW_FAIL = 8.0, 12.0                  # |face yaw| against the file angle
+YAW_PAIR_PASS, YAW_PAIR_FAIL = 4.0, 8.0         # close-up against the full-body head at the same angle
+YAW_VIEWS = {0: '01_000deg_front', 45: '02_045deg_front_left', 315: '08_315deg_front_right'}
+
+
+def face_yaw(im):
+    """|yaw| of the face in degrees (0 = facing the camera), from MediaPipe's 3D landmarks; None without a face"""
+    try:
+        import mediapipe as mp
+        face_mesh = mp.solutions.face_mesh.FaceMesh
+    except (ImportError, AttributeError):
+        return 'nomp'
+    h, w = im.shape[:2]
+    with face_mesh(static_image_mode=True, min_detection_confidence=0.3) as fm:
+        r = fm.process(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
+    if not r.multi_face_landmarks:
+        return None
+    L = r.multi_face_landmarks[0].landmark
+    v = np.array([L[454].x - L[234].x, 0.0, L[454].z - L[234].z]) * w
+    return float(abs(np.degrees(np.arctan2(v[2], v[0]))))
+
+
+def body_head_crop(im, m):
+    """the head of a full-body view, enlarged 4x (about the close-up scale) for the face detector"""
+    r = np.flatnonzero(m.any(1))
+    if not r.size:
+        return None
+    t, H = r[0], r[-1] - r[0]
+    c = np.flatnonzero(m[t:t + int(0.08 * H)].any(0))
+    if not c.size:
+        return None
+    cx, s_ = (c[0] + c[-1]) // 2, int(0.16 * H)
+    crop = im[max(0, t - 20):t + s_, max(0, cx - s_ // 2 - 40):cx + s_ // 2 + 40]
+    return cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+
+
+def head_yaw_check(views, extra):
+    """11b. [(level, label, message)]"""
+    out = []
+    heads = extra.get('head', {})
+    for a in YAW_VIEWS:
+        expect = min(a, 360 - a)
+        close = face_yaw(heads[a]['im']) if a in heads and heads[a].get('im') is not None else None
+        body = None
+        if a in views and views[a].get('m') is not None:
+            crop = body_head_crop(views[a]['im'], views[a]['m'])
+            body = face_yaw(crop) if crop is not None else None
+        if 'nomp' in (close, body):
+            return [(WARN, '頭部朝向', '沒有安裝 mediapipe，第 11b 項無法檢查')]
+        for what, y in (('head', close), ('全身', body)):
+            if y is None:
+                continue
+            e = abs(y - expect)
+            lvl = PASS if e <= YAW_PASS else WARN if e <= YAW_FAIL else FAIL
+            msg = (f'臉的轉向約 {y:.0f}°，檔名 {expect}°（差 {e:.0f}°，應 ≤ {YAW_PASS:g}°，> {YAW_FAIL:g}° 判 FAIL）')
+            if lvl != PASS and expect:
+                msg += (' → 臉轉得' + ('不夠（頭朝鏡頭轉）' if y < expect else '太多')
+                        + '：頭要朝正前方、和身體同方向，只有相機繞著轉'
+                        + ('；特寫的相機角度要和檔名相同' if what == 'head' else ''))
+            out.append((lvl, f'{what} {a}° 頭部朝向', msg))
+        if close is not None and body is not None and expect:
+            d = abs(close - body)
+            lvl = PASS if d <= YAW_PAIR_PASS else WARN if d <= YAW_PAIR_FAIL else FAIL
+            msg = f'特寫 {close:.0f}° 對全身圖 {body:.0f}°（差 {d:.0f}°，應 ≤ {YAW_PAIR_PASS:g}°，> {YAW_PAIR_FAIL:g}° 判 FAIL）'
+            if lvl != PASS:
+                msg += ' → 特寫和同角度全身圖的臉朝向不同：重新生成特寫，臉的角度和全身圖一致'
+            out.append((lvl, f'head {a}° 特寫對全身朝向', msg))
+    return out
 
 
 def face_check(extra):
@@ -3354,6 +3432,9 @@ def main():
         print('\n11. 臉部一致性（頭部特寫 0° / 45° / 315°：找得到臉、五官比例、頭髮高度和臉的比例要一致）')
         face_results = face_check(extra)
         for lvl, lab, msg in face_results:
+            report(lvl, lab, msg)
+        print('\n11b. 頭部朝向（0° / 45° / 315°：臉的轉向要等於檔名角度，特寫和同角度全身圖一致；需要 mediapipe）')
+        for lvl, lab, msg in head_yaw_check(good, extra):
             report(lvl, lab, msg)
 
     # ---- report image
