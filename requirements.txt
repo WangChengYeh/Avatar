@@ -4,5 +4,6 @@ scipy
 scikit-image
 trimesh
 fast-simplification
+Pillow               # 客戶頁圖上的中文標籤（沒有的話圖上不標字）
 mediapipe==0.10.14   # 必要：臉部檢查（第 11 / 11b 項）與臉部步驟 face / face3d
 pytest
