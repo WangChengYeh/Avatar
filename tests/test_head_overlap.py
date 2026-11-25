@@ -11,8 +11,8 @@ import check_turnaround as checker
 from conftest import lines, run_py
 
 
-@pytest.mark.parametrize(("delta", "level", "exit_code"), [(12, "PASS", 0), (20, "WARN", 0), (21, "FAIL", 1)])
-def test_head_overlap_compares_each_cheek(tmp_path, delta, level, exit_code, monkeypatch):
+@pytest.mark.parametrize(("delta", "level"), [(12, "PASS"), (20, "WARN"), (60, "WARN")])
+def test_head_overlap_compares_each_cheek(tmp_path, delta, level, monkeypatch):
     work = tmp_path / 'work'
     work.mkdir()
     cameras = {}
@@ -29,7 +29,7 @@ def test_head_overlap_compares_each_cheek(tmp_path, delta, level, exit_code, mon
     np.savez(work / 'uvmesh.npz', pos=points, nrm=normals)
 
     rc, output = run_py('check_turnaround.py', tmp_path, '--head-overlap-work', work)
-    assert rc == exit_code, output
+    assert rc == 0, output
     assert any('head_045deg' in line and '0.0 / 255' in line for line in lines(output, 'PASS')), output
     assert any('head_315deg' in line and f'{delta:.1f} / 255' in line for line in lines(output, level)), output
     if level == checker.PASS:
@@ -85,7 +85,7 @@ def test_face_audit_checks_each_oblique_view_against_frontal_mesh(tmp_path, righ
     assert '鼻尖：朝正面為正，修正量中位數 +8.0 mm' in output
 
 
-@pytest.mark.parametrize('delta, same_mask, level', [(0, True, 'PASS'), (35, True, 'FAIL'), (0, False, 'FAIL')])
+@pytest.mark.parametrize('delta, same_mask, level', [(0, True, 'PASS'), (35, True, 'WARN'), (0, False, 'FAIL')])
 def test_body_head_pair_reprojects_same_nominal_angle(tmp_path, delta, same_mask, level, capsys):
     body, head = '05_180deg_back', 'head_180deg'
     work = tmp_path / 'work'

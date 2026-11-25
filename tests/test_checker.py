@@ -88,7 +88,7 @@ def test_dark_image_flagged(broken):
     im[m] *= 0.6
     cv2.imwrite(str(f), im.clip(0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
-    assert any('90' in l and ('曝光' in l or '亮度' in l) for l in lines(out, 'WARN') + lines(out, 'FAIL'))
+    assert any('90' in l and ('曝光' in l or '亮度' in l) for l in lines(out, 'WARN'))
 
 
 def test_silhouette_sheet_and_perspective_pass_on_orthographic(synth_set, tmp_path):
@@ -257,7 +257,7 @@ def test_aim_point_and_tilt(broken):
 
 
 def test_lighting_fixed_to_the_person(broken):
-    """6c / 10f: the clean (flat-lit) set passes; one view brightened fails the shared-surface brightness of its
+    """6c / 10f: the clean (flat-lit) set passes; one view brightened warns on the shared-surface brightness of its
     neighbours, and a light that follows the camera (every view brighter on the image right) is flagged by 6c for review"""
     rc, out = check(broken)
     light = [l for l in out.splitlines() if '明暗方向:' in l or '表面亮度:' in l]
@@ -281,5 +281,35 @@ def test_lighting_fixed_to_the_person(broken):
     fails = lines(out, 'FAIL')
     warnings = lines(out, 'WARN')
     assert sum('明暗方向' in l and '右側較亮' in l for l in warnings) >= 6, warnings
-    assert not any('明暗方向' in l or ' 曝光:' in l for l in fails), fails
-    assert any('主環 90°' in l and '表面亮度' in l for l in fails), fails
+    assert not any('明暗方向' in l or ' 曝光:' in l or '表面亮度' in l for l in fails), fails
+    assert any('主環 90°' in l and '表面亮度' in l for l in warnings), warnings
+
+
+def test_surface_luma_reports_coverage_and_boundary_sensitivity():
+    from body3d.check_turnaround import SURF_P90_PASS, compare_surface_luma, surface_luma
+
+    x, y = np.meshgrid(np.arange(32, 224, 4), np.arange(32, 224, 4))
+    points = np.column_stack([x.ravel(), -y.ravel(), np.zeros(x.size)])
+    normals = np.tile([0., 0., 1.], (len(points), 1))
+    mask = np.zeros((256, 256), bool)
+    mask[16:240, 16:240] = True
+    image = np.full((256, 256, 3), 200, np.uint8)
+    image[:, 128:] = 55
+    base = surface_luma(points, normals, image, mask, (1, 0, 0, 0, 0))
+
+    smaller_view = mask.copy()
+    smaller_view[:, 185:] = False
+    partial = surface_luma(points, normals, image, smaller_view, (1, 0, 0, 0, 0))
+    raw, interior = compare_surface_luma(base, partial)
+    assert raw[:2] == interior[:2] == (0.0, 0.0)
+
+    shifted = surface_luma(points, normals, image, mask, (1, 20, 0, 0, 0))
+    raw, interior = compare_surface_luma(base, shifted)
+    assert raw[1] > SURF_P90_PASS and interior[1] <= SURF_P90_PASS
+
+    darker = surface_luma(points, normals, (image * 0.8).astype(np.uint8), mask, (1, 0, 0, 0, 0))
+    raw, interior = compare_surface_luma(base, darker)
+    assert raw[1] > SURF_P90_PASS and interior[1] > SURF_P90_PASS
+
+    no_samples = (base[0], np.zeros_like(base[1]), base[2])
+    assert compare_surface_luma(base, no_samples) == ((None, None, 0), (None, None, 0))
