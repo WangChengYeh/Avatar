@@ -42,6 +42,9 @@ python body3d/verify_glb.py ./output/body_rigged.glb --expect-unlit --renders ./
 # 將重建網格投影回輸入視角，檢查身體剪影
 python body3d/fit_report.py ./output/work --region body
 
+# MakeHuman 模板：乾淨拓樸、含手指的 Mixamo 骨架（需在 Blender 安裝 MPFB 擴充）
+python body3d/run_all.py ./photos ./output --name body --template makehuman
+
 # 跑測試；提供 33 張照片可加跑端到端
 python -m pytest -q
 python -m pytest -q --photos=./photos
