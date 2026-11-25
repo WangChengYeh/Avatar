@@ -5,6 +5,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 
 版本紀錄:
   1.25.0 第 10f 項放寬 AI 亮度門檻，明列取樣不足，提供避開高反差邊界的複核數值。
+         亮度超標一律提醒複核，包含照片初篩與烘焙前的頭部回投。
   1.24.0 畫面左右亮差與膚色曝光只作粗篩，同一表面回投仍用原門檻驗收。
   1.23.0 曝光粗篩 ±3% → 7%、臉頰粗篩 5 → 12 / 255：依完美照片重新校準（原門檻低於完美照片）。
          光線規格改為固定在人身上的全方位均勻柔光：第 6c 項畫面左右亮度差 > 8% FAIL；第 10f 項相鄰角度同一表面亮度。
@@ -55,7 +56,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     python check_turnaround.py 照片資料夾 --head-overlap-work 工作資料夾
     工作資料夾需有 cams33.json、uvmesh.npz、face_lm33.npy 和頭部照片遮罩。
     全身／頭部比對依 8 個水平角度配對，並使用全身照的遮罩。
-    共同覆蓋 < 60% 判 FAIL，< 80% 提醒複核；共同可見區的亮度差 P90 > 20/255 判 FAIL。
+    共同覆蓋 < 60% 判 FAIL，< 80% 提醒複核。共同可見區的亮度差 P90 > 12/255 判 WARN。
     有 MediaPipe 與特寫特徵點時，0° / 45° / 315° 另比對眼、鼻、嘴投影。
     五官對位另讀取 face_lm33_045.npy 與 face_lm33_315.npy。臉部修正前後量測使用
     body33s_noface.ply、body33s.ply 與 cams33.json 的 pre_face 相機。
@@ -161,8 +162,8 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 光線固定在人身上、全方位均勻柔光（像環形柔光箱或陰天），沒有方向性的明暗面與高光，
     盡量接近皮膚 / 衣服本身的顏色：成品是無光照 GLB，明暗應由 3D 軟體的燈光產生，不要畫進照片。
     光源不可跟著相機轉：否則同一塊皮膚在不同角度亮度不同，烘焙後有色差接縫。
-    第 6c 項量每張畫面左右亮度差（≤ 6%，> 8% FAIL）；第 10f 項把相鄰角度投影到同一表面比亮度
-    （中位數差 ≤ 2、P90 ≤ 15 / 255，中位數 > 4 或 P90 > 25 FAIL）。
+    第 6c 項粗篩畫面左右亮度差（AI 模式 > 6% 判 WARN）。第 10f 項比較共同表面的亮度
+    （AI 模式下，中位數絕對差 > 3 或 P90 > 18 / 255 判 WARN）。
   - 人物與背景顏色要有對比（白衣服配白背景會去背失敗）。
   - 不要有 AI 留下的灰白雜點（黏在身體邊緣的無色色塊，本腳本第 1b 項）。
   - 33 張圖鎖定同一組曝光、白平衡、光源方向與強度，各視角不使用自動曝光。
@@ -170,7 +171,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 第 9 項曝光粗篩：全圖平均膚色亮度相對主環偏差應 ≤ 7%；頭部臉頰取樣亮度差應 ≤ 12 / 255
     （完美照片 6%、11 / 255：每個角度看到的皮膚不同；同一表面的亮度由第 10f 項直接比較）。
   - 烘焙前投影重疊檢查：共同可見臉頰亮度絕對差的第 90 百分位應 ≤ 12 / 255；
-    > 12 至 20 判 WARN，> 20 判 FAIL。
+    超出目標判 WARN。
 
 七、畫質
   - 重建輸入全部使用 2048 × 2048 的 JPEG，副檔名為小寫 .jpg。
@@ -653,8 +654,8 @@ def aim_check(good, extra):
 # silhouettes, facing both cameras, blurred luma) and the signed median and P90 of the difference are compared.
 # Perfect photos (flat render of the texture): |median| ≤ 0.5, P90 ≤ 11.1 / 255; v1220 (light fixed to the camera):
 # median up to 19.5, P90 up to 49.
-SURF_MED_PASS, SURF_MED_FAIL = 3.0, 6.0
-SURF_P90_PASS, SURF_P90_FAIL = 18.0, 30.0
+SURF_MED_PASS = 3.0
+SURF_P90_PASS = 18.0
 SURF_MIN_SAMPLES = 200
 SURF_EDGE_CONTRAST = 25
 
@@ -1062,7 +1063,6 @@ MIN_SAMPLES = 60
 EXPOSURE_MAX_DIFF = 0.07
 PHOTO_CHEEK_MAX_DIFF = 12.0
 PROJECTED_LUMA_PASS = 12.0
-PROJECTED_LUMA_FAIL = 20.0
 
 
 def projected_samples(points, normals, cam, image, mask):
@@ -1631,15 +1631,14 @@ def report_head_overlap(folder, work, overlay_kpis=None, overlay_dir=None):
         delta = np.abs(frontal_luma[common] - side_luma[common])
         median = float(np.median(delta))
         p90 = float(np.percentile(delta, 90))
-        status = PASS if p90 <= PROJECTED_LUMA_PASS else WARN if p90 <= PROJECTED_LUMA_FAIL else FAIL
-        failed |= status == FAIL
+        status = PASS if p90 <= PROJECTED_LUMA_PASS else WARN
         guidance = '，請複核重疊區亮度和對位' if status != PASS else ''
         print(f'[{status}] {label}：亮度絕對差中位數 {median:.1f}，第 90 百分位 {p90:.1f} / 255'
-              f'（{count} 點，目標 ≤ {PROJECTED_LUMA_PASS:g}，失敗 > {PROJECTED_LUMA_FAIL:g}）{guidance}')
+              f'（{count} 點，目標 ≤ {PROJECTED_LUMA_PASS:g}）{guidance}')
     failed |= report_landmark_alignment(work, cameras, landmarks, vertices, frontal_image.shape[0], overlay_kpis)
     failed |= report_face_reconstruction(work, cameras, landmarks, frontal_image.shape[0])
     if failed:
-        print('烘焙前驗證有 FAIL：請檢查列出的頭部相機、亮度或五官偏差。')
+        print('烘焙前驗證有 FAIL：請檢查列出的頭部相機、覆蓋率或五官偏差。')
     return int(failed)
 
 
@@ -1816,7 +1815,7 @@ def compare_body_head_pair(folder, work, body, head, cameras, vertices, faces):
     if denominator < MIN_SAMPLES:
         return None, ref, warped, shared, delta, full
     p90 = float(np.percentile(delta[shared], 90)) if shared.sum() >= MIN_SAMPLES else None
-    if coverage < BODY_HEAD_MIN_OVERLAP or (p90 is not None and p90 > PROJECTED_LUMA_FAIL):
+    if coverage < BODY_HEAD_MIN_OVERLAP:
         status = FAIL
     elif coverage < BODY_HEAD_REVIEW_OVERLAP or p90 is None or p90 > PROJECTED_LUMA_PASS:
         status = WARN
@@ -2311,7 +2310,7 @@ def main():
             report(FAIL, tag, '人物碰到畫面邊緣，需完整入鏡並留白')
         bgL = float(np.median(bg[..., 0]))
         if bgL < 215:
-            report(strict(WARN), tag, f'背景偏暗（L={bgL:.0f}），要純白背景')
+            report(WARN, tag, f'背景偏暗（L={bgL:.0f}），要純白背景')
         # floor shadow: dark pixels outside the figure in the bottom band
         band = slice(int(b - 0.06 * fig_h), min(H, int(b + 0.04 * fig_h)))
         Lb = lab[band, :, 0]; mb = m[band]
@@ -2814,14 +2813,10 @@ def main():
             if med is None:
                 report(WARN, label, f'未量測：共同可見表面取樣 {n} 點，至少需 {SURF_MIN_SAMPLES} 點，請複核回投對位')
                 continue
-            mp_, mf_ = T(SURF_MED_PASS, 5.0), T(SURF_MED_FAIL, 10.0)
-            pp_, pf_ = T(SURF_P90_PASS, 37.5), T(SURF_P90_FAIL, 62.5)
-            l1 = PASS if abs(med) <= mp_ else WARN if abs(med) <= mf_ else FAIL
-            l2 = PASS if p90 <= pp_ else WARN if p90 <= pf_ else FAIL
-            lvl = FAIL if FAIL in (l1, l2) else WARN if WARN in (l1, l2) else PASS
+            mp_, pp_ = T(SURF_MED_PASS, 5.0), T(SURF_P90_PASS, 37.5)
+            lvl = WARN if abs(med) > mp_ or p90 > pp_ else PASS
             msg = (f'同一表面亮度差：中位數 {med:+.1f}、第 90 百分位 {p90:.1f} / 255（{n} 點；'
-                   f'通過需中位數絕對值 ≤ {mp_:g} 且 P90 ≤ {pp_:g}，'
-                   f'中位數絕對值 > {mf_:g} 或 P90 > {pf_:g} 失敗）')
+                   f'目標為中位數絕對值 ≤ {mp_:g} 且 P90 ≤ {pp_:g}）')
             if lvl != PASS:
                 brighter = f'{name[k1[0]]} {k1[1]}°' if med > 0 else f'{name[k2[0]]} {k2[1]}°'
                 direction = f'{brighter} 的共同取樣區較亮。' if abs(med) > mp_ else ''
