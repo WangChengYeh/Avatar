@@ -257,6 +257,23 @@ def test_aim_point_and_tilt(broken):
     assert any('low20 0° 俯仰角' in l and '沒有依投影縮短' in l for l in fails), fails
 
 
+@pytest.mark.parametrize('angle,elevation', [(0, 0), (45, 30), (225, -20), (0, 90)])
+def test_absolute_aim_recovers_frame_shift_for_asymmetric_silhouette(angle, elevation):
+    from body3d.check_turnaround import absolute_aim_offset
+
+    hull = np.array([[-.7, 1.2, .03], [.8, 1.25, .04], [-.08, 0, .12],
+                     [.09, .02, -.07], [.01, 1.65, -.18]])
+    p, t = np.radians([angle, elevation])
+    centered = hull - [0, .825, 0]
+    scale = 100
+    columns = np.rint(102 + scale * (centered @ [np.cos(p), 0, -np.sin(p)])).astype(int)
+    rows = np.rint(96 - scale * (centered @ [-np.sin(t)*np.sin(p), np.cos(t), -np.sin(t)*np.cos(p)])).astype(int)
+    mask = np.zeros((200, 200), dtype=bool)
+    mask[rows, columns] = True
+    np.testing.assert_allclose(absolute_aim_offset(hull, mask, scale, angle, elevation),
+                               (.02, -.04), atol=.005)
+
+
 def test_lighting_fixed_to_the_person(broken):
     """A flat-lit set passes; camera-following light is flagged by the coarse direction check."""
     rc, out = check(broken)
