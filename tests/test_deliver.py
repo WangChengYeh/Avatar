@@ -24,7 +24,8 @@ def test_stage1_zip_has_the_33_photos_and_a_manifest(tmp_path):
     names, m = manifest(z)
     assert ok and z.endswith('body_stage1_photos.zip') and len(deliver.PHOTOS) == 33
     assert sorted(n for n in names if n.startswith('photos/')) == sorted('photos/' + p for p in deliver.PHOTOS)
-    assert m['deliverable'] and m['photo_check'] == dict(version='1.39.0', FAIL=0, WARN=5, PASS=300)
+    assert m['deliverable'] and m['gates'] == {'1 照片檢查': dict(FAIL=0, WARN=5, PASS=300)}
+    assert m['photo_check_version'] == '1.39.0'
     assert len(m['sha256']) == 33 and m['failures'] == [] and m['missing'] == []
 
 
@@ -43,3 +44,15 @@ def test_failing_check_is_zipped_as_FAIL_and_replaces_the_delivery(tmp_path):
 
 def test_fail_lines():
     assert deliver.fail_lines('  [PASS] a\n  [FAIL] b: 1\n[WARN] c\n  [FAIL] d') == ['b: 1', 'd']
+
+
+def test_later_stage_is_FAIL_when_an_earlier_gate_failed(tmp_path):
+    f = tmp_path / 'a.glb'; f.write_bytes(b'glb')
+    z, ok = deliver.pack(str(tmp_path / 'out'), 'body', 3, {'a.glb': str(f)},
+                         {'1 照片檢查': (2, 0, 300), '2 烘焙前檢查': (0, 1, 30), '3 GLB 驗證（unlit）': (0, 0, 21)},
+                         ['head 45° 臉部位置'])
+    names, m = manifest(z)
+    assert not ok and z.endswith('body_stage3_models_FAIL.zip') and 'a.glb' in names
+    assert m['gates']['1 照片檢查']['FAIL'] == 2 and m['failures'] == ['head 45° 臉部位置']
+    z, ok = deliver.pack(str(tmp_path / 'out'), 'body', 3, {'a.glb': str(f)}, {'1 照片檢查': (0, 0, 300)})
+    assert ok and z.endswith('body_stage3_models.zip') and not (tmp_path / 'out' / 'deliver' / 'body_stage3_models_FAIL.zip').exists()

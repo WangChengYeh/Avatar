@@ -1,6 +1,7 @@
 """MediaPipe face mesh (468 landmarks) on the frontal head close-up -> face_lm33.npy (col, row, z in pixels).
 The bake uses the landmark outline so the frontal close-up owns the face. Required: without mediapipe the script
-exits 1; when no face is found it exits 2 (run_all goes on only with --force).
+exits 1; when no face is found it exits 2 (the photo check has failed it already: run_all goes on, results
+marked _FAIL, unless --stop-on-fail).
 usage: python face_landmarks.py head_000deg.jpg out.npy"""
 import sys
 import cv2

@@ -4,6 +4,15 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## body3d 3.0.0 · 每個階段都有成果，好或不好
+
+原則（SOP）：pass 或 fail 都會有成果，只是好跟不好。只有四道關卡全部通過才能交付。
+
+- `run_all.py` 不再因關卡 FAIL 停下：四個階段都做完，每個階段結束在 `OUT/deliver/` 打包成果 —— `stage1_photos`、`stage2_reconstruction`、`stage3_models`、`stage4_acceptance`。這個階段和之前的關卡全部 0 FAIL 是好的（原檔名，可交付）；否則檔名加 `_FAIL`（內容齊全，manifest 列出各關卡數字與未通過項目，不能交付）。
+- 結束碼：全部 0 FAIL 為 0、有 FAIL 為 1、程式出錯停下為 2。`--stop-on-fail`：關卡一有 FAIL 就停（省時間）。`--force` 仍接受但不需要。
+- `gates.json` 拿掉 `force`；`deliverable` = 四道關卡都有結果且全部 0 FAIL。
+- 客戶頁每個階段列出成果 zip（好／有未通過）。SOP、README、流程文件改寫。
+
 ## body3d 2.14.0 · 照片檢查未通過也打包 zip（_FAIL）
 
 - 階段 1 一定打包 33 張照片：0 FAIL 是 `{name}_stage1_photos.zip`（交付物）；有 FAIL 或缺照片是 `{name}_stage1_photos_FAIL.zip`（不能交付，`manifest.json` 有 `deliverable: false`、`failures` 未通過清單、`missing`）。同時只留一個。
