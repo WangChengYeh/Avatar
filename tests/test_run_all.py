@@ -113,21 +113,22 @@ def test_face_step_aligns_closeups(synth_set, tmp_path):
     assert rc == 0 and np.abs(v1 - v2).max() < 2e-3
 
 
-def test_unverified_face_uses_wide_camera_search(monkeypatch, tmp_path):
+@pytest.mark.parametrize(('rc', 'passed'), [(0, True), (1, False)])
+def test_camera_lock_follows_check_result(monkeypatch, tmp_path, rc, passed):
+    """0 FAIL locks the angles (warnings included); a FAIL run with --force uses the wide search"""
     import json
     import run_all
 
     def checker_run(command, cwd, log, ok_codes):
-        assert '--camera-check' in command
-        assert 3 in ok_codes
-        return 3
+        assert '--camera-check' not in command and 3 not in ok_codes
+        return rc
 
     status_path = tmp_path / 'out' / 'work' / 'check_status.json'
     status_path.parent.mkdir(parents=True)
     status_path.write_text('{"passed": true}')
     monkeypatch.setattr(run_all, 'run', checker_run)
-    assert run_all.main([str(tmp_path), str(tmp_path / 'out'), '--only', 'check']) == 0
-    assert json.loads(status_path.read_text()) == {'passed': False}
+    assert run_all.main([str(tmp_path), str(tmp_path / 'out'), '--only', 'check', '--force']) == 0
+    assert json.loads(status_path.read_text()) == {'passed': passed}
 
 
 def test_final_acceptance_thresholds():

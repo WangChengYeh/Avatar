@@ -55,14 +55,12 @@ def test_wrong_angle_fails(broken):
     assert any('90°' in l for l in fails)
 
 
-def test_flipped_copy_fails_in_ai_mode_warns_in_photo_mode(broken):
-    """把右側圖左右翻轉當成左側：第 6b 項指出翻轉複製；AI 模式（預設）FAIL，photo 模式 WARN"""
+def test_flipped_copy_fails(broken):
+    """把右側圖左右翻轉當成左側：第 6b 項指出翻轉複製，判 FAIL"""
     im = cv2.imread(str(broken / '07_270deg_right.jpg'))
     cv2.imwrite(str(broken / '03_090deg_left.jpg'), cv2.flip(im, 1), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
     assert any('翻轉複製' in l and '90°' in l for l in lines(out, 'FAIL'))
-    rc, out = run_py('check_turnaround.py', broken, '--mode', 'photo', '--out', broken.parent / 'p.png')
-    assert any('翻轉複製' in l and '90°' in l for l in lines(out, 'WARN'))
 
 
 def test_grey_smudge_fails(broken):
@@ -81,7 +79,7 @@ def test_grey_smudge_fails(broken):
 
 
 def test_dark_image_flagged(broken):
-    """曝光粗篩與同一表面的亮差都會標記偏暗的視角。"""
+    """曝光粗篩標記偏暗的視角（WARN）；同一表面亮差 > 6/255 判 FAIL。"""
     f = broken / 'el30_090deg.jpg'
     im = cv2.imread(str(f)).astype(np.float32)
     m = im.min(2) < 235
@@ -89,7 +87,7 @@ def test_dark_image_flagged(broken):
     cv2.imwrite(str(f), im.clip(0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
     assert any('90' in l and '曝光' in l for l in lines(out, 'WARN'))
-    assert any('el30 90° / 主環 90° 表面亮度' in l for l in lines(out, 'WARN'))
+    assert any('el30 90° / 主環 90° 表面亮度' in l for l in lines(out, 'FAIL'))   # 1.37.0: median > 6/255 is FAIL
 
 
 def test_silhouette_sheet_and_perspective_pass_on_orthographic(synth_set, tmp_path):
@@ -137,8 +135,6 @@ def test_ring_width_ratios(synth_set, persp_set, tmp_path):
     rc, out = run_py('check_turnaround.py', persp_set, '--out', tmp_path / 'b.png')
     assert any('透視:' in l for l in lines(out, 'FAIL'))
     assert not any('寬度比:' in l for l in lines(out, 'FAIL'))
-    rc, out = run_py('check_turnaround.py', persp_set, '--mode', 'photo', '--out', tmp_path / 'c.png')
-    assert not any('寬度比:' in l for l in lines(out, 'FAIL'))
 
 
 def test_preflight_reports_incompatible_and_duplicate_photos(tmp_path):
@@ -163,8 +159,8 @@ def test_preflight_reports_incompatible_and_duplicate_photos(tmp_path):
 
 
 
-def test_clean_set_has_no_warnings_in_ai_mode(synth_set, tmp_path):
-    """嚴格模式的門檻是「完美照片 + 小餘裕」：完美照片連 WARN 都不能有（曝光與臉頰粗篩 1.23.0 依完美照片重新校準）"""
+def test_clean_set_has_no_warnings(synth_set, tmp_path):
+    """門檻是「完美照片 + 小餘裕」：完美照片連 WARN 都不能有（曝光與臉頰粗篩 1.23.0 依完美照片重新校準）"""
     rc, out = run_py('check_turnaround.py', synth_set, '--out', tmp_path / 'r.png')
     lighting = ()
     other = [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if not any(k in l for k in lighting)]
@@ -196,11 +192,9 @@ def test_closeup_without_face_fails(broken):
     assert any('head 45° 臉部' in l and '找不到臉' in l for l in lines(out, 'FAIL'))
 
 
-@pytest.mark.parametrize(('ai', 'fail_limit', 'status'), [(True, 7, 'FAIL'), (False, 8, 'WARN')])
-def test_face_report_uses_mode_thresholds(monkeypatch, ai, fail_limit, status):
+def test_face_report_fail_threshold(monkeypatch):
     import check_turnaround as checker
 
-    monkeypatch.setitem(checker.MODE, 'ai', ai)
     monkeypatch.setattr(checker, 'face_measures',
                         lambda angle, _: (0.3 * (1 if angle == 0 else checker.FACE_BIAS['prop']),
                                           0.4 * (1 if angle == 0 else checker.FACE_BIAS['hair'] * 1.075), 140))
@@ -208,7 +202,7 @@ def test_face_report_uses_mode_thresholds(monkeypatch, ai, fail_limit, status):
     report = checker.face_check({'head': heads})
     hair = [(level, message) for level, label, message in report if '髮高比' in label]
     assert len(hair) == 2
-    assert all(level == status and f'> {fail_limit}% 判 FAIL' in message for level, message in hair)
+    assert all(level == 'FAIL' and '> 7% 判 FAIL' in message for level, message in hair)
 
 
 def _zoom(path, k):

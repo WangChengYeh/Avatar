@@ -30,11 +30,11 @@ SIDE = ('head_045deg', 'head_315deg')
 MAX_T = 0.025                       # largest depth correction (m)
 FADE = 0.015                        # fade-in width inside the landmark outline: no movement on the outline (m)
 if not os.path.exists('face_lm33.npy'):
-    print('face33: no face_lm33.npy (face step skipped), nothing to do'); sys.exit(0)
+    print('face33: no face_lm33.npy (no face in head_000deg; run the face step)', file=sys.stderr); sys.exit(2)
 try:
     import mediapipe as mp
 except ImportError:
-    print('face33: mediapipe not installed, nothing to do'); sys.exit(0)
+    sys.exit('face33: mediapipe is required (pip install "mediapipe==0.10.14")')
 
 cams = json.load(open('cams33.json'))
 # always start from the head cameras as headreg33 left them (kept in 'pre_face'; headreg33 writes fresh dicts),
@@ -100,7 +100,7 @@ for n in SIDE:
             vis = good & (N @ fs > 0.15)                 # landmark faces this camera (far-side contour is hidden)
             obs[n] = (L, vis)
 if not obs:
-    print('face33: no face found in the 3/4 close-ups, nothing to do'); sys.exit(0)
+    print('face33: no face found in the 3/4 close-ups', file=sys.stderr); sys.exit(2)
 idx = np.nonzero(good)[0]; nL = len(idx)
 names = list(obs)
 # fixed distance and centre within the close-up ring (headreg33): with the ring lock on, the landmarks may only

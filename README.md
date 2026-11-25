@@ -33,7 +33,7 @@ Blender 可從 PATH、Homebrew 或系統應用程式目錄尋找。也可用 `--
 ## 常用指令
 
 ```sh
-# 檢查照片（預設為 AI 模式）
+# 檢查照片（照片須先經 AI 修正；只有一套門檻）
 python body3d/check_turnaround.py ./photos --out turnaround_report.png
 
 # 驗證無光照 GLB，另存頭部渲染供複核
@@ -50,7 +50,7 @@ python -m pytest -q
 python -m pytest -q --photos=./photos
 ```
 
-可單獨分享 `check_turnaround.py`。照片初篩基本功能需要 `numpy` 和 `opencv-python`，第 11 項的臉部檢查另外使用 MediaPipe。
+可單獨分享 `check_turnaround.py`。照片初篩基本功能需要 `numpy` 和 `opencv-python`，第 11 / 11b 項的臉部檢查必須安裝 MediaPipe（`mediapipe==0.10.14`），沒裝時判 FAIL。
 
 ## Loop engineering
 

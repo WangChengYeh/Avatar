@@ -4,5 +4,5 @@ scipy
 scikit-image
 trimesh
 fast-simplification
-mediapipe==0.10.14   # 選用：臉部特徵點（沒有的話臉部改用一般混合）
+mediapipe==0.10.14   # 必要：臉部檢查（第 11 / 11b 項）與臉部步驟 face / face3d
 pytest
