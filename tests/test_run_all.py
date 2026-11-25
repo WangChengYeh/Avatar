@@ -8,7 +8,7 @@ from conftest import run_py
 
 def test_version():
     rc, out = run_py('run_all.py', '--version')
-    assert rc == 0 and 'body3d 3.' in out
+    assert rc == 0 and 'body3d 2.' in out
 
 
 def test_stops_when_photos_fail_check(synth_set, tmp_path):

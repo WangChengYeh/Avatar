@@ -48,12 +48,16 @@ def zip_paths(out, name, stage=1):
     return os.path.join(d, base + '.zip'), os.path.join(d, base + '_FAIL.zip')
 
 
-def pack(out, name, stage, files, gates, failures=(), missing=(), extra=None):
+def pack(out, name, stage, files, gates, failures=(), missing=(), extra=None, stopped=None):
     """write the zip of one stage, always (docs/SOP.md: every stage has a result, good or not good).
     files: {name in the zip: path}; gates: {gate: (FAIL, WARN, PASS)} of this stage and the ones before it. Good
     (the plain name, deliverable) = every gate so far has 0 FAIL and nothing is missing; otherwise _FAIL.zip with the
-    failed items. Only one of the two exists at a time. Returns (path, good)."""
-    ok = bool(gates) and not any(g[0] for g in gates.values()) and not missing
+    failed items. stopped = (step, reason) when the run stopped inside this stage: whatever exists is packed and the
+    result is _FAIL. Only one of the two exists at a time. Returns (path, good)."""
+    missing = list(missing)
+    if stopped:                                      # list what the stage would have made but had not yet
+        missing += [k for k, v in files.items() if not (v and os.path.exists(v))]
+    ok = bool(gates) and not any(g[0] for g in gates.values()) and not missing and not stopped
     good, bad = zip_paths(out, name, stage)
     for f in (good, bad):                              # never an outdated result beside the new one
         if os.path.exists(f):
@@ -64,7 +68,8 @@ def pack(out, name, stage, files, gates, failures=(), missing=(), extra=None):
     manifest = dict(stage=stage, contents=STAGE_ZH[stage], name=name, deliverable=ok,
                     created=datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
                     gates={g: dict(FAIL=v[0], WARN=v[1], PASS=v[2]) for g, v in gates.items()},
-                    failures=list(failures), missing=list(missing),
+                    failures=list(failures), missing=missing,
+                    stopped=dict(step=stopped[0], reason=stopped[1]) if stopped else None,
                     sha256={k: sha256(v) for k, v in files.items()}, **(extra or {}))
     tmp = dst + '.tmp'
     with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as z:

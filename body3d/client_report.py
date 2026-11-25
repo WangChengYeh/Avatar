@@ -41,7 +41,7 @@ STEP_ZH = {'check': '照片檢查', 'cams': '去背、建立相機', 'refine': '
            'verify': '模型檔驗證', 'fit': '成品與原圖比對'}
 STAGE_OF = {'check': 1, 'cams': 2, 'refine': 2, 'arms': 2, 'round': 2, 'legs': 2, 'mesh': 2, 'headreg': 2, 'face': 2,
             'face3d': 2, 'uv': 2, 'bake': 3, 'export': 3, 'joints': 3, 'rig': 3, 'unlit': 3, 'verify': 3, 'fit': 4}
-STAGES = {1: ('照片', '1 照片檢查', '成果：33 張照片。照片檢查全部通過才是好的成果；有未通過時照片要重畫，後面仍會做完讓你看到問題，但成果都標 _FAIL。'),
+STAGES = {1: ('照片', '1 照片檢查', '成果：33 張照片。照片檢查全部通過才是好的成果；有未通過時流程停在這裡，照片照樣打包（標 _FAIL），要重畫照片。'),
           2: ('重建', '2 烘焙前檢查', '成果：相機與人體形狀。由照片算出相機和外形，再確認全身照和頭部特寫的頭部對得上（五官位置、亮度）。'),
           3: ('模型', '3 GLB 驗證', '成果：兩個模型檔（GLB）。烘焙貼圖、建立骨架、匯出，並驗證檔案結構、骨架與材質。'),
           4: ('成品驗收', '4 最終驗收', '成果：原圖對模型的對照。用拍原圖的同一組相機拍模型：左邊原圖、右邊模型，兩邊應該一樣。')}
@@ -218,8 +218,8 @@ def progress_html(prog, gates_seen):
         nf = sum(v['FAIL'] for k, v in gates_seen.items() if gate and k.startswith(gate))
         fix = {'check': '要先重畫照片（見下方階段 1 的未通過清單）', 'bake': '多半是照片的頭部特寫角度或五官位置，見階段 2 清單',
                'verify': '模型檔有問題，由工程師修正', 'fit': '模型和原圖對不上，見階段 4 的對照圖與清單'}.get(at, '')
-        fix += '（這次用了 --stop-on-fail，所以停下來）' if nf else ''
-        why = (f'停在「{STEP_ZH.get(at, at)}」：' + (f'{nf} 項未通過，{fix}' if nf else '程式執行出錯，請工程師查看紀錄'))
+        why = (f'停在「{STEP_ZH.get(at, at)}」：' + (f'{nf} 項未通過，{fix}' if nf else '程式執行出錯，請工程師查看紀錄')
+               + '。停下前做出來的東西都已打包，見下方各階段的成果')
     tick = (f'<span id="el" data-start="{prog.get("started", 0)}">{fmt_time(el)}</span>' if running else fmt_time(el))
     out = [f'<p class="prog"><b>{head}</b>　{done} / {len(steps)} 步　已用 {tick}'
            + (f'<br><span class="bad">{e(why)}</span>' if why else '') + '</p>']
@@ -269,7 +269,7 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
     body += prog_html
     if not running and gates:
         ok = gates.get('deliverable')
-        word = '可以交付' if ok else '不能交付（有未通過：成果都做出來了，但標 _FAIL）'
+        word = '可以交付' if ok else '不能交付（有未通過；做出來的東西都已打包，標 _FAIL）'
         body.append(f'<p class="status {"ok" if ok else "bad"}">{e(word)}</p>')
     if g:
         rows = ''.join(f'<tr><td>{e(GATE_ZH.get(k, k))}</td><td class="{"f" if v["FAIL"] else ""}">{v["FAIL"]}</td>'

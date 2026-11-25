@@ -56,3 +56,12 @@ def test_later_stage_is_FAIL_when_an_earlier_gate_failed(tmp_path):
     assert m['gates']['1 照片檢查']['FAIL'] == 2 and m['failures'] == ['head 45° 臉部位置']
     z, ok = deliver.pack(str(tmp_path / 'out'), 'body', 3, {'a.glb': str(f)}, {'1 照片檢查': (0, 0, 300)})
     assert ok and z.endswith('body_stage3_models.zip') and not (tmp_path / 'out' / 'deliver' / 'body_stage3_models_FAIL.zip').exists()
+
+
+def test_stopped_stage_packs_what_exists_as_FAIL(tmp_path):
+    f = tmp_path / 'cams33.json'; f.write_text('{}')
+    z, ok = deliver.pack(str(tmp_path / 'out'), 'body', 2, {'cams33.json': str(f), 'body33s.ply': str(tmp_path / 'no.ply')},
+                         {'1 照片檢查': (0, 0, 300)}, stopped=('mesh', '步驟失敗（exit 1）'))
+    names, m = manifest(z)
+    assert not ok and z.endswith('body_stage2_reconstruction_FAIL.zip') and 'cams33.json' in names
+    assert m['stopped'] == dict(step='mesh', reason='步驟失敗（exit 1）') and m['missing'] == ['body33s.ply']

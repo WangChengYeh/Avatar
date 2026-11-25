@@ -31,7 +31,7 @@ Blender 可從 PATH、Homebrew 或系統應用程式目錄尋找。也可用 `--
 | `output/deliver/body_stage{1..4}_*.zip` | 每個階段的成果：照片、重建、模型、成品驗收。關卡都通過是好的成果；有 FAIL 時檔名加 `_FAIL`，不能交付。每個 zip 有 SHA-256 manifest 與未通過清單（[SOP](docs/SOP.md#每個階段的成果)） |
 | `output/work/` | 重跑單一步驟或進階檢查用的中間檔 |
 
-每次都會把 4 個階段做完，每個階段在 `output/deliver/` 都有成果 zip：四道關卡（照片檢查、烘焙前檢查、GLB 驗證、成品與原圖比對 `fit`）通過是好的成果，有 `FAIL` 時繼續做完、成果檔名標 `_FAIL`，流程以結束碼 1 結束（程式出錯為 2）。只有全部 0 FAIL 才能交付，見 [SOP](docs/SOP.md)。`--stop-on-fail` 讓關卡一有 FAIL 就停。`--from STEP` 和 `--only STEP` 會使用既有的 `output/work/`。
+關卡（照片檢查、烘焙前檢查、GLB 驗證、成品與原圖比對 `fit`）出現 `FAIL` 時流程停止、結束碼 1，但停下前做出來的東西都會打包到 `output/deliver/`：通過是好的成果，未通過或停在該階段是 `_FAIL.zip`（有多少給多少）。`--force` 讓流程有 FAIL 也做完，只供診斷，成果全部 `_FAIL`。只有全部 0 FAIL 才能交付，見 [SOP](docs/SOP.md)。`--from STEP` 和 `--only STEP` 會使用既有的 `output/work/`。
 
 ## 常用指令
 

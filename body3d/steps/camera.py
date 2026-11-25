@@ -6,7 +6,7 @@ camera). Without D the camera is orthographic:
     col = cu + s * (P·r),   row = cv - s * (P·u)
 With D it is a pinhole camera at C0 + D·f looking at C0 (same scale s at the centre plane):
     k = D / (D - (P - C0)·f),   col = cu + s * (C0·r + k (P - C0)·r),   row = cv - s * (C0·u + k (P - C0)·u)
-The input spec is orthographic (checked by section 10b). Only when the photos fail the check (the run still finishes, results marked _FAIL) do
+The input spec is orthographic (checked by section 10b). Only when the photos fail the check (run with --force, results marked _FAIL) do
 cams33.py / refine33.py estimate a D for the elevated / low views, so that photos drawn with perspective can still be
 reconstructed for diagnosis.
 """
@@ -73,7 +73,7 @@ def _limits():
     """How far registration may move phi / th from the nominal angles.
     Photos that passed the strict photo check (run_all writes check_status.json in the work dir): the checker has
     verified the angles (sections 4 / 8: level ring within 5°, tilted rings within 7°, perspective 10b, ring ratios 10c, distance 10d, aim and tilt 10e), so the nominal angles are
-    trusted: azimuth fixed to the file-name angle (±0°), tilt ±3°. Otherwise (photos with a FAIL; the run goes on, results marked _FAIL): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
+    trusted: azimuth fixed to the file-name angle (±0°), tilt ±3°. Otherwise (photos with a FAIL, run with --force): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
     pin the tilt: on perfect photos free fitting turns 30° into 16–27°.
     The elevation of the +30° and −20° rings follows the input spec exactly.
     Environment variables BODY3D_MAX_DPHI / BODY3D_MAX_DTH override the limits on free angles."""
