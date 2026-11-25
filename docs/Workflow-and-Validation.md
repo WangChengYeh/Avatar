@@ -100,6 +100,8 @@ python body3d/run_all.py ./photos ./output --name body --template makehuman
 
 ## 照片初篩
 
+流程共有 4 道關卡：1 照片檢查、2 烘焙前檢查、3 GLB 驗證、4 最終驗收。每道都印 `總結: N 個 FAIL, N 個 WARN, N 個 PASS，共 N 項`，`run_all.py` 最後彙整成驗收總表並寫入 `OUT/gates.json`；有 FAIL 就停（`--force` 只供診斷）。
+
 照片一律要先經 AI 修正才能進入檢查（真實照片也一樣），所以 `check_turnaround.py` 只有一套門檻：完美照片加小餘裕。1.38.0 起沒有 `--mode` 參數。
 
 | 檢查 | 判讀 |
