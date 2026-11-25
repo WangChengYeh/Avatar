@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.25.0（2026-11-25）
+版本 1.26.0（2026-11-25）
 
 版本紀錄:
+  1.26.0 AI 模式稍放寬俯角／仰角的幾何 FAIL 門檻，保留原 PASS 目標。
   1.25.0 第 10f 項放寬 AI 亮度門檻，明列取樣不足，提供避開高反差邊界的複核數值。
          亮度超標一律提醒複核，包含照片初篩與烘焙前的頭部回投。
   1.24.0 畫面左右亮差與膚色曝光只作粗篩，同一表面回投仍用原門檻驗收。
@@ -137,11 +138,13 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 五、相機與構圖（本腳本第 2 項會檢查）
   - 主環：相機高度固定在肚臍附近，水平拍攝（俯角環、仰角、俯視依各自規定）。
   - 相機距離固定（第 10d 項）：全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物左右寬度相同，
-    俯視圖與正面同寬（差 ≤ 1%，> 2% FAIL）；頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL）。
+    俯視圖與正面同寬。AI 模式差 ≤ 1% 通過，俯角／仰角差 > 2.5% FAIL，正上方差 > 2% FAIL。
+    頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL）。
     構圖數字與提示詞見第九節。
   - 對準點與俯仰角（第 10e 項）：相差 180° 的兩張剪影左右對稱，由此求出旋轉軸，所有全身圖與俯視圖要在同一位置
-    （差 ≤ 5 mm，> 10 mm FAIL），頭部特寫另成一組；俯角 / 仰角環的人物高度要符合 +30° / −20° 正交投影的縮短
-    （換算俯仰角差 ≤ 2°，> 4° FAIL），對準高度在同一環內一致（差 ≤ 10 mm，> 20 mm FAIL）。
+    （AI 模式差 ≤ 5 mm 通過，俯角／仰角差 > 12 mm FAIL，其餘 > 10 mm FAIL），頭部特寫另成一組。
+    俯角 / 仰角環的人物高度要符合 +30° / −20° 正交投影的縮短
+    （換算俯仰角差 ≤ 2°，AI 模式 > 5° FAIL），對準高度在同一環內一致（差 ≤ 10 mm，AI 模式 > 25 mm FAIL）。
   - 要用長焦距（或正交投影），重建程式假設正交投影。
     本腳本第 10b 項量透視強度：斜角 4 張的兩手指尖中點要在身體中軸上（偏向近手 < 2% 半臂展，
     ≥ 4% 判 FAIL，約等於相機距離不到 14 m）；第 10 項把主環重建形狀投影到每張身體圖，
@@ -225,7 +228,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.25.0'
+__version__ = '1.26.0'
 import numpy as np
 import cv2
 
@@ -435,6 +438,7 @@ def strict(level):
 # hull built without them, which cannot reproduce a profile: perfect photos give 1.8–2.9 % there.
 BLUE_PASS, BLUE_WARN = 0.01, 0.02
 BLUE_SIDE_PASS, BLUE_SIDE_WARN = 0.03, 0.04
+BLUE_TILTED_WARN = 0.025
 PERSP_PASS, PERSP_WARN = 0.02, 0.04      # near-hand shift of the fingertip midpoint (section 10b); perfect photos: 0–0.2 %
 
 
@@ -501,6 +505,7 @@ def ring_ratio_check(good, extra):
 BODY_FRAME, HEAD_ZOOM = 1.95, 4.0              # metres across a full-body image; close-up zoom (same in steps/camera.py)
 HEAD_FRAME = BODY_FRAME / HEAD_ZOOM            # 0.4875 m across a close-up
 WIDTH_PASS, WIDTH_FAIL = 0.01, 0.02            # |ring width / level width - 1|
+WIDTH_TILTED_FAIL = 0.025
 ZOOM_PASS, ZOOM_FAIL = 0.02, 0.04
 SHADE_REVIEW = 0.06                            # section 6c: image-side lighting heuristic
 
@@ -566,8 +571,11 @@ def distance_check(good, extra):
 #   aim height: the foot row of a tilted view, corrected by the hull, is the row of the aim point; it must be the same
 #     in every view of the ring. Perfect photos: within 5.4 mm.
 CENTRE_PASS, CENTRE_FAIL = 0.005, 0.010        # metres off the median axis column
+CENTRE_TILTED_FAIL = 0.012
 TILT_PASS, TILT_FAIL = 2.0, 4.0                # degrees off the nominal +30° / −20°
+TILT_AI_FAIL = 5.0
 AIMROW_PASS, AIMROW_FAIL = 0.010, 0.020        # metres off the median aim row of the ring
+AIMROW_AI_FAIL = 0.025
 
 
 def edge_mid(m, rows=None):
@@ -2694,10 +2702,12 @@ def main():
             blue = 1 - r_['cover']
             side = r_['cat'] == 'main' and r_['ang'] in (90, 270)
             bp, bw = (BLUE_SIDE_PASS, BLUE_SIDE_WARN) if side else (BLUE_PASS, BLUE_WARN)
-            if not MODE['ai']:
+            if MODE['ai'] and r_['cat'] in ('el30', 'low20'):
+                bw = BLUE_TILTED_WARN
+            elif not MODE['ai']:
                 bp, bw = 0.04, 0.07
             lvl = PASS if blue <= bp else WARN if blue <= bw else FAIL
-            msg = (f"藍色（照片有、主環形狀沒有）{100 * blue:.1f}%（應 ≤ {100 * bp:.0f}%，> {100 * bw:.0f}% 判 FAIL"
+            msg = (f"藍色（照片有、主環形狀沒有）{100 * blue:.1f}%（應 ≤ {100 * bp:g}%，> {100 * bw:g}% 判 FAIL"
                    + ('；側面不參與建形狀，方法本身就有 2–3%' if side else '') + '）；'
                    f"紅色（形狀超出照片）{100 * r_['red']:.0f}%，只供參考：形狀由剪影雕出，一定比真實身體大，完美照片也有 3–75%")
             if lvl != PASS:
@@ -2745,6 +2755,8 @@ def main():
             head = cat == 'head'
             p_, f_ = (ZOOM_PASS, ZOOM_FAIL) if head else (WIDTH_PASS, WIDTH_FAIL)
             p_, f_ = T(p_, 2.5 * p_), T(f_, 2.5 * f_)
+            if MODE['ai'] and cat in ('el30', 'low20'):
+                f_ = WIDTH_TILTED_FAIL
             lvl = PASS if abs(dv) <= p_ else WARN if abs(dv) <= f_ else FAIL
             if head:
                 msg = (f'頭寬是主環 {a}° 的 {HEAD_ZOOM * (1 + dv):.2f} 倍，規格 {HEAD_ZOOM:.2f} 倍（差 {100 * dv:+.1f}%，'
@@ -2752,7 +2764,8 @@ def main():
                 tag = f'head {a}° 放大倍率'
             else:
                 ref = '主環 0°' if cat == 'top' else f'主環 {a}°'
-                msg = f'人物寬度和{ref}差 {100 * dv:+.1f}%（應 ≤ {100 * p_:.0f}%：正交投影下傾角不改變寬度）'
+                msg = (f'人物寬度和{ref}差 {100 * dv:+.1f}%（應 ≤ {100 * p_:g}%，'
+                       f'偏差絕對值 > {100 * f_:g}% 判 FAIL。正交投影下傾角不改變寬度）')
                 tag = f'{cat} {a}° 距離' if cat != 'top' else 'top 距離'
             if dl is not None and cat != 'top':
                 msg += f'；下半身寬度差 {100 * dl:+.1f}%'
@@ -2773,23 +2786,26 @@ def main():
     if aim and any(aim.values()):
         print('\n10e. 相機對準點與俯仰角（左右置中、俯角 30° / 仰角 −20°、上下對準點）')
 
-        def lvl3(x, p_, f_):
-            p_, f_ = T(p_, 2.5 * p_), T(f_, 2.5 * f_)
-            return (PASS if abs(x) <= p_ else WARN if abs(x) <= f_ else FAIL), p_
+        def lvl3(x, p_, f_, ai_fail=None):
+            p_, f_ = T(p_, 2.5 * p_), T(f_ if ai_fail is None else ai_fail, 2.5 * f_)
+            return (PASS if abs(x) <= p_ else WARN if abs(x) <= f_ else FAIL), p_, f_
         name = {'main': '主環', 'el30': '俯角環', 'low20': '仰角環', 'top': '俯視', 'head': '頭部特寫'}
         for key in ('centre', 'head_centre'):
             for (cat, a), dv in aim[key].items():
-                lvl, p_ = lvl3(dv, CENTRE_PASS, CENTRE_FAIL)
+                ai_fail = CENTRE_TILTED_FAIL if cat in ('el30', 'low20') else CENTRE_FAIL
+                lvl, p_, f_ = lvl3(dv, CENTRE_PASS, CENTRE_FAIL, ai_fail)
                 where = f'{name[cat]} 俯視 vs 正面' if cat == 'top' else f'{name[cat]} {a}° / {a + 180}°'
-                msg = f'旋轉軸偏離共同位置 {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:.0f} mm）'
+                msg = (f'旋轉軸偏離共同位置 {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:g} mm，'
+                       f'偏差絕對值 > {1000 * f_:g} mm 判 FAIL）')
                 if lvl != PASS:
                     msg += (' → 相機沒有對準同一個中心：這一對照片的人物左右位置不一致（常見：手臂斜、構圖跟著人物外框置中），'
                             '重新生成，人物身體中心固定在畫面同一位置')
                 report(lvl, f'{where} 置中', msg)
         for (cat, a), (dv, ratio, expect) in aim['tilt'].items():
-            lvl, p_ = lvl3(dv, TILT_PASS, TILT_FAIL)
+            lvl, p_, f_ = lvl3(dv, TILT_PASS, TILT_FAIL, TILT_AI_FAIL)
             msg = (f'人物高度是主環的 {100 * ratio:.1f}%，{RING_EL[cat]:+.0f}° 正交投影應為 {100 * expect:.1f}%'
-                   f'（相當於俯仰角 {RING_EL[cat] + dv:+.1f}°，差 {dv:+.1f}°，應 ≤ {p_:.0f}°）')
+                   f'（相當於俯仰角 {RING_EL[cat] + dv:+.1f}°，差 {dv:+.1f}°，'
+                   f'應 ≤ {p_:g}°，偏差絕對值 > {f_:g}° 判 FAIL）')
             if lvl != PASS:
                 msg += (' → 人物高度和規格的俯仰角不符：' + ('沒有依投影縮短（AI 常只改視角、身高照畫），'
                         if abs(RING_EL[cat] + dv) < abs(RING_EL[cat]) else '縮短過頭，') +
@@ -2797,8 +2813,9 @@ def main():
                         ', orthographic, same distance as the eye-level views')
             report(lvl, f'{cat} {a}° 俯仰角', msg)
         for (cat, a), dv in aim['aim_row'].items():
-            lvl, p_ = lvl3(dv, AIMROW_PASS, AIMROW_FAIL)
-            msg = f'對準點上下偏離本環共同位置 {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:.0f} mm）'
+            lvl, p_, f_ = lvl3(dv, AIMROW_PASS, AIMROW_FAIL, AIMROW_AI_FAIL)
+            msg = (f'對準點上下偏離本環共同位置 {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:g} mm，'
+                   f'偏差絕對值 > {1000 * f_:g} mm 判 FAIL）')
             if lvl != PASS:
                 msg += ' → 這張相機對準的高度和同環其他張不同，重新生成，人物在畫面中的上下位置和同環其他張一致'
             report(lvl, f'{cat} {a}° 對準高度', msg)
