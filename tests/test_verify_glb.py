@@ -24,33 +24,33 @@ def verify(path, *extra):
     return run_py('verify_glb.py', path, '--no-validator', *extra)
 
 
-def test_good_model_passes(model_glb):
-    rc, out = verify(model_glb, '--expect-unlit')
+def test_good_model_passes(rigged_glb):
+    rc, out = verify(rigged_glb, '--expect-unlit')
     assert rc == 0, '\n'.join(lines(out, 'FAIL'))
     assert len(lines(out, 'PASS')) >= 18
 
 
-def test_in_process_api(model_glb):
-    rep = vg.verify(model_glb, expect_unlit=True, validator=False)
+def test_in_process_api(rigged_glb):
+    rep = vg.verify(rigged_glb, expect_unlit=True, validator=False)
     assert rep.count('FAIL') == 0
     names = {i[1] for i in rep.items}
     for item in ('骨頭名稱', '骨頭階層', '權重加總', '擺姿勢', '面向 +Z', '材質 / 貼圖'):
         assert item in names
 
 
-def test_renamed_bone_fails(model_glb, tmp_path):
+def test_renamed_bone_fails(rigged_glb, tmp_path):
     def ed(gl):
         for n in gl['nodes']:
             if n.get('name') == 'LeftForeArm':
                 n['name'] = 'mixamorig:LeftForeArm'
     bad = tmp_path / 'renamed.glb'
-    rewrite_glb(model_glb, bad, ed)
+    rewrite_glb(rigged_glb, bad, ed)
     rc, out = verify(bad)
     assert rc == 1
     assert any('LeftForeArm' in l for l in lines(out, 'FAIL'))
 
 
-def test_wrong_parent_fails(model_glb, tmp_path):
+def test_wrong_parent_fails(rigged_glb, tmp_path):
     """把 LeftHand 從 LeftForeArm 移到 Spine2 底下"""
     def ed(gl):
         nm = {n.get('name'): i for i, n in enumerate(gl['nodes'])}
@@ -58,13 +58,13 @@ def test_wrong_parent_fails(model_glb, tmp_path):
         gl['nodes'][fa]['children'].remove(hand)
         gl['nodes'][sp].setdefault('children', []).append(hand)
     bad = tmp_path / 'parent.glb'
-    rewrite_glb(model_glb, bad, ed)
+    rewrite_glb(rigged_glb, bad, ed)
     rc, out = verify(bad)
     assert rc == 1
     assert any('階層' in l and 'LeftHand' in l for l in lines(out, 'FAIL'))
 
 
-def test_unnormalised_weights_fail(model_glb, tmp_path):
+def test_unnormalised_weights_fail(rigged_glb, tmp_path):
     def eb(gl, bin_):
         mesh = gl['meshes'][0]['primitives'][0]
         a = gl['accessors'][mesh['attributes']['WEIGHTS_0']]
@@ -74,13 +74,13 @@ def test_unnormalised_weights_fail(model_glb, tmp_path):
         w[: 4 * 100] *= 0.5                                # first 100 vertices sum to 0.5
         bin_[off:off + w.nbytes] = w.tobytes()
     bad = tmp_path / 'weights.glb'
-    rewrite_glb(model_glb, bad, edit_bin=eb)
+    rewrite_glb(rigged_glb, bad, edit_bin=eb)
     rc, out = verify(bad)
     assert rc == 1
     assert any('權重加總' in l and '100' in l for l in lines(out, 'FAIL'))
 
 
-def test_normalized_opposite_hand_weight_stretches_mesh(model_glb, tmp_path):
+def test_normalized_opposite_hand_weight_stretches_mesh(rigged_glb, tmp_path):
     def edit_weights(gl, bin_):
         names = [gl['nodes'][i]['name'] for i in gl['skins'][0]['joints']]
         attributes = gl['meshes'][0]['primitives'][0]['attributes']
@@ -99,30 +99,30 @@ def test_normalized_opposite_hand_weight_stretches_mesh(model_glb, tmp_path):
             bin_[start:start + 4 * dtype.itemsize] = np.asarray(values, dtype=dtype).tobytes()
 
     bad = tmp_path / 'cross-hand-weight.glb'
-    rewrite_glb(model_glb, bad, edit_bin=edit_weights)
+    rewrite_glb(rigged_glb, bad, edit_bin=edit_weights)
     rc, out = verify(bad)
     assert rc == 1
     assert any('權重加總' in line for line in lines(out, 'PASS'))
     assert any('擺姿勢網格連續性' in line for line in lines(out, 'FAIL'))
 
 
-def test_missing_texture_fails(model_glb, tmp_path):
+def test_missing_texture_fails(rigged_glb, tmp_path):
     def ed(gl):
         del gl['materials'][0]['pbrMetallicRoughness']['baseColorTexture']
     bad = tmp_path / 'notex.glb'
-    rewrite_glb(model_glb, bad, ed)
+    rewrite_glb(rigged_glb, bad, ed)
     rc, out = verify(bad)
     assert rc == 1
     assert any('貼圖' in l for l in lines(out, 'FAIL'))
 
 
-def test_expect_unlit_fails_on_lit(model_glb, tmp_path):
+def test_expect_unlit_fails_on_lit(rigged_glb, tmp_path):
     def ed(gl):
         for m in gl['materials']:
             m.pop('extensions', None)
         gl.pop('extensionsUsed', None)
     lit = tmp_path / 'lit.glb'
-    rewrite_glb(model_glb, lit, ed)
+    rewrite_glb(rigged_glb, lit, ed)
     assert verify(lit)[0] == 0
     rc, out = verify(lit, '--expect-unlit')
     assert rc == 1 and any('KHR_materials_unlit' in l for l in lines(out, 'FAIL'))
@@ -169,12 +169,12 @@ def add_head_stripes(src, dst, width=24, step=175):
     open(dst, 'wb').write(struct.pack('<4sII', b'glTF', 2, 12 + len(body)) + body)
 
 
-def test_head_stripes_fail_and_normal_texture_passes(model_glb, tmp_path):
+def test_head_stripes_fail_and_normal_texture_passes(rigged_glb, tmp_path):
     """審查第 3 項：頭部貼圖加黑條要 FAIL；正常貼圖（含睫毛、鼻孔等暗細節）要 PASS"""
-    rc, out = verify(model_glb, '--renders', tmp_path / 'ok')
+    rc, out = verify(rigged_glb, '--renders', tmp_path / 'ok')
     assert any('頭部貼圖條紋' in l for l in lines(out, 'PASS')), out[-1500:]
     bad = tmp_path / 'striped.glb'
-    add_head_stripes(model_glb, bad)
+    add_head_stripes(rigged_glb, bad)
     rc, out = verify(bad, '--renders', tmp_path / 'bad')
     assert rc == 1 and any('頭部貼圖條紋' in l for l in lines(out, 'FAIL'))
     assert (tmp_path / 'bad' / 'head_front.png').exists()

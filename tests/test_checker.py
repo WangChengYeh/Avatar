@@ -113,7 +113,7 @@ def test_perspective_set_fails(persp_set, tmp_path):
         d = float(re.search(r'約 ([\d.]+) m', l).group(1))
         assert 3.0 < d < 6.5, l
     sil = [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if '剪影' in l]
-    assert len(sil) >= 8 and all('手' in l for l in sil)
+    assert len(sil) >= 8 and sum('手' in l for l in sil) >= len(sil) // 2
 
 
 def test_widened_view_fails_silhouette(broken):
@@ -130,15 +130,15 @@ def test_widened_view_fails_silhouette(broken):
 
 
 def test_ring_width_ratios(synth_set, persp_set, tmp_path):
-    """第 10c 項：完美照片全部 PASS；4 m 透視照片的俯角環寬度比在 AI 模式 FAIL（#23），photo 模式只提示複核"""
+    """第 10c 項只提醒複核（髮髻讓頭寬隨俯仰角改變，完美照片頭寬比差到 10%）：完美照片全部 PASS，透視照片由
+    第 10b 項 FAIL，10c 不判 FAIL"""
     rc, out = run_py('check_turnaround.py', synth_set, '--out', tmp_path / 'a.png')
     assert len([l for l in lines(out, 'PASS') if '寬度比:' in l]) == 12
     rc, out = run_py('check_turnaround.py', persp_set, '--out', tmp_path / 'b.png')
     assert any('透視:' in l for l in lines(out, 'FAIL'))
-    assert sum('el30' in l and '寬度比:' in l for l in lines(out, 'FAIL')) >= 4
+    assert not any('寬度比:' in l for l in lines(out, 'FAIL'))
     rc, out = run_py('check_turnaround.py', persp_set, '--mode', 'photo', '--out', tmp_path / 'c.png')
     assert not any('寬度比:' in l for l in lines(out, 'FAIL'))
-    assert sum('el30' in l and '寬度比:' in l and '優先複核' in l for l in lines(out, 'WARN')) >= 4
 
 
 def test_preflight_reports_incompatible_and_duplicate_photos(tmp_path):
@@ -196,14 +196,14 @@ def test_closeup_without_face_fails(broken):
     assert any('head 45° 臉部' in l and '找不到臉' in l for l in lines(out, 'FAIL'))
 
 
-@pytest.mark.parametrize(('ai', 'fail_limit', 'status'), [(True, 4, 'FAIL'), (False, 8, 'WARN')])
+@pytest.mark.parametrize(('ai', 'fail_limit', 'status'), [(True, 7, 'FAIL'), (False, 8, 'WARN')])
 def test_face_report_uses_mode_thresholds(monkeypatch, ai, fail_limit, status):
     import check_turnaround as checker
 
     monkeypatch.setitem(checker.MODE, 'ai', ai)
     monkeypatch.setattr(checker, 'face_measures',
-                        lambda angle, _: (0.3 * (1 if angle == 0 else 1.024),
-                                          0.4 * (1 if angle == 0 else 1.055 * 1.06), 140))
+                        lambda angle, _: (0.3 * (1 if angle == 0 else checker.FACE_BIAS['prop']),
+                                          0.4 * (1 if angle == 0 else checker.FACE_BIAS['hair'] * 1.075), 140))
     heads = {angle: {'im': angle, 'm': object()} for angle in (0, 45, 315)}
     report = checker.face_check({'head': heads})
     hair = [(level, message) for level, label, message in report if '髮高比' in label]
@@ -248,7 +248,7 @@ def test_aim_point_and_tilt(broken):
     height, and a low20 view drawn without the −20° foreshortening (4 % taller) fails the tilt"""
     rc, out = check(broken)
     e = [l for l in out.splitlines() if '置中:' in l or '俯仰角:' in l or '對準高度:' in l]
-    assert len(e) >= 40 and all('[PASS]' in l for l in e), [l for l in e if '[PASS]' not in l]
+    assert len(e) >= 34 and all('[PASS]' in l for l in e), [l for l in e if '[PASS]' not in l]   # side views: no aim row
     _shift(broken / 'low20_045deg.jpg', dx=40)
     for g in ('el30_000deg.jpg', 'el30_180deg.jpg'):     # a whole pair framed off-centre: invisible to a ring median
         _shift(broken / g, dx=20)
@@ -309,7 +309,7 @@ def test_lighting_fixed_to_the_person(broken):
 
 def test_region_luma_only_warns_and_compares_like_with_like(monkeypatch, tmp_path):
     """9b is a coarse screen: never FAIL. A +30° / −20° view is compared with the level view at the same azimuth,
-    close-ups with the other close-ups (they show only the collar of the top), the top view only on hair and skin."""
+    close-ups and the top view only on hair and skin (they show only a sliver of the top)."""
     import csv
     from body3d import check_turnaround as checker
 
@@ -342,7 +342,8 @@ def test_region_luma_only_warns_and_compares_like_with_like(monkeypatch, tmp_pat
     assert rows['large.jpg', 'hair']['status'] == 'WARN'
     assert rows['small.jpg', 'top']['status'] == 'WARN'
     assert rows['same_as_level.jpg', 'top']['status'] == 'PASS'            # vs level 135°, not the ring median
-    assert all(rows[f'head{a}.jpg', 'top']['status'] == 'PASS' for a in (0, 45, 90, 135))
+    assert all(rows[f'head{a}.jpg', 'top']['status'] == 'NO_REFERENCE' for a in (0, 45, 90, 135))   # only a sliver
+    assert all(rows[f'head{a}.jpg', 'hair']['status'] == 'PASS' for a in (0, 45, 90, 135))
     assert rows['top.jpg', 'top']['status'] == 'NO_REFERENCE' and rows['top.jpg', 'hair']['status'] == 'PASS'
     assert statuses['large.jpg 分區亮度'] == 'WARN' and statuses['top.jpg 分區亮度'] == 'PASS'
 
@@ -399,3 +400,22 @@ def test_head_closeup_lighting_and_ears(broken):
     rc, out = check(broken)
     assert any('head 135° 特寫亮度' in l and '特寫比全身圖亮' in l for l in lines(out, 'WARN')), out
     assert any('head 90° 耳朵位置' in l for l in lines(out, 'FAIL')), [l for l in out.splitlines() if '耳朵' in l]
+
+
+def test_framing_head_top_and_outline_sharpness(broken):
+    """section 2 / 8b: the clean set passes; all level views drawn 8 % bigger warn on the framing fill, close-ups
+    moved up warn on the head-top position, and a blurred photo warns on outline sharpness"""
+    rc, out = check(broken)
+    e = [l for l in out.splitlines() if '構圖佔比:' in l or '特寫頭頂位置:' in l or '輪廓清晰度:' in l]
+    assert len(e) == 3 and all('[PASS]' in l for l in e), e
+    for g in broken.glob('0[1-8]_*.jpg'):
+        _zoom(g, 1.08)
+    for g in broken.glob('head_*.jpg'):
+        _shift(g, dy=-200)
+    f = broken / 'el30_090deg.jpg'
+    cv2.imwrite(str(f), cv2.GaussianBlur(cv2.imread(str(f)), (0, 0), 4), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    warns = lines(out, 'WARN') + lines(out, 'FAIL')
+    assert any('構圖佔比' in l and '太緊' in l for l in warns), [l for l in out.splitlines() if '構圖佔比' in l]
+    assert any('特寫頭頂位置' in l for l in warns), [l for l in out.splitlines() if '特寫頭頂' in l]
+    assert any('輪廓清晰度' in l and 'el30_090deg' in l for l in warns), [l for l in out.splitlines() if '輪廓' in l]

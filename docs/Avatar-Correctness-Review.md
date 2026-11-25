@@ -39,7 +39,7 @@
 在 repo 根目錄執行。以下指令會產生與審查相同類型的輸入與報表。
 
 ```sh
-blender -b --factory-startup --python tests/render_synth.py -- tests/data/body_rigged.glb /tmp/avatar-synth
+blender -b --factory-startup --python tests/render_synth.py -- tests/data/luna-v1.glb /tmp/avatar-synth
 python -m pytest -q
 python -m pytest -q -m slow --photos=/tmp/avatar-synth
 python body3d/fit_report.py /path/to/output/work --region body
