@@ -29,12 +29,12 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
     {name}_rigged.glb        無光照材質（照片已含光影，建議用這個）
     {name}_rigged_lit.glb    一般 PBR 材質
     v2_*.png                 Blender 預覽圖
-    gates.json               4 道關卡各自的 FAIL / WARN / PASS / 共計（最後也印成驗收總表）
+    gates.json               4 道關卡各自的 FAIL / WARN / PASS / 共計、force、deliverable（見 docs/SOP.md）
     turnaround_report.png    照片檢查報告；work/ 內是中間檔
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.10.0'
+__version__ = '2.11.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
@@ -125,7 +125,13 @@ def main(argv=None):
         print('\n' + pad('驗收總表', 22) + ' FAIL  WARN  PASS  共計')
         for g, (f, w, p_) in gates.items():
             print('  ' + pad(g, 20) + f'{f:5d}{w:6d}{p_:6d}{f + w + p_:6d}' + ('  ← FAIL' if f else ''))
-        json.dump({g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
+        # deliverable (docs/SOP.md): all four gates ran, none has a FAIL, and the run did not use --force
+        all_ran = any(g.startswith('1') for g in gates) and any(g.startswith('4') for g in gates)
+        deliverable = all_ran and not a.force and not any(f for f, _, _ in gates.values())
+        print(f'  可交付: {"是" if deliverable else "否"}' + ('（用了 --force，只供診斷）' if a.force else
+              '' if deliverable else '（有 FAIL，或沒有從頭跑完四道關卡）'))
+        json.dump(dict(gates={g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
+                       force=bool(a.force), deliverable=deliverable),
                   open(os.path.join(out, 'gates.json'), 'w'), ensure_ascii=False, indent=1)
 
     def step_check():
