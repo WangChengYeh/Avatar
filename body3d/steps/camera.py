@@ -12,7 +12,9 @@ reconstructed for diagnosis.
 """
 import numpy as np
 
-C0 = np.array([0.0, 0.85, 0.0])
+C0 = np.array([0.0, 0.85, 0.0])  # Reference plane for existing diagnostic perspective calibrations.
+BODY_CENTER_HEIGHT = 1.65 / 2
+BODY_VIEWS = frozenset({'main', 'el30', 'low20', 'top'})
 
 
 def axes(phi, th):
@@ -115,6 +117,12 @@ HEAD_FRAME = BODY_FRAME / HEAD_ZOOM
 def body_scale(cams):
     """px per metre of every full-body view: the level ring's (from the figure height)"""
     return float(np.median([c['s'] for c in cams.values() if c.get('kind') == 'main']))
+
+
+def body_center_rig(cams, width, height):
+    """Use the rotation axis at half body height as the centre of every full-body image."""
+    return dict(s=body_scale(cams), U=width / 2, V=height / 2,
+                qx=0.0, qy=BODY_CENTER_HEIGHT, qz=0.0, D=None)
 
 
 def ring_views(cams, kind):

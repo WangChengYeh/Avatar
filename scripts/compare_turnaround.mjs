@@ -8,6 +8,27 @@ import sharp from 'sharp';
 
 const photoSize = 2048;
 const renderSize = 920;
+const bodyCenterHeight = 1.65 / 2;
+const bodyElevation = {main: 0, el30: 30, low20: -20, top: 90};
+
+function lockBodyCameras(cameras) {
+    const scales = Object.values(cameras).filter(view => view.kind === 'main').map(view => view.s)
+        .sort((a, b) => a - b);
+    if (!scales.length || scales.some(scale => !Number.isFinite(scale) || scale <= 0)) {
+        throw new Error('A valid main-ring scale is required to center the full-body cameras');
+    }
+    const middle = Math.floor(scales.length / 2);
+    const s = (scales[middle] + scales[Math.floor((scales.length - 1) / 2)]) / 2;
+    return Object.fromEntries(Object.entries(cameras).map(([name, calibrated]) => {
+        const th = bodyElevation[calibrated.kind];
+        if (th === undefined) return [name, calibrated];
+        const phi = calibrated.kind === 'top' ? 0 : Number(name.match(/(\d{3})deg/)?.[1]);
+        return [name, {
+            ...calibrated, phi, th, s, D: null, cu: photoSize / 2,
+            cv: photoSize / 2 + s * bodyCenterHeight * Math.cos(THREE.MathUtils.degToRad(th)),
+        }];
+    }));
+}
 const fullViews = [
     ['01_000deg_front', 'Front (0°)'],
     ['03_090deg_left', 'Left (90°)'],
@@ -302,10 +323,11 @@ async function makeAllViews(models, options, cameras) {
 
 const { values: options } = parseArgs({ options:{
     photos:{type:'string'}, cameras:{type:'string'}, model:{type:'string'},
-    before:{type:'string'}, out:{type:'string'}, 'all-views':{type:'boolean'}, 'ear-crop':{type:'string'}, help:{type:'boolean'},
+    before:{type:'string'}, out:{type:'string'}, 'all-views':{type:'boolean'}, 'ear-crop':{type:'string'},
+    'fitted-cameras':{type:'boolean'}, help:{type:'boolean'},
 }});
 if (options.help) {
-    console.log('node scripts/compare_turnaround.mjs --photos ./photos --cameras ./output/work/cams33.json --model ./output/body_rigged.glb [--before ./previous.glb] [--all-views] [--ear-crop x0,y0,x1,y1] --out ./comparison');
+    console.log('node scripts/compare_turnaround.mjs --photos ./photos --cameras ./output/work/cams33.json --model ./output/body_rigged.glb [--before ./previous.glb] [--all-views] [--fitted-cameras] [--ear-crop x0,y0,x1,y1] --out ./comparison');
 } else {
     for (const key of ['photos','cameras','model','out']) {
         if (!options[key]) throw new Error('Missing --'+key+' (see --help)');
@@ -317,7 +339,8 @@ if (options.help) {
         right-left < 16 || bottom-top < 16) {
         throw new Error('--ear-crop must be x0,y0,x1,y1 within the 2048 px source frame');
     }
-    const cameras = JSON.parse(await readFile(options.cameras,'utf8'));
+    const fittedCameras = JSON.parse(await readFile(options.cameras,'utf8'));
+    const cameras = options['fitted-cameras'] ? fittedCameras : lockBodyCameras(fittedCameras);
     const models = [];
     if (options.before) models.push({label:'Before',meshes:await loadModel(options.before)});
     models.push({label:options.before?'After':'Model',meshes:await loadModel(options.model)});

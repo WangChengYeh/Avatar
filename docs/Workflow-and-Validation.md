@@ -22,7 +22,7 @@
 
 | 組別 | 相機 | 構圖（2048 × 2048） |
 | --- | --- | --- |
-| 水平、俯角 30°、仰角 20°、俯視 | 對準肚臍高度的身體中心，距離全部相同 | 畫面寬 1.95 m。水平環人物高約佔 85%，頭頂離上緣約 9%，腳底離下緣約 7%，左右置中。同角度的三個環人物左右寬度相同，俯視圖與正面同寬 |
+| 水平、俯角 30°、仰角 20°、俯視 | 全身圖共用同一個 3D 身體中心，距離全部相同 | 畫面寬 1.95 m。水平環人物高約佔 85%，頭頂和腳底各留約 8%，左右置中。同角度的三個環人物左右寬度相同，俯視圖與正面同寬 |
 | 光線（全部 33 張） | 光線固定在人身上，不跟著相機轉 | 全方位均勻柔光，沒有方向性明暗、硬陰影與高光，盡量接近皮膚／衣服本身的顏色；曝光與白平衡固定。同一塊皮膚從任何角度看一樣亮 |
 | 頭部特寫 | 對準點可自選（建議頭部中心），8 張相同；距離全部相同 | 全身圖的 4 倍放大，畫面寬約 0.49 m，頭寬約佔三分之一。頭頂在每張的同一高度（對準頭部中心時離上緣約 24%） |
 
@@ -38,7 +38,8 @@ no hard shadows or highlights
 
 ```text
 same camera distance and framing in every full-body view, only the camera angle changes,
-camera aimed at the navel, full figure centred, about 85 % of the image height,
+aim at the same 3D body centre, halfway up the figure on the vertical rotation axis,
+place that point at the image centre; for the level ring the figure fills about 85 % of the image height,
 orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion
 ```
 
@@ -90,7 +91,7 @@ python body3d/run_all.py ./photos ./output --only uv
 以 `--region-luma-dir <資料夾>` 輸出每張照片的分區疊圖及 `region_brightness.csv`。疊圖標色依序為腳部米黃、上衣粉紅、褲子藍色、頭髮橙色、皮膚綠色。分區規則適用這組白底、玫瑰色上衣、深色褲子、赤腳的照片。換裝、髮色或背景改變時，先用疊圖複核分區。
 | 臉部一致性，第 11 項 | MediaPipe 在三張頭部特寫檢測五官，並比較眼到嘴／臉高、髮高／臉高。AI 模式校正後偏差絕對值 ≤ 2% 通過、> 4% 失敗。 |
 
-流程以 `work/check_status.json` 記錄照片是否符合較窄相機搜尋的條件。符合時，相機角度只能偏離檔名 ±3°，而且相機距離固定：全身圖都用主環由身高算出的縮放，頭部特寫用其 4 倍，每一環共用一個對準點（`BODY3D_RING_LOCK=1／0` 可強制開關）。各張自由擬合與固定值的差距記在 `work/ring_consistency.json`。未安裝 MediaPipe 或第 11 項未全部通過時，會採用較寬的搜尋範圍。
+流程以 `work/check_status.json` 記錄照片是否符合較窄相機搜尋的條件。符合時，相機角度只能偏離檔名 ±3°，而且相機距離固定：全身圖都用主環由身高算出的縮放，頭部特寫用其 4 倍，全身圖共用旋轉軸上離地半個身高的點（1.65 m 時為 82.5 cm），投影固定於畫面正中央（`BODY3D_RING_LOCK=1／0` 可強制開關）。Three.js 對照預設套用同一個全身對準點，查看原擬合相機時可加 `--fitted-cameras`。各張自由擬合與固定值的差距記在 `work/ring_consistency.json`。未安裝 MediaPipe 或第 11 項未全部通過時，會採用較寬的搜尋範圍。
 
 ## 烘焙前驗收與疊圖 KPI
 

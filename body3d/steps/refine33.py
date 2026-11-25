@@ -4,14 +4,12 @@ import numpy as np, cv2, json, sys
 from scipy import ndimage as ndi
 H = W = 2048
 cams = json.load(open('cams33.json'))
-body = [n for n in cams if cams[n]['kind'] in ('main', 'el30', 'low20', 'top')]
-MS = {n: cv2.imread(f'mask_{n}.png', 0) > 0 for n in body}
-
-
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera
 project = camera.project
+body = [n for n in cams if cams[n]['kind'] in camera.BODY_VIEWS]
+MS = {n: cv2.imread(f'mask_{n}.png', 0) > 0 for n in body}
 
 
 def grid(vs):
@@ -45,22 +43,27 @@ P6, shp, g6 = grid(0.008)
 DS = 4
 MSS = {n: cv2.resize(MS[n].astype(np.uint8), (W // DS, H // DS), interpolation=cv2.INTER_AREA) > 0 for n in body}
 
-# fixed distance and centre within a ring: report how far the free per-view fit (cams33) is from one shared
-# scale / aim point per ring, and (photos passed the check) put every view on that ring
-RINGS = ('main', 'el30', 'low20')
+# Compare free fits to the locked body-centre camera or to their diagnostic ring fits.
+RINGS = ('main', 'el30', 'low20', 'top')
 LOCK = camera.ring_lock_enabled()
 rings, consistency = {}, {}
-S_BODY = camera.body_scale(cams)     # fixed distance: every full-body ring has the level ring's scale
+body_rig = camera.body_center_rig(cams, W, H)
 for kind in RINGS:
-    if len(camera.ring_views(cams, kind)) >= 3:
-        rings[kind] = camera.ring_fit(cams, kind, s=S_BODY if LOCK else None)
+    views = camera.ring_views(cams, kind)
+    if views and LOCK:
+        rings[kind] = body_rig
+    elif len(views) >= 3:
+        rings[kind] = camera.ring_fit(cams, kind)
+    if kind in rings:
         consistency[kind] = camera.ring_report(cams, kind, rings[kind], 'free fit vs ring model')
 json.dump(dict(locked=LOCK, rings=rings, free_fit_deviation=consistency), open('ring_consistency.json', 'w'), indent=1)
-print('ring lock', 'ON: shared scale / aim point per ring, only the angle per view' if LOCK else 'off: free per-view fit', flush=True)
+print('ring lock', 'ON: one body centre and scale for all full-body views' if LOCK else 'off: free per-view fit', flush=True)
 if LOCK:
-    for kind, ring in rings.items():
-        for n in camera.ring_views(cams, kind):
-            cams[n] = camera.ring_apply(cams[n], ring)
+    for n in body:
+        if cams[n]['kind'] == 'top':
+            phi, th = camera.nominal(n, 'top')
+            cams[n] = dict(cams[n], phi=phi, th=th)
+        cams[n] = camera.ring_apply(cams[n], body_rig)
 
 
 def loo_surface(n, allv):
@@ -79,63 +82,27 @@ def anchored(n):
 for it in range(3):
     allv = votes_for(P6, body)
     if LOCK:
-        Ps = {n: loo_surface(n, allv) for n in body if not anchored(n)}
-        # 1. per view: only the angle; scale and aim point come from the ring
-        for n in Ps:
-            c = dict(cams[n]); sc = iou(Ps[n], c, MSS[n])
-            ring = rings.get(c['kind'])
-            # views outside a ring (top): offsets only, the scale is the full-body scale
-            keys = [('phi', 2 if it == 0 else 1)] + ([] if ring else [('th', 2 if it == 0 else 1), ('cu', 6 if it == 0 else 3),
-                                                                       ('cv', 6 if it == 0 else 3)])
-            if not ring:
-                c['s'] = S_BODY
-            improved = True
-            while improved:
-                improved = False
-                for key, dv in keys:
-                    for sg in (1, -1):
-                        c2 = dict(c); c2[key] += sg * dv
-                        if key == 'th': c2['th'] = min(90.0, c2['th'])
-                        if ring: c2 = camera.ring_apply(c2, ring)
-                        if not camera.within_limits(n, c2): continue
-                        s2 = iou(Ps[n], c2, MSS[n])
-                        if s2 > sc + 1e-4:
-                            sc, c, improved = s2, c2, True
-            cams[n] = c
-        # 2. per tilted ring: the shared aim point (and camera distance) against all of its views at once.
-        # The main ring defines the frame (scale from the height), so it is not moved here.
-        for kind in ('el30', 'low20'):
-            if kind not in rings:
+        for n in body:
+            if anchored(n) or cams[n]['kind'] == 'top':
                 continue
-            ring = rings[kind]; names = [n for n in camera.ring_views(cams, kind) if n in Ps]
-
-            def total(rg):
-                return sum(iou(Ps[n], camera.ring_apply(cams[n], rg), MSS[n]) for n in names) / len(names)
-            sc = total(ring)
-            # the scale is the full-body scale (spec), never fitted: IoU against the voting hull (a little fatter than
-            # the figure) pulls a shared scale low (measured on perfect photos: 961 -> 947 px/m, true 975)
-            steps = [('U', 6 if it == 0 else 3), ('V', 6 if it == 0 else 3),
-                     ('qx', 0.01 if it == 0 else 0.005), ('qz', 0.01 if it == 0 else 0.005)]
-            if ring.get('D'):
-                steps.append(('D', 0.5 if it == 0 else 0.25))
-            improved = True
-            while improved:
-                improved = False
-                for key, dv in steps:
-                    for sg in (1, -1):
-                        r2 = dict(ring); r2[key] += sg * dv
-                        if key == 'D' and r2['D'] < 2.0: continue
-                        s2 = total(r2)
-                        if s2 > sc + 1e-5:
-                            sc, ring, improved = s2, r2, True
-            rings[kind] = ring
-            for n in camera.ring_views(cams, kind):
-                cams[n] = camera.ring_apply(cams[n], ring)
-            print('iter %d %-6s ring IoU %.3f  s %7.1f  aim (%+.3f, %+.3f) m at (%.0f, %.0f)  D %s' %
-                  (it, kind, sc, ring['s'], ring['qx'], ring['qz'], ring['U'], ring['V'], ring.get('D')), flush=True)
-        for n in Ps:
+            points = loo_surface(n, allv)
             c = cams[n]
-            print('iter %d %-14s IoU %.3f  phi %6.1f th %5.1f s %7.1f D %s' % (it, n, iou(Ps[n], c, MSS[n]), c['phi'], c['th'], c['s'], c.get('D')), flush=True)
+            score = iou(points, c, MSS[n])
+            step = 2 if it == 0 else 1
+            while True:
+                best = c
+                for offset in (-step, step):
+                    candidate = camera.ring_apply(dict(c, phi=c['phi'] + offset), body_rig)
+                    if camera.within_limits(n, candidate):
+                        candidate_score = iou(points, candidate, MSS[n])
+                        if candidate_score > score + 1e-4:
+                            best, score = candidate, candidate_score
+                if best is c:
+                    break
+                c = best
+            cams[n] = c
+            print('iter %d %-14s IoU %.3f  phi %6.1f th %5.1f s %7.1f' %
+                  (it, n, score, c['phi'], c['th'], c['s']), flush=True)
         continue
     for n in body:
         if anchored(n):
@@ -162,8 +129,6 @@ for it in range(3):
                         sc, c, improved = s2, c2, True
         cams[n] = c
         print('iter %d %-14s IoU %.3f  phi %6.1f th %5.1f s %7.1f D %s' % (it, n, sc, c['phi'], c['th'], c['s'], c.get('D')), flush=True)
-if LOCK:
-    json.dump(dict(locked=True, rings=rings, free_fit_deviation=consistency), open('ring_consistency.json', 'w'), indent=1)
 json.dump(cams, open('cams33.json', 'w'), indent=1)
 
 # final hull at 4 mm, tolerate up to 3 disagreeing views out of 25
