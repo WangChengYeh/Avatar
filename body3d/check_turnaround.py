@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.26.0（2026-11-25）
+版本 1.27.0（2026-11-25）
 
 版本紀錄:
+  1.27.0 新增 OpenCV 分區亮度粗篩，各部位超標只列 WARN。
   1.26.0 AI 模式稍放寬俯角／仰角的幾何 FAIL 門檻，保留原 PASS 目標。
   1.25.0 第 10f 項放寬 AI 亮度門檻，明列取樣不足，提供避開高反差邊界的複核數值。
          亮度超標一律提醒複核，包含照片初篩與烘焙前的頭部回投。
@@ -52,6 +53,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 單檔使用（Python 3）:
     python -m pip install numpy opencv-python
     python check_turnaround.py 照片資料夾
+    加 --region-luma-dir 資料夾 可輸出分區疊圖與亮度 CSV。
 
 有重建中間檔時，可另外檢查頭部投影重疊區:
     python check_turnaround.py 照片資料夾 --head-overlap-work 工作資料夾
@@ -228,7 +230,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.26.0'
+__version__ = '1.27.0'
 import numpy as np
 import cv2
 
@@ -1000,6 +1002,115 @@ def skin_lightness(im, m):
     if skin.sum() < 500:
         return None
     return float(cv2.cvtColor(im, cv2.COLOR_BGR2LAB)[..., 0][skin].mean())
+
+
+REGION_LIGHTNESS = {
+    'feet': ('腳部', (100, 210, 255)),
+    'top': ('上衣', (195, 65, 230)),
+    'pants': ('褲子', (240, 80, 65)),
+    'hair': ('頭髮', (55, 170, 240)),
+    'skin': ('身體皮膚', (90, 225, 80)),
+}
+REGION_LUMA_LIMIT = 18.0  # 8-bit OpenCV Lab L channel
+
+
+def photo_region_lightness(im, mask, category):
+    """Estimate disjoint visible regions for this white-background, rose-top avatar."""
+    h, w = im.shape[:2]
+    scale = min(1.0, 768 / max(h, w))
+    size = (max(1, round(w * scale)), max(1, round(h * scale)))
+    picture = cv2.resize(im, size, interpolation=cv2.INTER_AREA)
+    foreground = cv2.resize(mask.astype(np.uint8), size, interpolation=cv2.INTER_NEAREST)
+    if not foreground.any():
+        return picture, np.zeros(foreground.shape, np.uint8), {}
+    top, bottom, left, right = bbox(foreground)
+    y = (np.arange(size[1])[:, None] - top) / max(1, bottom - top)
+    x = (np.arange(size[0])[None, :] - (left + right) / 2) / max(1, right - left)
+    interior = cv2.erode(foreground, np.ones((3, 3), np.uint8)).astype(bool)
+    light, a, b = np.moveaxis(cv2.cvtColor(picture, cv2.COLOR_BGR2LAB), -1, 0)
+    a, b = a.astype(np.int16), b.astype(np.int16)
+    warm_skin = (b >= 134) & (b >= a - 4)
+    rose = (a >= 135) & (a - b >= 3)
+    neutral = (np.abs(a - 128) <= 11) & (np.abs(b - 128) <= 9)
+    if category == 'top':
+        hair = (np.abs(x) <= .13) & (light < 142) & warm_skin
+        upper = (np.abs(x) <= .26) & rose
+        feet = pants = np.zeros(interior.shape, dtype=bool)
+    elif category == 'head':
+        hair = (y <= .18) | ((y <= .78) & (light < 142) & warm_skin)
+        upper = (y >= .58) & rose
+        feet = pants = np.zeros(interior.shape, dtype=bool)
+    else:
+        hair = (np.abs(x) <= .32) & ((y <= .055) | ((y <= .17) & (light < 142) & warm_skin))
+        upper = (y >= .16) & (y <= .52) & (np.abs(x) <= .37) & rose
+        feet = (y >= .89) & warm_skin
+        pants = (y >= .43) & neutral & ~warm_skin
+    labels = np.zeros(interior.shape, np.uint8)
+    stats = {}
+    minimum = max(40, round(.001 * np.count_nonzero(interior)))
+    regions = dict(feet=feet, top=upper & ~hair, pants=pants, hair=hair, skin=warm_skin)
+    for code, region in enumerate(REGION_LIGHTNESS, 1):
+        candidate = (interior & regions[region] & (labels == 0)).astype(np.uint8)
+        candidate = cv2.morphologyEx(candidate, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)).astype(bool)
+        pixels = int(np.count_nonzero(candidate))
+        if pixels >= minimum:
+            labels[candidate] = code
+            stats[region] = (float(np.median(light[candidate])), pixels)
+    return picture, labels, stats
+
+
+def report_region_lightness(views, extra, output_dir=None):
+    """Compare same-kind lightness samples with the horizontal photos."""
+    photos = [('main', a, v) for a, v in sorted(views.items())]
+    photos.extend((cat, a, v) for cat, ring in extra.items() for a, v in sorted(ring.items()))
+    samples = {}
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        palette = np.array([(0, 0, 0), *(color for _, color in REGION_LIGHTNESS.values())], dtype=np.uint8)
+    for cat, angle, photo in photos:
+        mask = photo.get('m')
+        if mask is None:
+            samples[cat, angle] = {}
+            continue
+        picture, labels, stats = photo_region_lightness(photo['im'], mask, cat)
+        samples[cat, angle] = stats
+        if output_dir is not None:
+            overlay = cv2.addWeighted(picture, .55, palette[labels], .45, 0)
+            overlay[labels == 0] = picture[labels == 0]
+            cv2.imwrite(str(output_dir / (Path(photo['name']).stem + '_regions.png')), overlay)
+    rows = []
+    print('\n9b. 分區亮度粗篩（各區域 Lab L 中位數，相對水平主環，超過 18/255 判 WARN）')
+    for cat, angle, photo in photos:
+        name = photo['name']
+        stats = samples[cat, angle]
+        details = []
+        warnings = 0
+        compared = 0
+        for region, (label, _) in REGION_LIGHTNESS.items():
+            lightness, count = stats.get(region, (None, 0))
+            reference = [v[region][0] for (ring, a), v in samples.items()
+                         if ring == 'main' and (cat != 'main' or a != angle) and region in v]
+            ref = float(np.median(reference)) if len(reference) >= 3 else None
+            delta = None if lightness is None or ref is None else lightness - ref
+            if lightness is None:
+                level = 'NOT_MEASURED'
+                details.append(f'{label}未量測')
+            elif delta is None:
+                level = 'NO_REFERENCE'
+                details.append(f'{label} L={lightness:.1f}（主環參考不足）')
+            else:
+                compared += 1
+                level = WARN if abs(delta) > REGION_LUMA_LIMIT else PASS
+                warnings += level == WARN
+                details.append(f'{label} L={lightness:.1f}（差 {delta:+.1f}/255，{level}）')
+            rows.append((name, region, label, lightness, count, ref, delta, level))
+        report(WARN if warnings or not compared else PASS, name + ' 分區亮度', '、'.join(details))
+    if output_dir is not None:
+        with (output_dir / 'region_brightness.csv').open('w', encoding='utf-8-sig', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(('image', 'region', 'label', 'median_l', 'pixels', 'reference_l', 'delta_l', 'status'))
+            writer.writerows(rows)
 
 
 def report_blob(tag, im, m):
@@ -2246,6 +2357,7 @@ def main():
     ap.add_argument('--head-overlap-work', metavar='WORK_DIR',
                     help='用重建中間檔檢查頭部重疊區亮度及五官對位')
     ap.add_argument('--view-overlay-dir', metavar='DIR', help='輸出各角度回投到正面/背面的疊圖與 CSV')
+    ap.add_argument('--region-luma-dir', metavar='DIR', help='輸出 OpenCV 分區檢查疊圖與亮度 CSV')
     ap.add_argument('--camera-check', action='store_true',
                     help='供相機校準使用：若無 FAIL 但第 11 項未全數通過，回傳 3')
     args = ap.parse_args()
@@ -2691,6 +2803,7 @@ def main():
             report(PASS, '曝光一致', f'{len(lv)} 張的膚色亮度都在主環的 ±{100 * EXP:.0f}% 內')
 
     check_photo_cheek_brightness({a: v for a, v in extra['head'].items() if v.get('m') is not None})
+    report_region_lightness(views, extra, args.region_luma_dir)
 
     # ---- 10. silhouette consistency with the main-ring shape (red / blue sheet)
     if len(good) >= 7:
