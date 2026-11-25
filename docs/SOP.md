@@ -37,13 +37,20 @@ AI 生圖 / 修圖（33 張）
 
 | 階段 | 交付物 | 誰做 | 交付條件 | 下一階段拿什麼 |
 | --- | --- | --- | --- | --- |
-| 1 照片 | **`deliver/{name}_stage1_photos.zip`**：33 張照片（2048 × 2048 JPEG，檔名照規格）＋照片檢查報告＋`manifest.json`（每個檔的 SHA-256、照片檢查版本與總結） | AI 生圖／修圖；zip 由 `run_all.py` 自動打包 | 照片檢查 0 FAIL（有 FAIL 不會產生 zip） | 這個 zip 裡的 33 張照片，之後不再改；要改就回到階段 1 重新交付 |
+| 1 照片 | **`deliver/{name}_stage1_photos.zip`**：33 張照片（2048 × 2048 JPEG，檔名照規格）＋照片檢查報告＋`manifest.json`（每個檔的 SHA-256、照片檢查版本與總結） | AI 生圖／修圖；zip 由 `run_all.py` 自動打包 | 照片檢查 0 FAIL（有 FAIL 時改成 `_FAIL.zip`，不能交付） | 這個 zip 裡的 33 張照片，之後不再改；要改就回到階段 1 重新交付 |
 | 2 重建 | 相機與人體形狀（`work/cams33.json`、`work/body33s.ply`）＋頭部對照圖 | `run_all.py` 第 2–11 步 | 烘焙前檢查 0 FAIL | 相機與網格 |
 | 3 模型 | 兩個 GLB（`{name}_rigged.glb` 無光照、`{name}_rigged_lit.glb`）＋預覽圖 | `run_all.py` 第 12–17 步 | GLB 驗證 0 FAIL | GLB |
 | 4 成品驗收 | 原圖對模型對照圖、`fit_report.json` | `run_all.py` 第 18 步 | 最終驗收 0 FAIL（剪影平均不一致 ≤ 10%） | — |
 | 交付 | GLB ＋ 階段 1 的照片 zip ＋ `client/` 整個資料夾 ＋ `gates.json`（`deliverable: true`）＋ Yoga2 站姿／抬手截圖 | — | 見下方「交付條件」 | — |
 
-階段 1 結束就交付 33 張照片的 zip：照片檢查 0 FAIL 時，`run_all.py` 在 `OUT/deliver/` 自動打包（只想交付照片、不重建時，執行 `python body3d/deliver.py stage1 PHOTOS OUT`）。照片檢查有任何 FAIL，就不產生 zip，照片就還沒交付，後面的階段都不開始；重跑照片檢查時會先刪掉舊的 zip，不會留下過期的交付物。zip 裡的 `manifest.json` 記錄每張照片的 SHA-256，後面的階段和客戶都可以用它確認拿到的是同一組照片。照片交付後如果在後面的關卡發現照片的問題（例如烘焙前檢查的臉部錯位），要回到階段 1 修照片、重新交付，再從頭跑；不能在後面的步驟用手動修正補照片的錯（例如手動平移某張特寫的相機），那樣的結果無法重現，也不能交付。
+階段 1 結束一定打包 33 張照片的 zip，未通過也打包，給客戶看、也留存（只想打包照片、不重建時，執行 `python body3d/deliver.py stage1 PHOTOS OUT`）：
+
+| 照片檢查 | 檔名 | 意思 |
+| --- | --- | --- |
+| 0 FAIL | `deliver/{name}_stage1_photos.zip` | 階段 1 已交付，後面的階段從這裡開始 |
+| 有 FAIL（或缺照片） | `deliver/{name}_stage1_photos_FAIL.zip` | 不能交付；`manifest.json` 的 `deliverable` 為 `false`，`failures` 列出每個未通過項目，`missing` 列出缺的照片。後面的階段不開始 |
+
+同一時間只會有其中一個：每次打包都會先刪掉舊的兩個，不會留下過期的交付物。zip 裡的 `manifest.json` 記錄每張照片的 SHA-256，後面的階段和客戶都可以用它確認拿到的是同一組照片。照片交付後如果在後面的關卡發現照片的問題（例如烘焙前檢查的臉部錯位），要回到階段 1 修照片、重新交付，再從頭跑；不能在後面的步驟用手動修正補照片的錯（例如手動平移某張特寫的相機），那樣的結果無法重現，也不能交付。
 
 ## 四道關卡
 

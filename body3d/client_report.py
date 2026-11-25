@@ -281,12 +281,15 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
     for n, (title, gate, desc) in STAGES.items():
         body.append(f'<h2>階段 {n}・{e(title)}</h2><p>{e(desc)}</p>')
         if n == 1:
-            z = os.path.join(a.out, 'deliver', f'{a.name}_stage1_photos.zip')
-            if os.path.exists(z):
-                body.append(f'<p class="deliver">已交付：<a href="../deliver/{e(os.path.basename(z))}">'
-                            f'{e(os.path.basename(z))}</a>（{os.path.getsize(z) / 2 ** 20:.1f} MB，33 張照片與照片檢查報告）</p>')
-            else:
-                body.append('<p class="deliver no">尚未交付：照片檢查全部通過後才會產生 33 張照片的 zip</p>')
+            good = os.path.join(a.out, 'deliver', f'{a.name}_stage1_photos.zip')
+            bad = os.path.join(a.out, 'deliver', f'{a.name}_stage1_photos_FAIL.zip')
+            for z, word, cls in ((good, '已交付', 'deliver'), (bad, '未通過，不能交付（照片仍打包供檢查）', 'deliver bad')):
+                if os.path.exists(z):
+                    body.append(f'<p class="{cls}">{word}：<a href="../deliver/{e(os.path.basename(z))}">'
+                                f'{e(os.path.basename(z))}</a>（{os.path.getsize(z) / 2 ** 20:.1f} MB，33 張照片、'
+                                '照片檢查報告、清單）</p>')
+            if not (os.path.exists(good) or os.path.exists(bad)):
+                body.append('<p class="deliver no">照片檢查還沒跑完，還沒有照片的 zip</p>')
         for f in made.get(n, []):
             body.append(f'<a href="{f}"><img src="{f}?v={int(os.path.getmtime(os.path.join(cdir, f)))}"></a>')
         if not made.get(n):
@@ -308,7 +311,7 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
            'td:first-child,th:first-child{text-align:left}td.f{color:#b3261e;font-weight:700}'
            '.steps td:nth-child(2),.steps td:nth-child(3),.steps td:nth-child(4){text-align:left}'
            'tr.running td{background:#fff4d6}tr.failed td{background:#fde7e5}tr.pending td{color:#aaa}'
-           '.deliver{background:#e3f4e8;padding:6px 10px;border-radius:6px}.deliver.no{background:#f4f4f4;color:#777}'
+           '.deliver{background:#e3f4e8;padding:6px 10px;border-radius:6px}.deliver.no{background:#f4f4f4;color:#777}.deliver.bad{background:#fde7e5;color:#b3261e}'
            'li.fail b{color:#b3261e}li.warn b{color:#a66300}li{margin:3px 0;font-size:14px}summary{cursor:pointer;margin:6px 0}')
     refresh = '<meta http-equiv="refresh" content="20">' if running else ''
     if running:                                        # elapsed time ticks between the 20 s reloads
