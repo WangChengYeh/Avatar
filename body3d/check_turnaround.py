@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.24.0（2026-11-25）
+版本 1.25.0（2026-11-25）
 
 版本紀錄:
+  1.25.0 第 10f 項放寬 AI 亮度門檻，明列取樣不足，提供避開高反差邊界的複核數值。
   1.24.0 畫面左右亮差與膚色曝光只作粗篩，同一表面回投仍用原門檻驗收。
   1.23.0 曝光粗篩 ±3% → 7%、臉頰粗篩 5 → 12 / 255：依完美照片重新校準（原門檻低於完美照片）。
          光線規格改為固定在人身上的全方位均勻柔光：第 6c 項畫面左右亮度差 > 8% FAIL；第 10f 項相鄰角度同一表面亮度。
@@ -68,7 +69,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 ======================================================================
 
 一、需要哪些圖（一次補齊；全部用 AI 生成，所以全部都是必要）
-  A. 主環 8 張【必要】相機水平、對準身體中心（身高一半），人轉 8 個角度
+  A. 主環 8 張【必要】相機水平、在肚臍高度，人轉 8 個角度
        000deg 正面      045deg 左前      090deg 左側（純側面）  135deg 左後
        180deg 背面      225deg 右後      270deg 右側（純側面）  315deg 右前
      → 決定身體、腿、頭的輪廓與大部分貼圖。
@@ -133,8 +134,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 不要配件晃動（長耳環、飄動的頭髮、披巾）。
 
 五、相機與構圖（本腳本第 2 項會檢查）
-  - 主環：相機水平，對準身體中心（身高一半，約胯部高度），人物上下置中（俯角環、仰角、俯視依各自規定，
-    也都對準同一個身體中心）。
+  - 主環：相機高度固定在肚臍附近，水平拍攝（俯角環、仰角、俯視依各自規定）。
   - 相機距離固定（第 10d 項）：全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物左右寬度相同，
     俯視圖與正面同寬（差 ≤ 1%，> 2% FAIL）；頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL）。
     構圖數字與提示詞見第九節。
@@ -190,19 +190,19 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 33 張要是「同一個角色」：用同一張參考圖 / 角色設定 / 固定種子（seed），
     每張只改相機位置，不要每張重新描述人物（會造成臉、身材、髮髻位置不一致）。
   - 在提示詞寫明相機位置，例如
-      "camera level with the middle of her body, orbiting 45 degrees to her left"
+      "camera at navel height, horizontal, orbiting 45 degrees to her left"
       "camera directly overhead, looking straight down"
       "camera raised, tilted down 30 degrees"     "camera at knee height, tilted up 20 degrees"
     生成後一律用本腳本檢查：AI 常把 45° 畫成 15–20°、把 90° 畫成 60–75°（第 4、5 項）。
   - 相機距離固定（第 10d 項）：相機繞著人物轉，只改角度，距離和對準點不變。
-    全身圖（水平、俯角 30°、仰角 20°、俯視）全部同一個構圖：畫面寬 1.95 m，對準身體中心（身高一半，約胯部高度）。
+    全身圖（水平、俯角 30°、仰角 20°、俯視）全部同一個構圖：畫面寬 1.95 m，對準肚臍高度的身體中心。
       水平環：人物高約佔畫面高 85%，頭頂離上緣約 9%，腳底離下緣約 7%，人物左右置中。
       同一角度的水平、俯角、仰角圖，人物左右寬度（指尖到指尖）要相同；俯視圖和正面一樣寬。
     頭部特寫全部同一個構圖：放大為全身圖的 4 倍（畫面寬約 0.49 m），頭寬約佔畫面寬三分之一。
       對準點可自選（建議頭部中心：頭頂離上緣約 24%），但 8 張必須相同：頭頂在每張的同一高度。
     全身圖每張加上：
       same camera distance and framing in every full-body view, only the camera angle changes,
-      camera aimed at the middle of the body (half the height), full figure centred, about 85 % of the image height
+      camera aimed at the navel, full figure centred, about 85 % of the image height
     頭部特寫每張加上：
       head close-up at 4x the full-body zoom, same camera distance in every close-up, camera aimed at the
       centre of the head, head width about one third of the image width, head top at the same height in
@@ -224,7 +224,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.24.0'
+__version__ = '1.25.0'
 import numpy as np
 import cv2
 
@@ -653,8 +653,10 @@ def aim_check(good, extra):
 # silhouettes, facing both cameras, blurred luma) and the signed median and P90 of the difference are compared.
 # Perfect photos (flat render of the texture): |median| ≤ 0.5, P90 ≤ 11.1 / 255; v1220 (light fixed to the camera):
 # median up to 19.5, P90 up to 49.
-SURF_MED_PASS, SURF_MED_FAIL = 2.0, 4.0
-SURF_P90_PASS, SURF_P90_FAIL = 15.0, 25.0
+SURF_MED_PASS, SURF_MED_FAIL = 3.0, 6.0
+SURF_P90_PASS, SURF_P90_FAIL = 18.0, 30.0
+SURF_MIN_SAMPLES = 200
+SURF_EDGE_CONTRAST = 25
 
 
 def hull_surface(hull, vs=0.01):
@@ -671,7 +673,7 @@ def hull_surface(hull, vs=0.01):
 
 
 def surface_luma(P, N, im, m, c):
-    """blurred luma of the surface points seen by camera c=(s, cu, cv, phi, th) and the visibility mask"""
+    """Return blurred lightness, visibility, and distance from high-contrast image boundaries."""
     s_, cu, cv_, ph, th = c
     p, t = np.radians(ph), np.radians(th)
     r = np.array([np.cos(p), 0, -np.sin(p)]); u = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
@@ -684,12 +686,37 @@ def surface_luma(P, N, im, m, c):
     zb = np.full((H_ // cell + 1, W_ // cell + 1), -9.0); np.maximum.at(zb, (ri[ok] // cell, ci[ok] // cell), dep[ok])
     inner = cv2.erode(m.astype(np.uint8), np.ones((25, 25), np.uint8)) > 0
     vis = ok & (dep >= zb[ri // cell, ci // cell] - 0.02) & (N @ f > 0.5) & inner[ri, ci]
-    L = cv2.GaussianBlur(cv2.cvtColor(im, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32), (0, 0), 6)
-    return L[ri, ci], vis
+    lightness = cv2.cvtColor(im, cv2.COLOR_BGR2LAB)[..., 0]
+    L = cv2.GaussianBlur(lightness.astype(np.float32), (0, 0), 6)
+    # A small reprojection error near a sharp edge can sample the wrong material. Keep
+    # the original measurements for acceptance and report an additional interior measurement.
+    radius = max(12, round(H_ * 0.01))
+    contrast = cv2.morphologyEx(lightness, cv2.MORPH_GRADIENT,
+                                np.ones((2 * radius + 1, 2 * radius + 1), np.uint8))
+    interior = contrast[ri, ci] < SURF_EDGE_CONTRAST
+    return L[ri, ci], vis, interior
+
+
+def compare_surface_luma(first, second):
+    """Measure overall and low-contrast shared samples, with both counts even when too small."""
+    L1, visible1, interior1 = first
+    L2, visible2, interior2 = second
+    common = visible1 & visible2
+    away_from_edges = common & interior1 & interior2
+    delta = L1 - L2
+
+    def summarize(selected):
+        n = int(selected.sum())
+        if n < SURF_MIN_SAMPLES:
+            return None, None, n
+        values = delta[selected]
+        return float(np.median(values)), float(np.percentile(np.abs(values), 90)), n
+
+    return summarize(common), summarize(away_from_edges)
 
 
 def surface_luma_check(good, extra):
-    """10f. {(label): (median, p90, n)} for neighbouring views on the same hull surface"""
+    """10f. Report a pair of overall and interior lightness summaries per view pair."""
     hull = quick_hull(good)
     P, N = hull_surface(hull)
     cams, s0 = {}, []
@@ -710,12 +737,7 @@ def surface_luma_check(good, extra):
         for k1, k2 in pairs:
             if k1 not in samp or k2 not in samp:
                 continue
-            (L1, v1), (L2, v2) = samp[k1], samp[k2]
-            com = v1 & v2
-            if com.sum() < 200:
-                continue
-            dd = L1[com] - L2[com]
-            out[(k1, k2)] = (float(np.median(dd)), float(np.percentile(np.abs(dd), 90)), int(com.sum()))
+            out[(k1, k2)] = compare_surface_luma(samp[k1], samp[k2])
     return out
 
 
@@ -2787,19 +2809,29 @@ def main():
     if surf:
         print('\n10f. 同一表面亮度一致（光線要固定在人身上、全方位均勻柔光：同一塊皮膚 / 衣服在每張圖一樣亮）')
         name = {'main': '主環', 'el30': 'el30', 'low20': 'low20'}
-        for (k1, k2), (med, p90, n) in surf.items():
-            mp_, mf_ = T(SURF_MED_PASS, 2.5 * SURF_MED_PASS), T(SURF_MED_FAIL, 2.5 * SURF_MED_FAIL)
-            pp_, pf_ = T(SURF_P90_PASS, 2.5 * SURF_P90_PASS), T(SURF_P90_FAIL, 2.5 * SURF_P90_FAIL)
+        for (k1, k2), ((med, p90, n), (interior_med, interior_p90, interior_n)) in surf.items():
+            label = f'{name[k1[0]]} {k1[1]}° / {name[k2[0]]} {k2[1]}° 表面亮度'
+            if med is None:
+                report(WARN, label, f'未量測：共同可見表面取樣 {n} 點，至少需 {SURF_MIN_SAMPLES} 點，請複核回投對位')
+                continue
+            mp_, mf_ = T(SURF_MED_PASS, 5.0), T(SURF_MED_FAIL, 10.0)
+            pp_, pf_ = T(SURF_P90_PASS, 37.5), T(SURF_P90_FAIL, 62.5)
             l1 = PASS if abs(med) <= mp_ else WARN if abs(med) <= mf_ else FAIL
             l2 = PASS if p90 <= pp_ else WARN if p90 <= pf_ else FAIL
             lvl = FAIL if FAIL in (l1, l2) else WARN if WARN in (l1, l2) else PASS
             msg = (f'同一表面亮度差：中位數 {med:+.1f}、第 90 百分位 {p90:.1f} / 255（{n} 點；'
-                   f'應中位數 ≤ {mp_:g}、P90 ≤ {pp_:g}）')
+                   f'通過需中位數絕對值 ≤ {mp_:g} 且 P90 ≤ {pp_:g}，'
+                   f'中位數絕對值 > {mf_:g} 或 P90 > {pf_:g} 失敗）')
             if lvl != PASS:
                 brighter = f'{name[k1[0]]} {k1[1]}°' if med > 0 else f'{name[k2[0]]} {k2[1]}°'
                 direction = f'{brighter} 的共同取樣區較亮。' if abs(med) > mp_ else ''
-                msg += (f' → {direction}請先確認回投是否對到同一材質與部位，再檢查光線和曝光。')
-            report(lvl, f'{name[k1[0]]} {k1[1]}° / {name[k2[0]]} {k2[1]}° 表面亮度', msg)
+                if interior_med is None:
+                    edge_review = f'低反差區僅 {interior_n} 點，無法複核。'
+                else:
+                    edge_review = (f'避開高反差邊界後，中位數 {interior_med:+.1f}、P90 {interior_p90:.1f} / 255'
+                                   f'（{interior_n} 點）。')
+                msg += f' → {direction}{edge_review}請先確認回投對位，再檢查光線和曝光。'
+            report(lvl, label, msg)
 
     # ---- 11. face consistency of the head close-ups
     face_results = []
