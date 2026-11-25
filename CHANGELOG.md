@@ -10,6 +10,7 @@
 
 - 刪除 `--mode` 參數、`MODE` / `T()` / `strict()`：所有門檻固定為原 ai 模式的值（完美照片 + 小餘裕），翻轉複製、光線翻轉、解析度、地面陰影、腳間距等一律判 FAIL。
 - 只有 ai 模式用到的常數併回主常數：`TILT_FAIL = 4°`、`AIMROW_FAIL = 25 mm`。
+- `test_dark_image_flagged`：暗 40% 的同一表面亮差自 1.37.0 起判 FAIL，測試改看 FAIL。
 - 測試：`test_flipped_copy_fails`、`test_face_report_fail_threshold` 不再測 photo 模式；`test_ring_width_ratios` 刪除 photo 模式那段。
 - 文件刪除 photo 模式的門檻，並更新到 1.34–1.37 的現行數值（第 10c、10d、10e、11 項）。
 

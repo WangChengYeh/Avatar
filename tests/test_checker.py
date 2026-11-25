@@ -79,7 +79,7 @@ def test_grey_smudge_fails(broken):
 
 
 def test_dark_image_flagged(broken):
-    """曝光粗篩與同一表面的亮差都會標記偏暗的視角。"""
+    """曝光粗篩標記偏暗的視角（WARN）；同一表面亮差 > 6/255 判 FAIL。"""
     f = broken / 'el30_090deg.jpg'
     im = cv2.imread(str(f)).astype(np.float32)
     m = im.min(2) < 235
@@ -87,7 +87,7 @@ def test_dark_image_flagged(broken):
     cv2.imwrite(str(f), im.clip(0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
     assert any('90' in l and '曝光' in l for l in lines(out, 'WARN'))
-    assert any('el30 90° / 主環 90° 表面亮度' in l for l in lines(out, 'WARN'))
+    assert any('el30 90° / 主環 90° 表面亮度' in l for l in lines(out, 'FAIL'))   # 1.37.0: median > 6/255 is FAIL
 
 
 def test_silhouette_sheet_and_perspective_pass_on_orthographic(synth_set, tmp_path):
