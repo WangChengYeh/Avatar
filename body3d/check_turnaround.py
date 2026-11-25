@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.27.0（2026-11-25）
+版本 1.28.0（2026-11-25）
 
 版本紀錄:
+  1.28.0 第 10f 項在共同可見表面及其低反差區均有同方向的中位亮差 ≥ 12 / 255 時判 FAIL。
   1.27.0 新增 OpenCV 分區亮度粗篩，各部位超標只列 WARN。
   1.26.0 AI 模式稍放寬俯角／仰角的幾何 FAIL 門檻，保留原 PASS 目標。
   1.25.0 第 10f 項放寬 AI 亮度門檻，明列取樣不足，提供避開高反差邊界的複核數值。
@@ -168,7 +169,9 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     盡量接近皮膚 / 衣服本身的顏色：成品是無光照 GLB，明暗應由 3D 軟體的燈光產生，不要畫進照片。
     光源不可跟著相機轉：否則同一塊皮膚在不同角度亮度不同，烘焙後有色差接縫。
     第 6c 項粗篩畫面左右亮度差（AI 模式 > 6% 判 WARN）。第 10f 項比較共同表面的亮度
-    （AI 模式下，中位數絕對差 > 3 或 P90 > 18 / 255 判 WARN）。
+    （AI 模式下，中位數絕對差 > 3 或 P90 > 18 / 255 需複核）。
+    共同表面全區及避開高反差邊界的區域，若亮差中位數同方向且絕對值均 ≥ 12 / 255，判 FAIL。
+    低反差區至少需 200 個共同取樣點，否則照原有粗篩門檻判定。
   - 人物與背景顏色要有對比（白衣服配白背景會去背失敗）。
   - 不要有 AI 留下的灰白雜點（黏在身體邊緣的無色色塊，本腳本第 1b 項）。
   - 33 張圖鎖定同一組曝光、白平衡、光源方向與強度，各視角不使用自動曝光。
@@ -230,7 +233,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.27.0'
+__version__ = '1.28.0'
 import numpy as np
 import cv2
 
@@ -666,6 +669,7 @@ def aim_check(good, extra):
 # median up to 19.5, P90 up to 49.
 SURF_MED_PASS = 3.0
 SURF_P90_PASS = 18.0
+SURF_MED_FAIL = 12.0
 SURF_MIN_SAMPLES = 200
 SURF_EDGE_CONTRAST = 25
 
@@ -2944,9 +2948,14 @@ def main():
                 report(WARN, label, f'未量測：共同可見表面取樣 {n} 點，至少需 {SURF_MIN_SAMPLES} 點，請複核回投對位')
                 continue
             mp_, pp_ = T(SURF_MED_PASS, 5.0), T(SURF_P90_PASS, 37.5)
-            lvl = WARN if abs(med) > mp_ or p90 > pp_ else PASS
+            if (interior_med is not None and med * interior_med > 0
+                    and min(abs(med), abs(interior_med)) >= SURF_MED_FAIL):
+                lvl = FAIL
+            else:
+                lvl = WARN if abs(med) > mp_ or p90 > pp_ else PASS
             msg = (f'同一表面亮度差：中位數 {med:+.1f}、第 90 百分位 {p90:.1f} / 255（{n} 點；'
-                   f'目標為中位數絕對值 ≤ {mp_:g} 且 P90 ≤ {pp_:g}）')
+                   f'目標為中位數絕對值 ≤ {mp_:g} 且 P90 ≤ {pp_:g}；'
+                   f'全區及低反差區中位數同方向且絕對值均 ≥ {SURF_MED_FAIL:g} 判 FAIL）')
             if lvl != PASS:
                 brighter = f'{name[k1[0]]} {k1[1]}°' if med > 0 else f'{name[k2[0]]} {k2[1]}°'
                 direction = f'{brighter} 的共同取樣區較亮。' if abs(med) > mp_ else ''

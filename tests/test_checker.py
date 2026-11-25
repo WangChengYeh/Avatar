@@ -81,14 +81,16 @@ def test_grey_smudge_fails(broken):
 
 
 def test_dark_image_flagged(broken):
-    """其中一張曝光不足：第 9 項要抓出來（WARN 或 FAIL）"""
+    """曝光粗篩報 WARN，同一表面的嚴重亮差判 FAIL。"""
     f = broken / 'el30_090deg.jpg'
     im = cv2.imread(str(f)).astype(np.float32)
     m = im.min(2) < 235
     im[m] *= 0.6
     cv2.imwrite(str(f), im.clip(0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
-    assert any('90' in l and ('曝光' in l or '亮度' in l) for l in lines(out, 'WARN'))
+    assert any('90' in l and '曝光' in l for l in lines(out, 'WARN'))
+    assert rc == 1
+    assert any('el30 90° / 主環 90° 表面亮度' in l for l in lines(out, 'FAIL'))
 
 
 def test_silhouette_sheet_and_perspective_pass_on_orthographic(synth_set, tmp_path):
@@ -257,8 +259,7 @@ def test_aim_point_and_tilt(broken):
 
 
 def test_lighting_fixed_to_the_person(broken):
-    """6c / 10f: the clean (flat-lit) set passes; one view brightened warns on the shared-surface brightness of its
-    neighbours, and a light that follows the camera (every view brighter on the image right) is flagged by 6c for review"""
+    """A flat-lit set passes; camera-following light is flagged by the coarse direction check."""
     rc, out = check(broken)
     light = [l for l in out.splitlines() if '明暗方向:' in l or '表面亮度:' in l]
     assert len(light) >= 30 and all('[PASS]' in l for l in light), [l for l in light if '[PASS]' not in l]
@@ -281,8 +282,8 @@ def test_lighting_fixed_to_the_person(broken):
     fails = lines(out, 'FAIL')
     warnings = lines(out, 'WARN')
     assert sum('明暗方向' in l and '右側較亮' in l for l in warnings) >= 6, warnings
-    assert not any('明暗方向' in l or ' 曝光:' in l or '表面亮度' in l for l in fails), fails
-    assert any('主環 90°' in l and '表面亮度' in l for l in warnings), warnings
+    assert not any('明暗方向' in l or ' 曝光:' in l for l in fails), fails
+    assert any('主環 90°' in l and '表面亮度' in l for l in warnings + fails), warnings + fails
 
 
 def test_surface_luma_reports_coverage_and_boundary_sensitivity():
