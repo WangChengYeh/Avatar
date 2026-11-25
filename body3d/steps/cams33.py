@@ -31,9 +31,9 @@ for f in sorted(glob.glob(os.path.join(SRC, '*.jpg'))):
     views[n] = dict(file=f, kind=kind, ang=ang)
 print('views', len(views), ' angle limits ±%.0f° / ±%.0f°%s' % (camera.MAX_DPHI, camera.MAX_DTH, '（照片檢查通過）' if camera.CHECK_PASSED else ''))
 
-# ---- main ring: orthographic cameras straight from the silhouettes (height 1.65 m, feet at y = 0,
+# ---- main ring: orthographic cameras straight from the silhouettes (spec height, feet at y = 0,
 # rotation axis = centre between the calves, angle from the file name); refine33.py fine-tunes them
-HEIGHT = 1.65
+HEIGHT = camera.SPEC_HEIGHT
 cams = {}
 for n, v in views.items():
     if v['kind'] == 'main':

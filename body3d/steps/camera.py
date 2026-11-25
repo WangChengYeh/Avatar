@@ -12,8 +12,12 @@ reconstructed for diagnosis.
 """
 import numpy as np
 
-C0 = np.array([0.0, 0.85, 0.0])  # Reference plane for existing diagnostic perspective calibrations.
-BODY_CENTER_HEIGHT = 1.65 / 2
+# The pipeline reconstructs every figure at the spec height: each view's px per metre is its figure height divided by
+# SPEC_HEIGHT, so the GLB is always SPEC_HEIGHT tall (rescale it in the engine for another height). The body centre
+# (the aim point of every full-body view, and the perspective reference C0) is half of it, on the rotation axis.
+SPEC_HEIGHT = 1.65
+BODY_CENTER_HEIGHT = SPEC_HEIGHT / 2
+C0 = np.array([0.0, BODY_CENTER_HEIGHT, 0.0])
 BODY_VIEWS = frozenset({'main', 'el30', 'low20', 'top'})
 
 
@@ -69,7 +73,7 @@ def _limits():
     """How far registration may move phi / th from the nominal angles.
     Photos that passed the strict photo check (run_all writes check_status.json in the work dir): the checker has
     verified the angles (sections 4 / 8 within ±6°, perspective 10b, ring ratios 10c, distance 10d, aim and tilt 10e), so the nominal angles are
-    trusted: ±3°. Otherwise (including incomplete face checks): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
+    trusted: azimuth fixed to the file-name angle (±0°), tilt ±3°. Otherwise (including incomplete face checks): ±10° azimuth / ±16° tilt. Silhouettes alone cannot
     pin the tilt: on perfect photos free fitting turns 30° into 16–27°.
     The elevation of the +30° and −20° rings follows the input spec exactly.
     Environment variables BODY3D_MAX_DPHI / BODY3D_MAX_DTH override the limits on free angles."""
@@ -79,7 +83,9 @@ def _limits():
             passed = bool(_json.load(open('check_status.json')).get('passed'))
         except ValueError:
             passed = False
-    dp, dt = (3.0, 3.0) if passed else (10.0, 16.0)
+    # passed: the angles are the spec (file name); refinement on perfect photos moved the 45° diagonals to the ±3° edge
+    # (body 45° -> 48°, close-up 45° -> 41.9°: hull artefacts, not angle), putting the face 12 mm off (#28)
+    dp, dt = (0.0, 3.0) if passed else (10.0, 16.0)
     return float(_os.environ.get('BODY3D_MAX_DPHI', dp)), float(_os.environ.get('BODY3D_MAX_DTH', dt)), passed
 
 

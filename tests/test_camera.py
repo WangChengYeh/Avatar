@@ -51,7 +51,7 @@ def test_elevated_and_low_rings_keep_input_elevation(monkeypatch):
     assert camera.within_limits('head_045deg', dict(phi=45, th=1, kind='head'))
 
 
-def _ring(th, s=950.0, U=1020.0, V=1010.0, q=(0.02, 0.85, -0.05), kind='el30'):
+def _ring(th, s=950.0, U=1020.0, V=1010.0, q=(0.02, camera.BODY_CENTER_HEIGHT, -0.05), kind='el30'):
     ring = dict(s=s, U=U, V=V, qx=q[0], qy=q[1], qz=q[2], D=None)
     return {f'{kind}_{a:03d}deg': camera.ring_apply(dict(phi=float(a), th=th, kind=kind), ring) for a in range(0, 360, 45)}, ring
 
@@ -98,6 +98,15 @@ def test_ring_lock_follows_check_and_env(monkeypatch):
 def test_fixed_distance_spec_matches_checker():
     import check_turnaround as ct
     assert (camera.BODY_FRAME, camera.HEAD_ZOOM) == (ct.BODY_FRAME, ct.HEAD_ZOOM) == (1.95, 4.0)
+    # one spec height and body centre everywhere: checker, pipeline, synthetic renders, Three.js comparison
+    import re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert camera.SPEC_HEIGHT == ct.SPEC_HEIGHT == 1.65
+    assert np.allclose(camera.C0, [0, camera.SPEC_HEIGHT / 2, 0]) and np.allclose(ct.C0, camera.C0)
+    mjs = open(os.path.join(root, 'scripts', 'compare_turnaround.mjs'), encoding='utf-8').read()
+    assert re.search(r'const specHeight = 1\.65;', mjs) and 'bodyCenterHeight = specHeight / 2' in mjs
+    synth = open(os.path.join(root, 'tests', 'render_synth.py'), encoding='utf-8').read()
+    assert 'body = Vector((0, 0, (min(zs) + max(zs)) / 2))' in synth     # renders aim at the model's half height
     cams = {'01_000deg': dict(kind='main', s=1000.0), '02_045deg': dict(kind='main', s=1010.0), 'el30_000deg': dict(kind='el30', s=900.0)}
     assert camera.body_scale(cams) == 1005.0
 
@@ -105,7 +114,7 @@ def test_fixed_distance_spec_matches_checker():
 def test_full_body_views_share_body_centre_and_scale():
     source = {'01': dict(kind='main', s=1000.0), '02': dict(kind='main', s=1010.0)}
     rig = camera.body_center_rig(source, 2048, 2048)
-    centre = np.array([[0.0, 0.825, 0.0]])
+    centre = np.array([[0.0, camera.SPEC_HEIGHT / 2, 0.0]])
     for kind in ('main', 'el30', 'low20', 'top'):
         yaw, elevation = camera.nominal('el30_225deg' if kind != 'top' else 'top', kind)
         view = camera.ring_apply(dict(phi=yaw, th=elevation, s=950.0, D=4.0), rig)

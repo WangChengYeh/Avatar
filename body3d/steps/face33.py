@@ -9,7 +9,7 @@ What it does (cwd = work dir; needs face_lm33.npy from face_landmarks.py and med
   1. 468 MediaPipe landmarks in head_000 (given) and in head_045 / head_315 (detected here).
   2. head_000 is the anchor. Each landmark is a point on the head_000 viewing ray: X_i = P_i + t_i f0, where P_i is
      where the ray meets the mesh and t_i an unknown depth correction.
-  3. Least squares: per 3/4 view (phi ±5°; with the ring lock only phi, otherwise also s, cu, cv) and per landmark
+  3. Least squares: per 3/4 view (phi ±5°, fixed when the photos passed the check; with the ring lock only phi, otherwise also s, cu, cv) and per landmark
      t_i so that X_i reprojects onto the
      landmarks detected in the 3/4 views (robust loss; landmarks on the far, hidden side are skipped).
   4. The 3/4 head cameras are replaced by the landmark fit; t is spread over the face (thin-plate RBF in the
@@ -141,8 +141,11 @@ def residuals(x):
 x0 = np.concatenate([[0.0, cams[n]['s'], cams[n]['cu'], cams[n]['cv']] for n in names] + [np.zeros(nL)])
 SW = 1e-6 if HEAD_RING else 0.2                     # ring lock: scale / position are not free (unused in unpack)
 CW = 1e-3 if HEAD_RING else 1e5
-lo = np.concatenate([[-5, cams[n]['s'] * (1 - SW), cams[n]['cu'] - CW, cams[n]['cv'] - CW] for n in names] + [np.full(nL, -MAX_T)])
-hi = np.concatenate([[5, cams[n]['s'] * (1 + SW), cams[n]['cu'] + CW, cams[n]['cv'] + CW] for n in names] + [np.full(nL, MAX_T)])
+# angle: ±5°, or the spec angle when the photos passed the check (camera.MAX_DPHI = 0): on perfect photos MediaPipe
+# reads 3/4 faces with a bias that turned the close-ups 2.5–2.8° and put the face 7 mm off the full-body view (#28)
+DP = min(5.0, camera.MAX_DPHI) or 1e-6
+lo = np.concatenate([[-DP, cams[n]['s'] * (1 - SW), cams[n]['cu'] - CW, cams[n]['cv'] - CW] for n in names] + [np.full(nL, -MAX_T)])
+hi = np.concatenate([[DP, cams[n]['s'] * (1 + SW), cams[n]['cu'] + CW, cams[n]['cv'] + CW] for n in names] + [np.full(nL, MAX_T)])
 print('face33: ring lock ' + ('on: only the close-up angles move' if HEAD_RING else 'off: angle, scale and position per close-up'))
 r_before = np.abs(residuals(x0)[:-nL - len(names)])
 sol = least_squares(residuals, x0, bounds=(lo, hi), loss='soft_l1', f_scale=3.0, x_scale='jac', max_nfev=200)

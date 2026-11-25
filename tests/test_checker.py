@@ -220,17 +220,19 @@ def _zoom(path, k):
 
 def test_fixed_camera_distance(broken):
     """10d: same framing in every full-body ring, a fixed zoom for the close-ups. The clean set passes; one el30
-    view drawn 4 % bigger and one close-up drawn 8 % smaller fail at their own angle only"""
+    view drawn 4 % bigger, one close-up drawn 8 % smaller and a side close-up 8 % bigger fail at their own angle only"""
     rc, out = check(broken)
     d = [l for l in out.splitlines() if '距離:' in l or '放大倍率' in l]
-    assert len(d) == 23 and all('[PASS]' in l for l in d), d
+    assert len(d) == 25 and all('[PASS]' in l for l in d), d      # 16 full-body widths, top, 8 close-ups
     _zoom(broken / 'el30_135deg.jpg', 1.04)
     _zoom(broken / 'head_045deg.jpg', 0.92)
+    _zoom(broken / 'head_270deg.jpg', 1.08)          # side close-ups are checked too
     rc, out = check(broken)
     fails = [l for l in lines(out, 'FAIL') if '距離' in l or '放大倍率' in l]
     assert any('el30 135° 距離' in l and '畫大了' in l for l in fails), fails
     assert any('head 45° 放大倍率' in l and '畫小了' in l for l in fails), fails
-    assert len(fails) == 2, fails
+    assert any('head 270° 放大倍率' in l and '畫大了' in l for l in fails), fails
+    assert len(fails) == 3, fails
 
 
 def _shift(path, dx=0, dy=0, sy=1.0):
@@ -242,17 +244,20 @@ def _shift(path, dx=0, dy=0, sy=1.0):
 
 
 def test_aim_point_and_tilt(broken):
-    """10e: the clean set passes; a low20 view shifted sideways fails centring, an el30 view moved up fails the aim
+    """10e: the clean set passes; a low20 view shifted sideways, or an el30 pair framed off the image centre, fails centring, an el30 view moved up fails the aim
     height, and a low20 view drawn without the −20° foreshortening (4 % taller) fails the tilt"""
     rc, out = check(broken)
     e = [l for l in out.splitlines() if '置中:' in l or '俯仰角:' in l or '對準高度:' in l]
     assert len(e) >= 40 and all('[PASS]' in l for l in e), [l for l in e if '[PASS]' not in l]
     _shift(broken / 'low20_045deg.jpg', dx=40)
+    for g in ('el30_000deg.jpg', 'el30_180deg.jpg'):     # a whole pair framed off-centre: invisible to a ring median
+        _shift(broken / g, dx=20)
     _shift(broken / 'el30_090deg.jpg', dy=-40)
     _shift(broken / 'low20_000deg.jpg', sy=1.04)
     rc, out = check(broken)
     fails = lines(out, 'FAIL')
     assert any('仰角環 45° / 225° 置中' in l for l in fails), fails
+    assert any('俯角環 0° / 180° 置中' in l for l in fails), fails
     assert any('el30 90° 對準高度' in l for l in fails), fails
     assert any('low20 0° 俯仰角' in l and '沒有依投影縮短' in l for l in fails), fails
 
@@ -302,7 +307,9 @@ def test_lighting_fixed_to_the_person(broken):
     assert any('主環 90°' in l and '表面亮度' in l for l in warnings), warnings
 
 
-def test_region_luma_fails_only_with_enough_pixels_and_reference_views(monkeypatch, tmp_path):
+def test_region_luma_only_warns_and_compares_like_with_like(monkeypatch, tmp_path):
+    """9b is a coarse screen: never FAIL. A +30° / −20° view is compared with the level view at the same azimuth,
+    close-ups with the other close-ups (they show only the collar of the top), the top view only on hair and skin."""
     import csv
     from body3d import check_turnaround as checker
 
@@ -313,13 +320,14 @@ def test_region_luma_fails_only_with_enough_pixels_and_reference_views(monkeypat
         0: photo('main0.jpg', (100, 500), (100, 500)),
         45: photo('main45.jpg', (100, 500), (100, 500)),
         90: photo('main90.jpg', (100, 500), (100, 499)),
-        135: photo('main135.jpg', (110, 499), (100, 499)),
+        135: photo('main135.jpg', (130, 499), (100, 499)),
     }
     extras = {'el30': {
         0: photo('large.jpg', (130, 500), (65, 600)),
         45: photo('small.jpg', (135, 499), (100, 600)),
-        90: photo('near_limit.jpg', (71, 600), (100, 600)),
-    }}
+        135: photo('same_as_level.jpg', (131, 600), (100, 600)),
+    }, 'head': {a: photo(f'head{a}.jpg', (150, 900), (100, 900)) for a in (0, 45, 90, 135)},
+       'top': {0: photo('top.jpg', (160, 900), (101, 900))}}
     image = np.zeros((1, 1, 3), np.uint8)
     labels = np.zeros((1, 1), np.uint8)
     monkeypatch.setattr(checker, 'photo_region_lightness', lambda stats, mask, category: (image, labels, stats))
@@ -329,13 +337,14 @@ def test_region_luma_fails_only_with_enough_pixels_and_reference_views(monkeypat
     with (tmp_path / 'region_brightness.csv').open(encoding='utf-8-sig') as file:
         rows = {(row['image'], row['region']): row for row in csv.DictReader(file)}
 
-    assert rows['large.jpg', 'top']['status'] == 'FAIL'
-    assert float(rows['large.jpg', 'top']['delta_l']) == 30
+    assert 'FAIL' not in statuses.values() and all(r['status'] != 'FAIL' for r in rows.values())
+    assert rows['large.jpg', 'top']['status'] == 'WARN' and float(rows['large.jpg', 'top']['delta_l']) == 30
     assert rows['large.jpg', 'hair']['status'] == 'WARN'
     assert rows['small.jpg', 'top']['status'] == 'WARN'
-    assert rows['near_limit.jpg', 'top']['status'] == 'WARN'
-    assert statuses['large.jpg 分區亮度'] == 'FAIL'
-    assert statuses['small.jpg 分區亮度'] == 'WARN'
+    assert rows['same_as_level.jpg', 'top']['status'] == 'PASS'            # vs level 135°, not the ring median
+    assert all(rows[f'head{a}.jpg', 'top']['status'] == 'PASS' for a in (0, 45, 90, 135))
+    assert rows['top.jpg', 'top']['status'] == 'NO_REFERENCE' and rows['top.jpg', 'hair']['status'] == 'PASS'
+    assert statuses['large.jpg 分區亮度'] == 'WARN' and statuses['top.jpg 分區亮度'] == 'PASS'
 
 
 def test_surface_luma_reports_coverage_and_boundary_sensitivity():
@@ -366,3 +375,27 @@ def test_surface_luma_reports_coverage_and_boundary_sensitivity():
 
     no_samples = (base[0], np.zeros_like(base[1]), base[2])
     assert compare_surface_luma(base, no_samples) == ((None, None, 0), (None, None, 0))
+
+
+def test_head_closeup_lighting_and_ears(broken):
+    """10g / 10h: the clean set passes; a close-up drawn 10 % brighter warns on its lighting, and a close-up whose ear
+    band is drawn 12 mm further back than in the full-body view fails the ear position"""
+    rc, out = check(broken)
+    e = [l for l in out.splitlines() if '特寫亮度:' in l or '耳朵位置:' in l]
+    assert len(e) == 14 and all('[PASS]' in l for l in e), e
+    f = broken / 'head_135deg.jpg'
+    im = cv2.imread(str(f)).astype(np.float32)
+    m = im.min(2) < 235
+    im[m] = np.clip(im[m] * 1.10, 0, 255)
+    cv2.imwrite(str(f), im.astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    f = broken / 'head_090deg.jpg'
+    im = cv2.imread(str(f)); m = im.min(2) < 235
+    top = int(np.flatnonzero(m.any(1))[0])
+    from body3d.check_turnaround import HEAD_ZOOM
+    s = 2048 / 1.95 * HEAD_ZOOM                         # px per metre of the close-up (spec framing)
+    band = slice(top + int(0.07 * s), top + int(0.13 * s))
+    im[band] = np.roll(im[band], int(0.012 * s), axis=1)
+    cv2.imwrite(str(f), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    assert any('head 135° 特寫亮度' in l and '特寫比全身圖亮' in l for l in lines(out, 'WARN')), out
+    assert any('head 90° 耳朵位置' in l for l in lines(out, 'FAIL')), [l for l in out.splitlines() if '耳朵' in l]

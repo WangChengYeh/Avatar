@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.31.0（2026-11-25）
+版本 1.33.0（2026-11-25）
 
 版本紀錄:
+  1.33.0 規格身高集中為 SPEC_HEIGHT，可用 --height 指定（預設 1.65 m），身體中心 = 半個身高。
+         第 10d 項頭部特寫 90° / 270° 也比放大倍率（只量頭頂下 12 cm）。新增第 10g 項特寫亮度、第 10h 項耳朵位置（#25）。
+         主環側面藍色 ≤ 3.5%、> 4.5% FAIL（完美照片 3.0%）。烘焙前檢查依完美照片校準（#28）：對位複核 1.35%、
+         失敗 2% 圖高；臉頰 P90 ≤ 20；全身／特寫 P90 ≤ 35；五官尺寸只列 INFO。
+  1.32.0 依完美照片重新校準（完美照片 0 WARN）。第 10e 項左右置中改用鏡像對的旋轉軸對畫面中央（取代逐張
+         水平：逐張的左右邊界是指尖，手臂畫斜會被當成對準偏差）；逐張只量上下對準，≤ 15 mm 通過、> 30 mm FAIL
+         （完美照片最多 11.3 mm）。第 9b 項只報 WARN，俯角／仰角對同角度水平圖、頭部特寫對其他特寫、俯視只比頭髮
+         與皮膚（完美照片原有 11 個 WARN：看到的是不同表面）。
   1.31.0 第 10e 項逐張檢查全身 3D 對準點距畫面中央的絕對偏差。
   1.30.0 全身視角共用身體幾何中心，規格身高 1.65 m 時離地 0.825 m。
   1.29.0 亮度 FAIL 改由第 9b 項逐區判定，量測區和主環參考區至少 500 像素，中位亮差 ≥ 30 / 255。
@@ -145,17 +153,18 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 主環：相機在身高一半的高度水平拍攝。俯角環、仰角環、俯視也對準同一個身體中心。
   - 相機距離固定（第 10d 項）：全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物左右寬度相同，
     俯視圖與正面同寬。AI 模式差 ≤ 1% 通過，俯角／仰角差 > 2.5% FAIL，正上方差 > 2% FAIL。
-    頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL）。
+    頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL；8 個角度都比，側面只量頭頂下 12 cm）。
+    特寫和同角度全身圖要是同一張畫的放大：第 10h 項比耳朵位置（頭部對齊後耳朵帶位移 ≤ 3 mm，> 8 mm FAIL）。
     構圖數字與提示詞見第九節。
-  - 對準點與俯仰角（第 10e 項）：相差 180° 的兩張剪影左右對稱，由此求出旋轉軸，所有全身圖與俯視圖要在同一位置
-    25 張全身圖逐張估算 3D 身體中心的投影，水平與垂直偏差均 ≤ 10 mm 通過，AI 模式任一軸 > 25 mm 判 FAIL。
-    （AI 模式差 ≤ 5 mm 通過，俯角／仰角差 > 12 mm FAIL，其餘 > 10 mm FAIL），頭部特寫另成一組。
+  - 對準點與俯仰角（第 10e 項）：相差 180° 的兩張剪影左右對稱，由此求出旋轉軸，所有全身圖與俯視圖的旋轉軸要在
+    畫面正中央（AI 模式差 ≤ 5 mm 通過，俯角／仰角差 > 12 mm FAIL，其餘 > 10 mm FAIL），頭部特寫另成一組。
+    25 張全身圖逐張估算身體中心（離地半個身高）的上下位置，距畫面中央 ≤ 15 mm 通過，> 30 mm FAIL。
     俯角 / 仰角環的人物高度要符合 +30° / −20° 正交投影的縮短
     （換算俯仰角差 ≤ 2°，AI 模式 > 5° FAIL），對準高度在同一環內一致（差 ≤ 10 mm，AI 模式 > 25 mm FAIL）。
   - 要用長焦距（或正交投影），重建程式假設正交投影。
     本腳本第 10b 項量透視強度：斜角 4 張的兩手指尖中點要在身體中軸上（偏向近手 < 2% 半臂展，
     ≥ 4% 判 FAIL，約等於相機距離不到 14 m）；第 10 項把主環重建形狀投影到每張身體圖，
-    輸出紅藍對照圖：藍色 = 照片有、形狀沒有，要 ≤ 1%（> 2% FAIL；主環 90° / 270° 側面 ≤ 3%）；
+    輸出紅藍對照圖：藍色 = 照片有、形狀沒有，要 ≤ 1%（> 2% FAIL；主環 90° / 270° 側面 ≤ 3.5%，> 4.5% FAIL）；
     紅色 = 形狀超出照片，不設門檻（形狀由剪影雕出，凹處雕不掉，一定比真實身體大，
     完美照片也有 3–75%）。第 10c 項比較俯角 / 仰角環和同角度主環的「手寬 / 臀寬」「頭寬 / 臀寬」。
     這些寬度用畫面高度區間估算，俯仰角或姿勢改變也可能影響讀值。差 ≥ 3% 判 WARN，
@@ -174,8 +183,9 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     光源不可跟著相機轉：否則同一塊皮膚在不同角度亮度不同，烘焙後有色差接縫。
     第 6c 項粗篩畫面左右亮度差（AI 模式 > 6% 判 WARN）。第 10f 項比較共同表面的亮度
     （AI 模式下，中位數絕對差 > 3 或 P90 > 18 / 255 報 WARN）。
-    第 9b 項逐區比較 Lab L 中位數。該區及至少三張水平主環的同區均有 500 個有效像素
-    （量測影像長邊最多 768 像素）時，亮差絕對值 ≥ 30 / 255 判 FAIL。
+    第 9b 項粗篩各區 Lab L 中位數（俯角／仰角對同角度水平圖，水平主環與頭部特寫對同組其他張，
+    俯視只比頭髮與皮膚），亮差 > 18 / 255 只報 WARN。
+    第 10g 項把頭部特寫縮回全身尺度，和同角度全身圖的頭部比亮度（中位數差 > 3 / 255 報 WARN）。
   - 人物與背景顏色要有對比（白衣服配白背景會去背失敗）。
   - 不要有 AI 留下的灰白雜點（黏在身體邊緣的無色色塊，本腳本第 1b 項）。
   - 33 張圖鎖定同一組曝光、白平衡、光源方向與強度，各視角不使用自動曝光。
@@ -210,7 +220,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 相機距離固定（第 10d 項）：相機繞著人物轉，只改角度，距離和對準點不變。
     全身圖（水平、俯角 30°、仰角 20°、俯視）共享同一個正交構圖，畫面寬 1.95 m。
       將旋轉軸上、離地半個身高的身體中心放在畫面正中央。身高 1.65 m 時，中心離地 82.5 cm。
-      水平環：人物高約佔畫面高 85%，上下各留約 8%，人物左右置中。
+      水平環：人物高約佔畫面高 85%（1.65 / 1.95 = 84.6%），頭頂和腳底各留約 7.7%，人物左右置中。
       同一角度的水平、俯角、仰角圖，人物左右寬度（指尖到指尖）要相同；俯視圖和正面一樣寬。
     頭部特寫全部同一個構圖：放大為全身圖的 4 倍（畫面寬約 0.49 m），頭寬約佔畫面寬三分之一。
       對準點可自選（建議頭部中心：頭頂離上緣約 24%），但 8 張必須相同：頭頂在每張的同一高度。
@@ -239,7 +249,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.31.0'
+__version__ = '1.33.0'
 import numpy as np
 import cv2
 
@@ -337,10 +347,25 @@ def leg_runs(m, fr0=0.78, fr1=0.92):
     return np.array(counts), np.array(widths) / (b - t)
 
 
-def quick_hull(good, vs=0.01, height=1.65):
+# spec figure height (metres): every view's px-per-metre comes from the level-ring figure height divided by it, so
+# all mm readings and thresholds are in metres of this figure; the body centre (aim point) is half of it. The full-
+# body frame is BODY_FRAME / 1.65 times it wide (figure fills 1.65 / 1.95 = 84.6 % of the frame height).
+SPEC_HEIGHT = 1.65
+
+
+def set_spec_height(h):
+    global SPEC_HEIGHT, C0
+    SPEC_HEIGHT = float(h)
+    C0 = np.array([0.0, SPEC_HEIGHT / 2, 0.0])
+
+
+def quick_hull(good, vs=0.01, height=None):
     """coarse orthographic visual hull from the main ring (7-of-8 vote); returns voxel centres (N, 3).
     Scale from the figure height, rotation axis from the calf-level centre, angles from the file names."""
-    xs = np.arange(-0.95, 0.95, vs) + vs / 2; ys = np.arange(0.0, 1.72, vs) + vs / 2; zs = np.arange(-0.42, 0.42, vs) + vs / 2
+    height = SPEC_HEIGHT if height is None else height
+    k = height / 1.65                                   # the box was sized for a 1.65 m figure
+    xs = np.arange(-0.95 * k, 0.95 * k, vs) + vs / 2; ys = np.arange(0.0, 1.72 * k, vs) + vs / 2
+    zs = np.arange(-0.42 * k, 0.42 * k, vs) + vs / 2
     X, Y, Z = np.meshgrid(xs, ys, zs, indexing='ij')
     P = np.stack([X.ravel(), Y.ravel(), Z.ravel()], 1)
     votes = np.zeros(len(P), np.uint8); n = 0
@@ -448,7 +473,7 @@ def strict(level):
 # photos: 0–0.6 % blue, so > 1 % is a real inconsistency. Level-ring side views (90° / 270°) are tested against a
 # hull built without them, which cannot reproduce a profile: perfect photos give 1.8–2.9 % there.
 BLUE_PASS, BLUE_WARN = 0.01, 0.02
-BLUE_SIDE_PASS, BLUE_SIDE_WARN = 0.03, 0.04
+BLUE_SIDE_PASS, BLUE_SIDE_WARN = 0.035, 0.045   # perfect photos: 270° up to 3.0 %
 BLUE_TILTED_WARN = 0.025
 PERSP_PASS, PERSP_WARN = 0.02, 0.04      # near-hand shift of the fingertip midpoint (section 10b); perfect photos: 0–0.2 %
 
@@ -561,11 +586,14 @@ def distance_check(good, extra):
                 out[(cat, a)] = (silhouette_width(v['m']) / w0 - 1, lower_width(v['m']) / l0 - 1)
     for a, v in sorted(extra.get('head', {}).items()):
         ref = good.get(a)
-        if a in (90, 270) or ref is None or v.get('m') is None or ref.get('m') is None:
-            continue                          # side views: the arms reach into the close-up frame
+        if ref is None or v.get('m') is None or ref.get('m') is None:
+            continue
         rows = np.flatnonzero(ref['m'].any(1))
-        s = (rows[-1] - rows[0]) / 1.65        # px per metre of the level view (figure height 1.65 m)
-        w0, w1 = head_width(ref['m'], 0.18 * s), head_width(v['m'], 0.18 * s * HEAD_ZOOM)
+        s = (rows[-1] - rows[0]) / SPEC_HEIGHT  # px per metre of the level view (figure height SPEC_HEIGHT)
+        # side views: the arms point at the camera and reach into the frame near the shoulders, so only the top
+        # 12 cm (head and hair) are used there; perfect photos: −0.2 to −0.6 % at every angle
+        span = 0.12 if a in (90, 270) else 0.18
+        w0, w1 = head_width(ref['m'], span * s), head_width(v['m'], span * s * HEAD_ZOOM)
         if w0 and w1:
             out[('head', a)] = (w1 / w0 / HEAD_ZOOM - 1, None)
     return out
@@ -573,9 +601,14 @@ def distance_check(good, extra):
 
 # section 10e, the camera aims at one point and the rings have their nominal tilt.
 #   centring: orthographic views 180° apart see mirrored silhouettes, so the midpoint of their left / right edges is
-#     the column of the rotation axis, exactly, whatever the body shape. With one aim point and one framing it is the
-#     same column for every pair of every full-body ring (and the top view is centred like the front view); the head
-#     close-ups have their own column. Perfect photos: 0.0–0.5 mm.
+#     the column of the rotation axis, exactly, whatever the body shape. The spec puts the body centre Q at the image
+#     centre, so for every pair of every full-body ring (and the top view, centred like the front view) that column
+#     is compared with the image centre; the head close-ups have their own column (median of the close-ups).
+#     Perfect photos: 0–1 mm. A single view's horizontal position is not used: its left / right bounds are the
+#     fingertips, so an arm drawn slanted would read as an aim error (v1240 main ring: ±50 mm per view while the
+#     mirror pairs agree to 8 mm).
+#   absolute vertical aim: per view, the head-top / foot bounds against the main-ring hull projected at the nominal
+#     angle give the row of the body centre (half the figure height); perfect photos: up to 11.3 mm.
 #   tilt: with the view's own scale divided out (lower-body width vs the level view), the figure height of a +30° / −20° view
 #     fixes its tilt; the main-ring hull gives the height for each tilt. Side views 90° / 270° skipped (the arms
 #     point at the camera, the hull is too deep there). Perfect photos: within 0.75°.
@@ -587,8 +620,9 @@ TILT_PASS, TILT_FAIL = 2.0, 4.0                # degrees off the nominal +30° /
 TILT_AI_FAIL = 5.0
 AIMROW_PASS, AIMROW_FAIL = 0.010, 0.020        # metres off the median aim row of the ring
 AIMROW_AI_FAIL = 0.025
-BODY_CENTRE_HEIGHT = 1.65 / 2
-ABS_AIM_PASS, ABS_AIM_FAIL = 0.010, 0.025  # metres from the image centre, on either axis
+# vertical offset of the body centre from the image centre, per view; perfect photos: up to 11.3 mm (the hull and
+# the head-top / foot bounds), so the pass band is that plus a small margin
+ABS_AIM_PASS, ABS_AIM_FAIL = 0.015, 0.030
 
 
 def edge_mid(m, rows=None):
@@ -602,7 +636,7 @@ def absolute_aim_offset(hull, mask, scale, angle, elevation):
     p, t = np.radians([angle, elevation])
     right = np.array([np.cos(p), 0, -np.sin(p)])
     up = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
-    centre = np.array([0, BODY_CENTRE_HEIGHT, 0])
+    centre = np.array([0, SPEC_HEIGHT / 2, 0])
     x = (hull @ right) - (centre @ right)
     y = (hull @ up) - (centre @ up)
     top, bottom, left, right_edge = bbox(mask)
@@ -615,12 +649,13 @@ def absolute_aim_offset(hull, mask, scale, angle, elevation):
 
 def aim_check(good, extra):
     """10e. {'centre': {(cat, a): metres}, 'head_centre': {...}, 'tilt': {(cat, a): degrees},
-    'aim_row': {(cat, a): metres}, 'absolute': {(cat, a): (dx, dy) in metres}}"""
+    'aim_row': {(cat, a): metres}, 'absolute': {(cat, a): (dx, dy) in metres}}; centre is against the image centre,
+    only the dy of 'absolute' is reported (dx follows the fingertips)"""
     out = dict(centre={}, head_centre={}, tilt={}, aim_row={}, absolute={})
     if 0 not in good or good[0].get('m') is None:
         return out
     rows0 = np.flatnonzero(good[0]['m'].any(1))
-    s = (rows0[-1] - rows0[0]) / 1.65
+    s = (rows0[-1] - rows0[0]) / SPEC_HEIGHT
     rings = {'main': good, 'el30': extra.get('el30', {}), 'low20': extra.get('low20', {})}
     U = {}
     for cat, items in rings.items():
@@ -632,9 +667,9 @@ def aim_check(good, extra):
     top = next(iter(extra.get('top', {}).values()), None)
     if top is not None and top.get('m') is not None and U:
         U[('top', 0)] = edge_mid(top['m']) - edge_mid(good[0]['m']) + U.get(('main', 0), np.median(list(U.values())))
-    if len(U) >= 3:
-        med = np.median([u for k, u in U.items() if k[0] != 'top'])
-        out['centre'] = {k: (u - med) / s for k, u in U.items()}
+    if U:
+        mid = good[0]['m'].shape[1] / 2                   # spec: the body centre Q projects to the image centre
+        out['centre'] = {k: (u - mid) / s for k, u in U.items()}
     # head close-ups: the same mirror pairs on the head rows only (above the shoulders)
     heads, Uh = extra.get('head', {}), {}
     sh = s * HEAD_ZOOM
@@ -657,7 +692,7 @@ def aim_check(good, extra):
     for a, v in sorted(good.items()):
         mask = v['m']
         t, b, _, _ = bbox(mask)
-        out['absolute']['main', a] = absolute_aim_offset(hull, mask, (b - t) / 1.65, a, 0)
+        out['absolute']['main', a] = absolute_aim_offset(hull, mask, (b - t) / SPEC_HEIGHT, a, 0)
     if top is not None and top.get('m') is not None:
         out['absolute']['top', 0] = absolute_aim_offset(hull, top['m'], s, 0, 90)
     for cat in ('el30', 'low20'):
@@ -769,7 +804,7 @@ def surface_luma_check(good, extra):
     P, N = hull_surface(hull)
     cams, s0 = {}, []
     for a, v in good.items():                          # level ring: the cameras quick_hull was carved with
-        t, b, _, _ = bbox(v['m']); s_ = (b - t) / 1.65
+        t, b, _, _ = bbox(v['m']); s_ = (b - t) / SPEC_HEIGHT
         rr = int(t + 0.75 * (b - t)); xr = np.nonzero(v['m'][rr])[0]
         cams[('main', a)] = (s_, (xr.min() + xr.max()) / 2, float(b), float(a), 0.0); s0.append(s_)
     for cat in ('el30', 'low20'):
@@ -786,6 +821,127 @@ def surface_luma_check(good, extra):
             if k1 not in samp or k2 not in samp:
                 continue
             out[(k1, k2)] = compare_surface_luma(samp[k1], samp[k2])
+    return out
+
+
+# section 10g, lighting of the head close-ups: a close-up and the level full-body view at the same azimuth see the
+# same surface from the same direction, so with the zoom fixed (HEAD_ZOOM, section 10d) the close-up scaled down
+# and aligned on the head top / centre column must have the same lightness as the head of the full-body view.
+# The signed median of the difference (blurred Lab L, inside both eroded silhouettes) measures the lighting; P90 is
+# mostly hair-shape differences and is reported only. Perfect photos: |median| ≤ 0.7, P90 ≤ 6 / 255;
+# v1240 head 135°: +18.
+HEAD_LUMA_PASS = 3.0
+
+
+def head_luma_check(good, heads, span=0.18):
+    """10g. {angle: (median, p90, samples)} close-up minus full-body head lightness"""
+    out = {}
+    if 0 not in good or good[0].get('m') is None:
+        return out
+    r0 = np.flatnonzero(good[0]['m'].any(1))
+    s = (r0[-1] - r0[0]) / SPEC_HEIGHT
+    hpx = int(span * s)
+
+    def lightness(im):
+        return cv2.cvtColor(im, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
+    k = np.ones((5, 5), np.uint8)
+    for a, v in sorted(heads.items()):
+        ref = good.get(a)
+        if ref is None or ref.get('m') is None or v.get('m') is None:
+            continue
+        mf, mc = ref['m'], v['m']
+        rf, rc = np.flatnonzero(mf.any(1)), np.flatnonzero(mc.any(1))
+        if not rf.size or not rc.size:
+            continue
+        cm = mc[rc[0]:rc[0] + int(hpx * HEAD_ZOOM)]
+        ci = lightness(v['im'])[rc[0]:rc[0] + int(hpx * HEAD_ZOOM)]
+        small_i = cv2.resize(ci, None, fx=1 / HEAD_ZOOM, fy=1 / HEAD_ZOOM, interpolation=cv2.INTER_AREA)
+        small_m = cv2.resize(cm.astype(np.uint8), None, fx=1 / HEAD_ZOOM, fy=1 / HEAD_ZOOM,
+                             interpolation=cv2.INTER_AREA) > 0
+        fm, fi = mf[rf[0]:rf[0] + hpx], lightness(ref['im'])[rf[0]:rf[0] + hpx]
+        h, W = min(fm.shape[0], small_m.shape[0]), fm.shape[1]
+        off = int(round(edge_mid(fm) - edge_mid(cm) / HEAD_ZOOM))
+        A, B = np.zeros((h, W), bool), np.zeros((h, W), np.float32)
+        xs = np.arange(small_m.shape[1]) + off; ok = (xs >= 0) & (xs < W)
+        A[:, xs[ok]] = small_m[:h, ok]; B[:, xs[ok]] = small_i[:h, ok]
+        inner = (cv2.erode(A.astype(np.uint8), k) > 0) & (cv2.erode(fm[:h].astype(np.uint8), k) > 0)
+        if inner.sum() < SURF_MIN_SAMPLES:
+            out[a] = (None, None, int(inner.sum()))
+            continue
+        d = (cv2.GaussianBlur(B, (0, 0), 2) - cv2.GaussianBlur(fi[:h], (0, 0), 2))[inner]
+        out[a] = (float(np.median(d)), float(np.percentile(np.abs(d), 90)), int(inner.sum()))
+    return out
+
+
+# section 10h, ears (#25, #17): the close-up and the level full-body view at the same azimuth see the ear from the
+# same direction, so after scaling the close-up down by HEAD_ZOOM the image structure (blurred gradient magnitude)
+# must line up. The best shift is searched for the whole head and for the ear band (6–14 cm below the head top);
+# the ear's shift relative to the head's is where the close-up draws the ear compared with the full-body view.
+# 0° / 180° are skipped (no ear in profile). Perfect photos: 0 mm, gradient correlation 0.99; v1220 / v1240: 1–6 mm.
+EAR_PASS, EAR_FAIL = 0.003, 0.008             # metres
+EAR_VIEWS = (45, 90, 135, 225, 270, 315)
+
+
+def ear_check(good, heads, search=20):
+    """10h. {angle: (ear offset m, head shift (dx, dy) m, correlation)}"""
+    out = {}
+    if 0 not in good or good[0].get('m') is None:
+        return out
+    r0 = np.flatnonzero(good[0]['m'].any(1))
+    s = (r0[-1] - r0[0]) / SPEC_HEIGHT
+    h, W, pad = int(0.22 * s), int(0.30 * s), search
+
+    def lightness(im):
+        return cv2.cvtColor(im, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
+
+    def grad(I):
+        I = cv2.GaussianBlur(I, (0, 0), 1.0)
+        return np.hypot(cv2.Sobel(I, cv2.CV_32F, 1, 0), cv2.Sobel(I, cv2.CV_32F, 0, 1))
+
+    def crop(L, m, zoom):
+        r = np.flatnonzero(m.any(1))
+        if not r.size:
+            return None
+        y0 = max(0, r[0] - int(pad * zoom))
+        L, m = L[y0:r[0] + int(h * zoom)], m[y0:r[0] + int(h * zoom)]
+        if zoom != 1:
+            L = cv2.resize(L, None, fx=1 / zoom, fy=1 / zoom, interpolation=cv2.INTER_AREA)
+            m = cv2.resize(m.astype(np.uint8), None, fx=1 / zoom, fy=1 / zoom, interpolation=cv2.INTER_AREA) > 0
+        top = r[0] / zoom - y0 / zoom
+        c = np.flatnonzero(m[int(top):int(top + 0.12 * s)].any(0))
+        if not c.size:
+            return None
+        x0 = int((c[0] + c[-1]) / 2 - W / 2 - pad)
+        if x0 < 0 or x0 + W + 2 * pad > L.shape[1]:
+            return None
+        return grad(L[:, x0:x0 + W + 2 * pad])
+
+    for a in EAR_VIEWS:
+        ref, v = good.get(a), heads.get(a)
+        if ref is None or v is None or ref.get('m') is None or v.get('m') is None:
+            continue
+        F, C = crop(lightness(ref['im']), ref['m'], 1), crop(lightness(v['im']), v['m'], HEAD_ZOOM)
+        if F is None or C is None:
+            continue
+        n = min(len(F), len(C)) - 2 * pad
+        if n < 0.15 * s:
+            continue
+
+        def best(r0_, r1_):
+            a_ = F[pad + r0_:pad + r1_, pad:-pad]
+            top = (-2.0, 0, 0)
+            for dy in range(-pad, pad + 1):
+                for dx in range(-pad, pad + 1):
+                    b_ = C[pad + r0_ - dy:pad + r1_ - dy, pad - dx:C.shape[1] - pad - dx]
+                    if b_.shape != a_.shape:
+                        continue
+                    ncc = float((a_ * b_).sum() / (np.sqrt((a_ * a_).sum() * (b_ * b_).sum()) + 1e-6))
+                    if ncc > top[0]:
+                        top = (ncc, dx, dy)
+            return top
+        _, hx, hy = best(0, n)
+        ncc, ex, ey = best(int(0.06 * s) + pad, min(n, int(0.14 * s) + pad))
+        out[a] = (float(np.hypot(ex - hx, ey - hy) / s), (hx / s, hy / s), ncc)
     return out
 
 
@@ -1048,10 +1204,14 @@ REGION_LIGHTNESS = {
     'hair': ('頭髮', (55, 170, 240)),
     'skin': ('身體皮膚', (90, 225, 80)),
 }
-REGION_LUMA_LIMIT = 18.0  # 8-bit OpenCV Lab L channel
-REGION_LUMA_FAIL = 30.0
-REGION_LUMA_FAIL_PIXELS = 500  # after scaling the image to at most 768 pixels on the long edge
+REGION_LUMA_LIMIT = 18.0  # 8-bit OpenCV Lab L channel; coarse screen, WARN only (10f checks the same surface)
+REGION_LUMA_RELIABLE_PIXELS = 500  # after scaling the image to at most 768 pixels on the long edge
 REGION_LUMA_REFERENCE_VIEWS = 3
+# The same region seen from another direction is a different surface (a close-up shows only the collar, the top
+# view the shoulder tops, the front hair includes the hairline), so like is compared with like: a +30° / −20° view
+# with the level view at the same azimuth, a level view or close-up with the median of the other views of its
+# group; the single top view compares only its hair and skin with the level ring.
+REGION_TOP_VIEW = ('hair', 'skin')
 
 
 def photo_region_lightness(im, mask, category):
@@ -1120,9 +1280,8 @@ def report_region_lightness(views, extra, output_dir=None):
             overlay[labels == 0] = picture[labels == 0]
             cv2.imwrite(str(output_dir / (Path(photo['name']).stem + '_regions.png')), overlay)
     rows = []
-    print(f'\n9b. 分區亮度（各區域 Lab L 中位數，相對水平主環，亮差 > {REGION_LUMA_LIMIT:g}/255 報 WARN；'
-          f'該區和至少 {REGION_LUMA_REFERENCE_VIEWS} 張主環同區各有 {REGION_LUMA_FAIL_PIXELS} 個有效像素，'
-          f'亮差 ≥ {REGION_LUMA_FAIL:g}/255 判 FAIL）')
+    print(f'\n9b. 分區亮度粗篩（各區域 Lab L 中位數，俯角／仰角對同角度水平圖，水平主環與頭部特寫對同組其他張，俯視圖只比頭髮和皮膚。'
+          f'亮差 > {REGION_LUMA_LIMIT:g}/255 報 WARN，只供複核，同一表面的亮度由第 10f 項驗收）')
     for cat, angle, photo in photos:
         name = photo['name']
         stats = samples[cat, angle]
@@ -1130,25 +1289,29 @@ def report_region_lightness(views, extra, output_dir=None):
         levels = []
         for region, (label, _) in REGION_LIGHTNESS.items():
             lightness, count = stats.get(region, (None, 0))
-            reference = [v[region] for (ring, a), v in samples.items()
-                         if ring == 'main' and (cat != 'main' or a != angle) and region in v]
-            large_reference = [value for value, pixels in reference if pixels >= REGION_LUMA_FAIL_PIXELS]
-            reliable_reference = len(large_reference) >= REGION_LUMA_REFERENCE_VIEWS
+            if cat in ('el30', 'low20'):          # the level view at the same azimuth sees nearly the same surface
+                reference, needed = ([samples['main', angle][region]]
+                                     if region in samples.get(('main', angle), {}) else []), 1
+            else:                                 # level ring / close-ups: the other views of the same group
+                ring_ref = 'main' if cat == 'top' else cat
+                reference = [v[region] for (ring, a), v in samples.items()
+                             if ring == ring_ref and (ring, a) != (cat, angle) and region in v]
+                needed = REGION_LUMA_REFERENCE_VIEWS
+            if cat == 'top' and region not in REGION_TOP_VIEW:
+                reference = []
+            large_reference = [value for value, pixels in reference if pixels >= REGION_LUMA_RELIABLE_PIXELS]
+            reliable_reference = len(large_reference) >= needed
             reference_values = large_reference if reliable_reference else [value for value, _ in reference]
-            ref = float(np.median(reference_values)) if len(reference_values) >= REGION_LUMA_REFERENCE_VIEWS else None
+            ref = float(np.median(reference_values)) if len(reference_values) >= needed else None
             delta = None if lightness is None or ref is None else lightness - ref
             if lightness is None:
                 level = 'NOT_MEASURED'
                 details.append(f'{label}未量測')
             elif delta is None:
                 level = 'NO_REFERENCE'
-                details.append(f'{label} L={lightness:.1f}（主環參考不足）')
+                details.append(f'{label} L={lightness:.1f}（不比較：同環參考不足或看到的是不同表面）')
             else:
-                can_fail = count >= REGION_LUMA_FAIL_PIXELS and reliable_reference
-                if can_fail and abs(delta) >= REGION_LUMA_FAIL:
-                    level = FAIL
-                else:
-                    level = WARN if abs(delta) > REGION_LUMA_LIMIT else PASS
+                level = WARN if abs(delta) > REGION_LUMA_LIMIT else PASS
                 levels.append(level)
                 evidence = '' if level == PASS else f'，{count} px、{len(large_reference)} 張足量參考'
                 details.append(f'{label} L={lightness:.1f}（差 {delta:+.1f}/255，{level}{evidence}）')
@@ -1179,7 +1342,7 @@ def hand_row_fraction(m):
 
 
 # ---------------------------------------------------------------- head overlap
-C0 = np.array([0.0, 0.85, 0.0])
+C0 = np.array([0.0, SPEC_HEIGHT / 2, 0.0])          # body centre; set again by main() from --height
 
 
 def camera_axes(phi, th):
@@ -1230,7 +1393,10 @@ MIN_SAMPLES = 60
 # section 10f measures lighting directly.
 EXPOSURE_MAX_DIFF = 0.07
 PHOTO_CHEEK_MAX_DIFF = 12.0
-PROJECTED_LUMA_PASS = 12.0
+# lightness P90 through the reconstructed head (#28, perfect photos): cheeks 13–16, full-body head vs close-up 20–30
+# (mostly hair edges and mesh error, not light); lighting itself is measured on the photos (10f / 10g)
+PROJECTED_LUMA_PASS = 20.0
+BODY_HEAD_LUMA_PASS = 35.0
 
 
 def projected_samples(points, normals, cam, image, mask):
@@ -1284,8 +1450,10 @@ FEATURE_POINTS = (
     ('鼻部', (1, 2, 4, 98, 327)),
     ('嘴部', (61, 291, 13, 14, 17, 0)),
 )
-ALIGNMENT_REVIEW_FRACTION = 0.01
-ALIGNMENT_FAIL_FRACTION = 0.015
+# landmark offsets between views, fraction of the 2048 px frame; calibrated on perfect photos reconstructed with the
+# spec angles (#28): up to 23.6 px (1.15 %), so pass ≤ 1.35 % (27.6 px), FAIL > 2 % (41 px)
+ALIGNMENT_REVIEW_FRACTION = 0.0135
+ALIGNMENT_FAIL_FRACTION = 0.02
 ALIGNMENT_FAIL_MIN_POINTS = 3
 
 # Tuple endpoints use the mean image position of the specified landmarks.
@@ -1405,6 +1573,9 @@ def group_landmark_samples(samples):
 
 
 def dimension_status(label, difference, fraction, calibrated):
+    # Feature sizes read by MediaPipe on 3/4 close-ups against the reconstructed face differ by up to 29 % on perfect
+    # photos (#28): MediaPipe's 3/4 bias and the silhouette-built face, not the photos. Reported for diagnosis only.
+    return 'INFO'
     if (calibrated and label in CRITICAL_DIMENSIONS
             and abs(difference) > DIMENSION_FAIL_MIN_PX
             and abs(fraction) > DIMENSION_FAIL_FRACTION):
@@ -1985,7 +2156,7 @@ def compare_body_head_pair(folder, work, body, head, cameras, vertices, faces):
     p90 = float(np.percentile(delta[shared], 90)) if shared.sum() >= MIN_SAMPLES else None
     if coverage < BODY_HEAD_MIN_OVERLAP:
         status = FAIL
-    elif coverage < BODY_HEAD_REVIEW_OVERLAP or p90 is None or p90 > PROJECTED_LUMA_PASS:
+    elif coverage < BODY_HEAD_REVIEW_OVERLAP or p90 is None or p90 > BODY_HEAD_LUMA_PASS:
         status = WARN
     else:
         status = PASS
@@ -2399,6 +2570,8 @@ def main():
     ap.add_argument('--version', action='version', version=f'check_turnaround {__version__}')
     ap.add_argument('folder')
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
+    ap.add_argument('--height', type=float, default=SPEC_HEIGHT,
+                    help=f'人物規格身高（公尺，預設 {SPEC_HEIGHT:g}）。尺度與所有 mm 門檻、身體中心（半個身高）都以此換算')
     ap.add_argument('--out', default='turnaround_report.png')
     ap.add_argument('--min-height', type=int, default=2000)
     ap.add_argument('--mode', choices=['ai', 'photo'], default='ai',
@@ -2410,6 +2583,7 @@ def main():
     ap.add_argument('--camera-check', action='store_true',
                     help='供相機校準使用：若無 FAIL 但第 11 項未全數通過，回傳 3')
     args = ap.parse_args()
+    set_spec_height(args.height)
     if args.view_overlay_dir and not args.head_overlap_work:
         ap.error('--view-overlay-dir 需要 --head-overlap-work')
     MODE['ai'] = args.mode == 'ai'
@@ -2891,7 +3065,7 @@ def main():
             msg = (f"指尖中點偏向近手 {100 * p_:.1f}% 半臂展（應 < {100 * PERSP_PASS:.0f}%；"
                    + '、'.join(f'{a}° {100 * x:+.0f}%' for a, x in sorted(vals_.items())) + '）')
             if lvl != PASS:
-                msg += f"；估計相機距離約 {dist_:.0f} 倍半臂展（約 {dist_ * 0.78:.1f} m，以身高 1.65 m 計）"
+                msg += f"；估計相機距離約 {dist_:.0f} 倍半臂展（約 {dist_ * 0.78 * SPEC_HEIGHT / 1.65:.1f} m，以身高 {SPEC_HEIGHT:g} m 計）"
             if lvl != PASS:
                 msg += (' → 照片是透視投影（相機太近），重建程式假設正交投影：手臂長度、方向在不同角度會不一致'
                         '（第 10 項藍色多在手上）。提示詞加 orthographic projection / 200mm telephoto / camera far away')
@@ -2957,11 +3131,12 @@ def main():
                 ai_fail = CENTRE_TILTED_FAIL if cat in ('el30', 'low20') else CENTRE_FAIL
                 lvl, p_, f_ = lvl3(dv, CENTRE_PASS, CENTRE_FAIL, ai_fail)
                 where = f'{name[cat]} 俯視 vs 正面' if cat == 'top' else f'{name[cat]} {a}° / {a + 180}°'
-                msg = (f'旋轉軸偏離共同位置 {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:g} mm，'
+                ref_ = '本組共同位置' if key == 'head_centre' else '畫面中央'
+                msg = (f'旋轉軸偏離{ref_} {1000 * dv:+.0f} mm（應 ≤ {1000 * p_:g} mm，'
                        f'偏差絕對值 > {1000 * f_:g} mm 判 FAIL）')
                 if lvl != PASS:
-                    msg += (' → 相機沒有對準同一個中心：這一對照片的人物左右位置不一致（常見：手臂斜、構圖跟著人物外框置中），'
-                            '重新生成，人物身體中心固定在畫面同一位置')
+                    msg += (' → 相機沒有對準身體中心：這一對照片的旋轉軸不在' + ('同組其他張的位置' if key == 'head_centre' else '畫面正中央')
+                            + '（常見：手臂斜、構圖跟著人物外框置中），重新生成，旋轉軸（身體中心）固定在畫面正中央')
                 report(lvl, f'{where} 置中', msg)
         for (cat, a), (dv, ratio, expect) in aim['tilt'].items():
             lvl, p_, f_ = lvl3(dv, TILT_PASS, TILT_FAIL, TILT_AI_FAIL)
@@ -2981,11 +3156,16 @@ def main():
             if lvl != PASS:
                 msg += ' → 這張相機對準的高度和同環其他張不同，重新生成，人物在畫面中的上下位置和同環其他張一致'
             report(lvl, f'{cat} {a}° 對準高度', msg)
-        for (cat, a), (dx, dy) in aim['absolute'].items():
-            lvl, p_, f_ = lvl3(max(abs(dx), abs(dy)), ABS_AIM_PASS, ABS_AIM_FAIL)
-            msg = (f'身體中心相對畫面正中央：水平 {1000 * dx:+.1f} mm、垂直 {1000 * dy:+.1f} mm'
-                   f'（向右、向下為正；兩軸均 ≤ {1000 * p_:g} mm 通過，任一軸絕對值 > {1000 * f_:g} mm 判 FAIL）')
-            report(lvl, f'{name[cat]} {a}° 絕對對準', msg)
+        # vertical only: the horizontal position is the mirror-pair axis above (exact); a single view's left /
+        # right bounds are the fingertips, so arm drawing errors would read as aim errors there
+        for (cat, a), (_, dy) in aim['absolute'].items():
+            lvl, p_, f_ = lvl3(dy, ABS_AIM_PASS, ABS_AIM_FAIL)
+            msg = (f'身體中心（離地半個身高）相對畫面正中央：垂直 {1000 * dy:+.1f} mm（向下為正；'
+                   f'應 ≤ {1000 * p_:g} mm，偏差絕對值 > {1000 * f_:g} mm 判 FAIL）')
+            if lvl != PASS:
+                msg += (' → 人物在畫面中整體偏' + ('低' if dy > 0 else '高') + '：相機沒有對準離地半個身高的身體中心，'
+                        '重新生成，頭頂和腳底到畫面上下緣的距離相同')
+            report(lvl, f'{name[cat]} {a}° 上下對準', msg)
 
     # ---- 10f. lighting fixed to the person: same surface, same brightness in every view
     surf = surface_luma_check(good, extra) if args.pose == 'tpose' and len(good) >= 6 else {}
@@ -3011,6 +3191,38 @@ def main():
                                    f'（{interior_n} 點）。')
                 msg += f' → {direction}{edge_review}請先確認回投對位，再檢查光線和曝光。'
             report(lvl, label, msg)
+
+    # ---- 10g. lighting of the head close-ups against the full-body view at the same angle
+    hl = head_luma_check(good, extra.get('head', {})) if extra.get('head') else {}
+    if hl:
+        print('\n10g. 頭部特寫亮度（特寫縮回全身尺度，和同角度全身圖的頭部比亮度：同一表面、同一方向，光線一致就一樣亮）')
+        for a, (med, p90, n) in hl.items():
+            label = f'head {a}° 特寫亮度'
+            if med is None:
+                report(WARN, label, f'未量測：特寫與全身圖頭部重疊僅 {n} 點，至少需 {SURF_MIN_SAMPLES} 點，請先看第 10d / 10e 項')
+                continue
+            mp_ = T(HEAD_LUMA_PASS, 5.0)
+            lvl = WARN if abs(med) > mp_ else PASS
+            msg = (f'特寫減全身圖頭部亮度：中位數 {med:+.1f} / 255（P90 {p90:.0f}，多為髮型輪廓差，只供參考；{n} 點；'
+                   f'中位數絕對值 ≤ {mp_:g}，超標報 WARN）')
+            if lvl != PASS:
+                msg += (' → 特寫比全身圖' + ('亮' if med > 0 else '暗') + '：特寫的光線或曝光和全身圖不同，'
+                        '烘焙時臉部和脖子會有色差。重新生成，光線固定在人身上、各張曝光相同')
+            report(lvl, label, msg)
+
+    # ---- 10h. ears: close-up against the full-body view at the same angle
+    ears = ear_check(good, extra.get('head', {})) if extra.get('head') else {}
+    if ears:
+        print('\n10h. 耳朵位置（特寫縮回全身尺度，和同角度全身圖比對：頭部對齊後，耳朵帶（頭頂下 6–14 cm）的位置要一致）')
+        for a, (d, (hx, hy), ncc) in ears.items():
+            ep, ef = T(EAR_PASS, 0.006), T(EAR_FAIL, 0.015)
+            lvl = PASS if d <= ep else WARN if d <= ef else FAIL
+            msg = (f'耳朵相對頭部偏移 {1000 * d:.1f} mm（應 ≤ {1000 * ep:g} mm，> {1000 * ef:g} mm 判 FAIL；'
+                   f'頭部整體位移 {1000 * hx:+.0f} / {1000 * hy:+.0f} mm，耳朵帶結構相關 {ncc:.2f}，完美照片 0.99）')
+            if lvl != PASS:
+                msg += (' → 特寫裡的耳朵位置和全身圖不同：烘焙時兩張疊在一起會有耳朵重影（#17）。'
+                        '重新生成這張特寫，耳朵的高度與前後位置和同角度全身圖一致')
+            report(lvl, f'head {a}° 耳朵位置', msg)
 
     # ---- 11. face consistency of the head close-ups
     face_results = []
