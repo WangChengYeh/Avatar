@@ -289,6 +289,30 @@ def report(level, item, msg):
     print(f'  [{level}] {item}: {msg}')
 
 
+def summary_line(nf, nw, np_, label='總結'):
+    """the one summary format every gate prints (run_all collects it into its table)"""
+    return f'{label}: {nf} 個 FAIL, {nw} 個 WARN, {np_} 個 PASS，共 {nf + nw + np_} 項'
+
+
+class TagCounter:
+    """counts the [PASS] / [WARN] / [FAIL] lines written to stdout (the pre-bake check prints them directly)"""
+    def __init__(self, out):
+        self.out, self.n, self.buf = out, {PASS: 0, WARN: 0, FAIL: 0}, ''
+
+    def write(self, s):
+        self.buf += s
+        *lines, self.buf = self.buf.split('\n')
+        for l in lines:
+            t = l.strip()
+            for k in self.n:
+                if t.startswith(f'[{k}]'):
+                    self.n[k] += 1
+        return self.out.write(s)
+
+    def flush(self):
+        self.out.flush()
+
+
 # ---------------------------------------------------------------- segmentation
 def segment(im):
     """foreground mask against a light, near-uniform background (per-row border model)"""
@@ -2712,7 +2736,7 @@ def finish(out=None):
     failures = sum(r[0] == FAIL for r in results)
     warnings = sum(r[0] == WARN for r in results)
     passes = sum(r[0] == PASS for r in results)
-    print(f'\n照片初篩總結: {failures} 個 FAIL, {warnings} 個 WARN, {passes} 個 PASS' +
+    print('\n' + summary_line(failures, warnings, passes, '照片初篩總結') +
           (f'   報告圖: {out}' if out else ''))
     if failures:
         print('有 FAIL：請先修正列出的問題再重建。')
@@ -2745,12 +2769,16 @@ def main():
     print(f'check_turnaround 版本 {__version__}（照片須先經 AI 修正，一套門檻：完美照片 + 小餘裕）')
     if args.head_overlap_work:
         overlay_kpis = {} if args.view_overlay_dir else None
+        tally = sys.stdout = TagCounter(sys.stdout)
         status = report_head_overlap(args.folder, args.head_overlap_work, overlay_kpis, args.view_overlay_dir)
         if args.view_overlay_dir:
             try:
                 report_view_overlays(args.folder, args.head_overlap_work, args.view_overlay_dir, overlay_kpis)
             except (OSError, KeyError, ValueError) as error:
                 print(f'[WARN] 正背面回投疊圖：{error}')
+        sys.stdout = tally.out
+        n = tally.n
+        print('\n' + summary_line(n[FAIL], n[WARN], n[PASS], '烘焙前檢查總結'))
         sys.exit(status)
 
     views, extra = load_photos(args.folder, args.out)
