@@ -22,7 +22,7 @@
 
 | 組別 | 相機 | 構圖（2048 × 2048） |
 | --- | --- | --- |
-| 水平、俯角 30°、仰角 20°、俯視 | 對準肚臍高度的身體中心，距離全部相同 | 畫面寬 1.95 m。水平環人物高約佔 85%，頭頂離上緣約 9%，腳底離下緣約 7%，左右置中。同角度的三個環人物左右寬度相同，俯視圖與正面同寬 |
+| 水平、俯角 30°、仰角 20°、俯視 | 對準身體中心（身高一半，約胯部高度），距離全部相同 | 畫面寬 1.95 m。水平環人物高約佔 85%，頭頂離上緣約 9%，腳底離下緣約 7%，左右置中。同角度的三個環人物左右寬度相同，俯視圖與正面同寬 |
 | 光線（全部 33 張） | 光線固定在人身上，不跟著相機轉 | 全方位均勻柔光，沒有方向性明暗、硬陰影與高光，盡量接近皮膚／衣服本身的顏色；曝光與白平衡固定。同一塊皮膚從任何角度看一樣亮 |
 | 頭部特寫 | 對準點可自選（建議頭部中心），8 張相同；距離全部相同 | 全身圖的 4 倍放大，畫面寬約 0.49 m，頭寬約佔三分之一。頭頂在每張的同一高度（對準頭部中心時離上緣約 24%） |
 
@@ -38,7 +38,7 @@ no hard shadows or highlights
 
 ```text
 same camera distance and framing in every full-body view, only the camera angle changes,
-camera aimed at the navel, full figure centred, about 85 % of the image height,
+camera aimed at the middle of the body (half the height), full figure centred, about 85 % of the image height,
 orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion
 ```
 
@@ -91,7 +91,7 @@ python body3d/run_all.py ./photos ./output --only uv
 
 ## 烘焙前驗收與疊圖 KPI
 
-完整流程在烘焙之前用已校準的相機和網格比對 0°、45°、315° 的臉部特寫。可單獨重跑並輸出疊圖：
+完整流程在烘焙之前用已校準的相機和網格比對 0°、45°、315° 的臉部特寫，並比對 8 個角度的全身照與同角度頭部特寫（全身／頭部一致性）。後者的門檻尚未以完美照片校準，完美照片也會 FAIL，需加 `--force`（#28）。可單獨重跑並輸出疊圖：
 
 ```sh
 python body3d/check_turnaround.py ./photos \

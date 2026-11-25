@@ -67,7 +67,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
 ======================================================================
 
 一、需要哪些圖（一次補齊；全部用 AI 生成，所以全部都是必要）
-  A. 主環 8 張【必要】相機水平、在肚臍高度，人轉 8 個角度
+  A. 主環 8 張【必要】相機水平、對準身體中心（身高一半），人轉 8 個角度
        000deg 正面      045deg 左前      090deg 左側（純側面）  135deg 左後
        180deg 背面      225deg 右後      270deg 右側（純側面）  315deg 右前
      → 決定身體、腿、頭的輪廓與大部分貼圖。
@@ -132,7 +132,8 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 不要配件晃動（長耳環、飄動的頭髮、披巾）。
 
 五、相機與構圖（本腳本第 2 項會檢查）
-  - 主環：相機高度固定在肚臍附近，水平拍攝（俯角環、仰角、俯視依各自規定）。
+  - 主環：相機水平，對準身體中心（身高一半，約胯部高度），人物上下置中（俯角環、仰角、俯視依各自規定，
+    也都對準同一個身體中心）。
   - 相機距離固定（第 10d 項）：全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物左右寬度相同，
     俯視圖與正面同寬（差 ≤ 1%，> 2% FAIL）；頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL）。
     構圖數字與提示詞見第九節。
@@ -188,19 +189,19 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
   - 33 張要是「同一個角色」：用同一張參考圖 / 角色設定 / 固定種子（seed），
     每張只改相機位置，不要每張重新描述人物（會造成臉、身材、髮髻位置不一致）。
   - 在提示詞寫明相機位置，例如
-      "camera at navel height, horizontal, orbiting 45 degrees to her left"
+      "camera level with the middle of her body, orbiting 45 degrees to her left"
       "camera directly overhead, looking straight down"
       "camera raised, tilted down 30 degrees"     "camera at knee height, tilted up 20 degrees"
     生成後一律用本腳本檢查：AI 常把 45° 畫成 15–20°、把 90° 畫成 60–75°（第 4、5 項）。
   - 相機距離固定（第 10d 項）：相機繞著人物轉，只改角度，距離和對準點不變。
-    全身圖（水平、俯角 30°、仰角 20°、俯視）全部同一個構圖：畫面寬 1.95 m，對準肚臍高度的身體中心。
+    全身圖（水平、俯角 30°、仰角 20°、俯視）全部同一個構圖：畫面寬 1.95 m，對準身體中心（身高一半，約胯部高度）。
       水平環：人物高約佔畫面高 85%，頭頂離上緣約 9%，腳底離下緣約 7%，人物左右置中。
       同一角度的水平、俯角、仰角圖，人物左右寬度（指尖到指尖）要相同；俯視圖和正面一樣寬。
     頭部特寫全部同一個構圖：放大為全身圖的 4 倍（畫面寬約 0.49 m），頭寬約佔畫面寬三分之一。
       對準點可自選（建議頭部中心：頭頂離上緣約 24%），但 8 張必須相同：頭頂在每張的同一高度。
     全身圖每張加上：
       same camera distance and framing in every full-body view, only the camera angle changes,
-      camera aimed at the navel, full figure centred, about 85 % of the image height
+      camera aimed at the middle of the body (half the height), full figure centred, about 85 % of the image height
     頭部特寫每張加上：
       head close-up at 4x the full-body zoom, same camera distance in every close-up, camera aimed at the
       centre of the head, head width about one third of the image width, head top at the same height in
