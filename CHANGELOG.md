@@ -4,6 +4,15 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 照片檢查器 1.38.0 · 只有一套門檻
+
+照片一律要先經 AI 修正才能進來，所以不再分 `--mode ai` / `--mode photo`。
+
+- 刪除 `--mode` 參數、`MODE` / `T()` / `strict()`：所有門檻固定為原 ai 模式的值（完美照片 + 小餘裕），翻轉複製、光線翻轉、解析度、地面陰影、腳間距等一律判 FAIL。
+- 只有 ai 模式用到的常數併回主常數：`TILT_FAIL = 4°`、`AIMROW_FAIL = 25 mm`。
+- 測試：`test_flipped_copy_fails`、`test_face_report_fail_threshold` 不再測 photo 模式；`test_ring_width_ratios` 刪除 photo 模式那段。
+- 文件刪除 photo 模式的門檻，並更新到 1.34–1.37 的現行數值（第 10c、10d、10e、11 項）。
+
 ## body3d 2.8.0 · MakeHuman 模板（選用）
 
 - `run_all.py --template makehuman`：從第 11 步起把 MakeHuman 人體擬合到外殼，換成乾淨的四邊形拓樸、Mixamo 骨架（52 根骨頭，含手指）與 MakeHuman 權重。新步驟 `mh33.py`、`mh_prep.py`、`mh_fit.py`、`mh_build.py`、`mh_export.py`、`mh_common.py`；需要 Blender 的 MPFB 擴充。

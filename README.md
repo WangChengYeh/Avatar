@@ -33,7 +33,7 @@ Blender 可從 PATH、Homebrew 或系統應用程式目錄尋找。也可用 `--
 ## 常用指令
 
 ```sh
-# 檢查照片（預設為 AI 模式）
+# 檢查照片（照片須先經 AI 修正；只有一套門檻）
 python body3d/check_turnaround.py ./photos --out turnaround_report.png
 
 # 驗證無光照 GLB，另存頭部渲染供複核
