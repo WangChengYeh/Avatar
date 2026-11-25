@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.30.0（2026-11-25）
+版本 1.31.0（2026-11-25）
 
 版本紀錄:
+  1.31.0 第 10e 項逐張檢查全身 3D 對準點距畫面中央的絕對偏差。
   1.30.0 全身視角共用身體幾何中心，規格身高 1.65 m 時離地 0.825 m。
   1.29.0 亮度 FAIL 改由第 9b 項逐區判定，量測區和主環參考區至少 500 像素，中位亮差 ≥ 30 / 255。
   1.28.0 第 10f 項在共同可見表面及其低反差區均有同方向的中位亮差 ≥ 12 / 255 時判 FAIL。
@@ -147,6 +148,7 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL）。
     構圖數字與提示詞見第九節。
   - 對準點與俯仰角（第 10e 項）：相差 180° 的兩張剪影左右對稱，由此求出旋轉軸，所有全身圖與俯視圖要在同一位置
+    25 張全身圖逐張估算 3D 身體中心的投影，水平與垂直偏差均 ≤ 10 mm 通過，AI 模式任一軸 > 25 mm 判 FAIL。
     （AI 模式差 ≤ 5 mm 通過，俯角／仰角差 > 12 mm FAIL，其餘 > 10 mm FAIL），頭部特寫另成一組。
     俯角 / 仰角環的人物高度要符合 +30° / −20° 正交投影的縮短
     （換算俯仰角差 ≤ 2°，AI 模式 > 5° FAIL），對準高度在同一環內一致（差 ≤ 10 mm，AI 模式 > 25 mm FAIL）。
@@ -237,7 +239,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.30.0'
+__version__ = '1.31.0'
 import numpy as np
 import cv2
 
@@ -585,6 +587,8 @@ TILT_PASS, TILT_FAIL = 2.0, 4.0                # degrees off the nominal +30° /
 TILT_AI_FAIL = 5.0
 AIMROW_PASS, AIMROW_FAIL = 0.010, 0.020        # metres off the median aim row of the ring
 AIMROW_AI_FAIL = 0.025
+BODY_CENTRE_HEIGHT = 1.65 / 2
+ABS_AIM_PASS, ABS_AIM_FAIL = 0.010, 0.025  # metres from the image centre, on either axis
 
 
 def edge_mid(m, rows=None):
@@ -593,10 +597,26 @@ def edge_mid(m, rows=None):
     return (cols[0] + cols[-1]) / 2 if cols.size else None
 
 
+def absolute_aim_offset(hull, mask, scale, angle, elevation):
+    """Recover the image position of the body centre from projected silhouette bounds."""
+    p, t = np.radians([angle, elevation])
+    right = np.array([np.cos(p), 0, -np.sin(p)])
+    up = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
+    centre = np.array([0, BODY_CENTRE_HEIGHT, 0])
+    x = (hull @ right) - (centre @ right)
+    y = (hull @ up) - (centre @ up)
+    top, bottom, left, right_edge = bbox(mask)
+    height, width = mask.shape
+    # Use both edges: the centre of the projected bounds can differ from the projected 3D centre.
+    dx = ((left + right_edge - width) / 2) / scale - (x.min() + x.max()) / 2
+    dy = ((top + bottom - height) / 2) / scale + (y.min() + y.max()) / 2
+    return float(dx), float(dy)
+
+
 def aim_check(good, extra):
     """10e. {'centre': {(cat, a): metres}, 'head_centre': {...}, 'tilt': {(cat, a): degrees},
-    'aim_row': {(cat, a): metres}}"""
-    out = dict(centre={}, head_centre={}, tilt={}, aim_row={})
+    'aim_row': {(cat, a): metres}, 'absolute': {(cat, a): (dx, dy) in metres}}"""
+    out = dict(centre={}, head_centre={}, tilt={}, aim_row={}, absolute={})
     if 0 not in good or good[0].get('m') is None:
         return out
     rows0 = np.flatnonzero(good[0]['m'].any(1))
@@ -634,6 +654,12 @@ def aim_check(good, extra):
     # tilt and aim row of the +30° / −20° rings against the main-ring hull
     hull = quick_hull(good)
     hull = hull - [0, hull[:, 1].min(), 0]
+    for a, v in sorted(good.items()):
+        mask = v['m']
+        t, b, _, _ = bbox(mask)
+        out['absolute']['main', a] = absolute_aim_offset(hull, mask, (b - t) / 1.65, a, 0)
+    if top is not None and top.get('m') is not None:
+        out['absolute']['top', 0] = absolute_aim_offset(hull, top['m'], s, 0, 90)
     for cat in ('el30', 'low20'):
         th0 = RING_EL[cat]; rows_ = {}
         for a, v in sorted(rings[cat].items()):
@@ -643,6 +669,10 @@ def aim_check(good, extra):
             p = np.radians(a)
             r = np.flatnonzero(v['m'].any(1))
             k = lower_width(v['m']) / max(1, lower_width(ref['m']))            # this view's own scale (no arms)
+            if k > 0:
+                out['absolute'][cat, a] = absolute_aim_offset(hull, v['m'], s * k, a, th0)
+            else:
+                continue
             t0 = np.radians(th0)
             q = hull @ np.array([-np.sin(t0) * np.sin(p), np.cos(t0), -np.sin(t0) * np.cos(p)])
             rows_[a] = (r[-1] + s * k * q.min()) / (s * k)                     # aim row, metres from the top
@@ -2951,6 +2981,11 @@ def main():
             if lvl != PASS:
                 msg += ' → 這張相機對準的高度和同環其他張不同，重新生成，人物在畫面中的上下位置和同環其他張一致'
             report(lvl, f'{cat} {a}° 對準高度', msg)
+        for (cat, a), (dx, dy) in aim['absolute'].items():
+            lvl, p_, f_ = lvl3(max(abs(dx), abs(dy)), ABS_AIM_PASS, ABS_AIM_FAIL)
+            msg = (f'身體中心相對畫面正中央：水平 {1000 * dx:+.1f} mm、垂直 {1000 * dy:+.1f} mm'
+                   f'（向右、向下為正；兩軸均 ≤ {1000 * p_:g} mm 通過，任一軸絕對值 > {1000 * f_:g} mm 判 FAIL）')
+            report(lvl, f'{name[cat]} {a}° 絕對對準', msg)
 
     # ---- 10f. lighting fixed to the person: same surface, same brightness in every view
     surf = surface_luma_check(good, extra) if args.pose == 'tpose' and len(good) >= 6 else {}
