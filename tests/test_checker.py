@@ -258,7 +258,8 @@ def test_aim_point_and_tilt(broken):
     fails = lines(out, 'FAIL')
     assert any('仰角環 45° / 225° 置中' in l for l in fails), fails
     assert any('俯角環 0° / 180° 置中' in l for l in fails), fails
-    assert any('el30 90° 對準高度' in l for l in fails), fails
+    # side views have no ring aim row (1.34.0); the per-view vertical aim against the image centre catches it
+    assert any('俯角環 90° 上下對準' in l for l in fails), fails
     assert any('low20 0° 俯仰角' in l and '沒有依投影縮短' in l for l in fails), fails
 
 
@@ -303,8 +304,9 @@ def test_lighting_fixed_to_the_person(broken):
     fails = lines(out, 'FAIL')
     warnings = lines(out, 'WARN')
     assert sum('明暗方向' in l and '右側較亮' in l for l in warnings) >= 6, warnings
-    assert not any('明暗方向' in l or ' 曝光:' in l or '表面亮度' in l for l in fails), fails
-    assert any('主環 90°' in l and '表面亮度' in l for l in warnings), warnings
+    assert not any('明暗方向' in l or ' 曝光:' in l for l in fails), fails
+    # light following the camera: the same surface differs in brightness between views (10f, FAIL when large)
+    assert any('主環 90°' in l and '表面亮度' in l for l in warnings + fails), warnings + fails
 
 
 def test_region_luma_only_warns_and_compares_like_with_like(monkeypatch, tmp_path):
