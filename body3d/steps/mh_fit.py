@@ -41,8 +41,61 @@ L = sp.diags(deg) - A
 LtL = (L.T @ L).tocsr()
 X0 = P[idx].copy(); X = X0.copy()
 reg = region[idx]
-# template-detail regions follow the body but keep their own shape: hands (fingers), feet, face
-base_w = np.where(reg == 1, 0.02, np.where(reg == 2, 0.15, 1.0))
+# Template-detail parts keep their own shape and move as one piece: the face, each hand (fingers) and each foot (toes).
+# A smooth non-rigid field squeezes thin features a few mm wide (eyelids, nostrils, lips, fingers, toes) until they
+# pass through each other: on the polished photos 5000 faces (19 %) intersected the mesh itself, 2000 of them on the
+# head, and the two layers z-fight as dark / light specks in the app. The hull is carved from silhouettes and has
+# no nose, lips or eye sockets, so the face only takes its position and size from the cheeks and temples
+# (least-squares translation and uniform scale within ±5 %); hands and feet follow their arm / leg. Each part is blended into the fitted field over BLEND metres.
+top = X0[:, 1].max()
+hb = X0[(X0[:, 1] > top - 0.24)]
+face = (X0[:, 1] > top - 0.25) & (X0[:, 1] < top - 0.06) & (X0[:, 2] > (hb[:, 2].min() + hb[:, 2].max()) / 2) \
+    & (np.abs(X0[:, 0]) < 0.08)
+PARTS = {'face': face, 'hand_l': (reg == 1) & (X0[:, 0] > 0), 'hand_r': (reg == 1) & (X0[:, 0] < 0),
+         'foot_l': (reg == 2) & (X0[:, 0] > 0), 'foot_r': (reg == 2) & (X0[:, 0] < 0)}
+BLEND = 0.04
+FACE_SCALE = (0.95, 1.05)
+# the hull's 3D opening (round33) shaves off the nose and lips, so only the cheeks / temples place the face
+FACE_DATA = face & (np.abs(X0[:, 0]) > 0.035)
+base_w = np.where(reg > 0, 0.0, np.where(face, 0.0, 1.0))
+part_w = {}
+for k, m in PARTS.items():
+    t = np.clip(1 - cKDTree(X0[m]).query(X0)[0] / BLEND, 0, 1)
+    part_w[k] = t * t * (3 - 2 * t)
+print('rigid parts (vertices):', {k: int(m.sum()) for k, m in PARTS.items()})
+
+
+def rigid_parts(D, cp, w_data):
+    """replace the fitted field on every part by one translation (face: translation + uniform scale to the hull)"""
+    out = D.copy()
+    for k, m in PARTS.items():
+        if k == 'face':
+            ww = w_data[m]
+            if ww.sum() > 1:
+                c = X0[m].mean(0); A = X0[m] - c; B = cp[m] - c
+                t = (ww[:, None] * (B - A)).sum(0) / ww.sum()
+                sc = float(np.clip((ww * (A * (B - t)).sum(1)).sum() / (ww * (A * A).sum(1)).sum(), *FACE_SCALE))
+                Dp = (sc - 1) * (X0 - c) + t
+            else:
+                Dp = np.broadcast_to(D[m].mean(0), D.shape)
+        else:
+            Dp = np.broadcast_to(D[m].mean(0), D.shape)
+        b = part_w[k][:, None]
+        out = (1 - b) * out + b * Dp
+    return out
+
+
+# vertex normals of the body (for rejecting closest points on the wrong side: cavities, folds)
+tri_ = np.array([[loc[f[0]], loc[f[i]], loc[f[i + 1]]] for f in faces for i in range(1, len(f) - 1)])
+tri_ = tri_[(tri_ >= 0).all(1)]
+
+
+def vnormals(V):
+    fn = np.cross(V[tri_[:, 1]] - V[tri_[:, 0]], V[tri_[:, 2]] - V[tri_[:, 0]])
+    vn = np.zeros_like(V)
+    for k in range(3):
+        np.add.at(vn, tri_[:, k], fn)
+    return vn / (np.linalg.norm(vn, axis=1, keepdims=True) + 1e-12)
 # closest points: dense surface samples + KD-tree (no rtree here); inside = behind the sample's outward normal
 S, fid = trimesh.sample.sample_surface_even(hull, 600000, seed=0)
 SN = hull.face_normals[fid]; stree = cKDTree(S)
@@ -50,19 +103,30 @@ SN = hull.face_normals[fid]; stree = cKDTree(S)
 
 def closest(Q):
     dist, j = stree.query(Q)
-    return S[j], dist, ((Q - S[j]) * SN[j]).sum(1) < 0
-for it, lam in enumerate((40, 20, 10, 6, 4, 3, 2, 2)):
-    cp, dist, inside = closest(X)
+    return S[j], dist, ((Q - S[j]) * SN[j]).sum(1) < 0, j
+INSIDE_W = 0.03
+for it, lam in enumerate((40, 20, 12, 8, 6, 6)):
+    cp, dist, inside, j = closest(X)
+    # only closest points facing the same way count (standard ICP normal test): a cavity or a fold would match the
+    # far wall of the hull and turn inside out
+    agree = (vnormals(X) * SN[j]).sum(1) > 0.3
     # the hull is an upper bound of the body (carved from silhouettes): points outside are pulled in firmly,
     # points inside only gently (the hull cannot see concavities)
-    w = base_w * np.where(inside, 0.8, 1.0)
+    # inside: the hull bridges concavities (under the jaw, behind the ears, armpits); pulling both walls of one out
+    # to the same hull surface makes them intersect, so inside points are pulled only very gently
+    side = np.where(inside, INSIDE_W, 1.0) * agree
+    w = base_w * side + 1e-4
     W = sp.diags(w)
     solve = factorized((W + lam * LtL).tocsc())
     rhs = w[:, None] * (cp - X0)
     D = np.stack([solve(rhs[:, c]) for c in range(3)], 1)
+    D = rigid_parts(D, cp, side * FACE_DATA)
     X = X0 + D
-    print('  iter', it, 'lam', lam, 'mean |d| mm', round(1000 * np.mean(dist), 1), 'outside', int((~inside).sum()))
-cp, dist, _ = closest(X)
+    print('  iter', it, 'lam', lam, 'mean |d| mm', round(1000 * np.mean(dist), 1), 'outside', int((~inside).sum()),
+          'normal-rejected', int((~agree).sum()))
+cp, dist, _, _ = closest(X)
+fold = (vnormals(X) * vnormals(X0)).sum(1) < 0
+print('vertices turned over (normal > 90° from the template):', int(fold.sum()))
 print('final mean / p90 distance to hull mm', round(1000 * dist.mean(), 1), round(1000 * np.percentile(dist, 90), 1))
 # --- helpers follow the nearest body vertices
 Pn = P.copy(); Pn[idx] = X
