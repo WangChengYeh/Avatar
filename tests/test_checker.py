@@ -81,14 +81,15 @@ def test_grey_smudge_fails(broken):
 
 
 def test_dark_image_flagged(broken):
-    """其中一張曝光不足：第 9 項要抓出來（WARN 或 FAIL）"""
+    """曝光粗篩與同一表面的亮差都會標記偏暗的視角。"""
     f = broken / 'el30_090deg.jpg'
     im = cv2.imread(str(f)).astype(np.float32)
     m = im.min(2) < 235
     im[m] *= 0.6
     cv2.imwrite(str(f), im.clip(0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 95])
     rc, out = check(broken)
-    assert any('90' in l and ('曝光' in l or '亮度' in l) for l in lines(out, 'WARN'))
+    assert any('90' in l and '曝光' in l for l in lines(out, 'WARN'))
+    assert any('el30 90° / 主環 90° 表面亮度' in l for l in lines(out, 'WARN'))
 
 
 def test_silhouette_sheet_and_perspective_pass_on_orthographic(synth_set, tmp_path):
@@ -257,8 +258,7 @@ def test_aim_point_and_tilt(broken):
 
 
 def test_lighting_fixed_to_the_person(broken):
-    """6c / 10f: the clean (flat-lit) set passes; one view brightened warns on the shared-surface brightness of its
-    neighbours, and a light that follows the camera (every view brighter on the image right) is flagged by 6c for review"""
+    """A flat-lit set passes; camera-following light is flagged by the coarse direction check."""
     rc, out = check(broken)
     light = [l for l in out.splitlines() if '明暗方向:' in l or '表面亮度:' in l]
     assert len(light) >= 30 and all('[PASS]' in l for l in light), [l for l in light if '[PASS]' not in l]
@@ -283,6 +283,42 @@ def test_lighting_fixed_to_the_person(broken):
     assert sum('明暗方向' in l and '右側較亮' in l for l in warnings) >= 6, warnings
     assert not any('明暗方向' in l or ' 曝光:' in l or '表面亮度' in l for l in fails), fails
     assert any('主環 90°' in l and '表面亮度' in l for l in warnings), warnings
+
+
+def test_region_luma_fails_only_with_enough_pixels_and_reference_views(monkeypatch, tmp_path):
+    import csv
+    from body3d import check_turnaround as checker
+
+    def photo(name, top, hair):
+        return {'name': name, 'im': {'top': top, 'hair': hair}, 'm': True}
+
+    main = {
+        0: photo('main0.jpg', (100, 500), (100, 500)),
+        45: photo('main45.jpg', (100, 500), (100, 500)),
+        90: photo('main90.jpg', (100, 500), (100, 499)),
+        135: photo('main135.jpg', (110, 499), (100, 499)),
+    }
+    extras = {'el30': {
+        0: photo('large.jpg', (130, 500), (65, 600)),
+        45: photo('small.jpg', (135, 499), (100, 600)),
+        90: photo('near_limit.jpg', (71, 600), (100, 600)),
+    }}
+    image = np.zeros((1, 1, 3), np.uint8)
+    labels = np.zeros((1, 1), np.uint8)
+    monkeypatch.setattr(checker, 'photo_region_lightness', lambda stats, mask, category: (image, labels, stats))
+    statuses = {}
+    monkeypatch.setattr(checker, 'report', lambda level, label, message: statuses.update({label: level}))
+    checker.report_region_lightness(main, extras, tmp_path)
+    with (tmp_path / 'region_brightness.csv').open(encoding='utf-8-sig') as file:
+        rows = {(row['image'], row['region']): row for row in csv.DictReader(file)}
+
+    assert rows['large.jpg', 'top']['status'] == 'FAIL'
+    assert float(rows['large.jpg', 'top']['delta_l']) == 30
+    assert rows['large.jpg', 'hair']['status'] == 'WARN'
+    assert rows['small.jpg', 'top']['status'] == 'WARN'
+    assert rows['near_limit.jpg', 'top']['status'] == 'WARN'
+    assert statuses['large.jpg 分區亮度'] == 'FAIL'
+    assert statuses['small.jpg 分區亮度'] == 'WARN'
 
 
 def test_surface_luma_reports_coverage_and_boundary_sensitivity():
