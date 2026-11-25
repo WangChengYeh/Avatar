@@ -96,6 +96,9 @@ def main():
               f'（應 ≤ {100 * ACCEPT_PASS:.0f}%，> {100 * ACCEPT_FAIL:.0f}% 判 FAIL；完美照片 5.6–6.6%）')
         for v, x in worst:
             print(f'[WARN] {v}: 不一致 {100 * x:.1f}%（單張應 ≤ {100 * VIEW_WARN:.0f}%）→ 先看這張照片的第 10 / 10d / 10e 項')
+        nf, nw = int(level == 'FAIL'), int(level == 'WARN') + len(worst)
+        npass = int(level == 'PASS') + len(rows) - len(worst)          # every full-body view counted as one item
+        print(f'\n總結: {nf} 個 FAIL, {nw} 個 WARN, {npass} 個 PASS，共 {nf + nw + npass} 項')
         if a.json:
             json.dump(dict(level=level, mean=mean, rows=rows), open(a.json, 'w'), indent=1)
         sys.exit(1 if level == 'FAIL' else 0)

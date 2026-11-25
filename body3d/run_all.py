@@ -29,11 +29,12 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
     {name}_rigged.glb        無光照材質（照片已含光影，建議用這個）
     {name}_rigged_lit.glb    一般 PBR 材質
     v2_*.png                 Blender 預覽圖
+    gates.json               4 道關卡各自的 FAIL / WARN / PASS / 共計（最後也印成驗收總表）
     turnaround_report.png    照片檢查報告；work/ 內是中間檔
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.9.0'
+__version__ = '2.10.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
@@ -104,6 +105,29 @@ def main(argv=None):
         # --python-exit-code 1: an exception in the Blender script must fail the step (Blender exits 0 otherwise)
         return [blender, '-b', '--factory-startup', '--python-exit-code', '1', '--python']
 
+    gates = {}                     # gate -> (FAIL, WARN, PASS) from each checker's own summary line
+
+    def tally(gate):
+        """read the summary line of the command run last (all checkers print the same format)"""
+        import re
+        if not os.path.exists(log):
+            return
+        txt = open(log, errors='replace').read().split('\n$ ')[-1]
+        m = re.findall(r'總結: (\d+) 個 FAIL, (\d+) 個 WARN, (\d+) 個 PASS', txt)
+        if m:
+            gates[gate] = tuple(int(x) for x in m[-1])
+
+    def gate_table():
+        if not gates:
+            return
+        import unicodedata
+        pad = lambda t, n: t + ' ' * max(0, n - sum(2 if unicodedata.east_asian_width(ch) in 'WF' else 1 for ch in t))
+        print('\n' + pad('驗收總表', 22) + ' FAIL  WARN  PASS  共計')
+        for g, (f, w, p_) in gates.items():
+            print('  ' + pad(g, 20) + f'{f:5d}{w:6d}{p_:6d}{f + w + p_:6d}' + ('  ← FAIL' if f else ''))
+        json.dump({g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
+                  open(os.path.join(out, 'gates.json'), 'w'), ensure_ascii=False, indent=1)
+
     def step_check():
         status_path = os.path.join(work, 'check_status.json')
         if os.path.exists(status_path):
@@ -111,6 +135,7 @@ def main(argv=None):
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--pose', a.pose,
                   '--out', os.path.join(out, 'turnaround_report.png')],
                  out, log, ok_codes=(0, 1))
+        tally('1 照片檢查')
         with open(status_path, 'w') as f:
             json.dump(dict(passed=rc == 0), f)
         if rc == 1 and not a.force:
@@ -134,6 +159,7 @@ def main(argv=None):
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work,
                   '--view-overlay-dir', os.path.join(out, 'view_overlays')],
                  work, log, ok_codes=(0, 1), show_output=True)
+        tally('2 烘焙前檢查')
         if rc and not a.force:
             raise RuntimeError('烘焙前頭部檢查有 FAIL（見 run_all.log）。修正照片，或加 --force 繼續')
         if rc:
@@ -150,6 +176,7 @@ def main(argv=None):
         bad = 0
         for g, extra in ((unlit, ['--expect-unlit']), (lit, [])):
             bad |= run([py, os.path.join(HERE, 'verify_glb.py'), g] + extra, out, log, ok_codes=(0, 1))
+            tally('3 GLB 驗證' + ('（unlit）' if extra else '（lit）'))
         txt = open(log, errors='replace').read()
         for part in txt.split('\nverify_glb ')[-2:]:
             print('   verify_glb ' + '\n   '.join(l for l in part.splitlines() if 'FAIL' in l or 'WARN' in l or '總結' in l or l.endswith('.glb')))
@@ -165,8 +192,9 @@ def main(argv=None):
         mesh = ['--mesh', 'body_mh.ply'] if mh else []
         rc = run([py, os.path.join(HERE, 'fit_report.py'), work, '--accept', '--json', os.path.join(out, 'fit_report.json')] + mesh,
                  out, log, ok_codes=(0, 1))
+        tally('4 最終驗收')
         txt = open(log, errors='replace').read().split('\n$ ')[-1]
-        print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]'))))
+        print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]', '總結'))))
         if rc and not a.force:
             raise RuntimeError('成品與原圖剪影差異太大（見 fit_report.json）：先修正照片（第 10 / 10d / 10e 項），或加 --force')
         if rc:
@@ -208,8 +236,10 @@ def main(argv=None):
             print(f'[{STEPS.index(s) + 1:2d}/{len(STEPS)}] {s}', flush=True)
             actions[s]()
     except RuntimeError as e:
+        gate_table()
         print(f'\n失敗於步驟 {s}: {e}', file=sys.stderr)
         return 1
+    gate_table()
     print(f'\n完成（{(time.time() - t0) / 60:.1f} 分鐘）')
     if 'unlit' in todo or 'verify' in todo:
         print(f'  {unlit}\n  {lit}')

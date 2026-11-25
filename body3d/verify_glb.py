@@ -408,7 +408,8 @@ def main():
     a = ap.parse_args()
     rep = verify(a.glb, a.expect_unlit, a.height, not a.no_validator, a.renders)
     nF, nW = rep.count('FAIL'), rep.count('WARN')
-    print(f'\n總結: {nF} 個 FAIL, {nW} 個 WARN, {rep.count("PASS")} 個 PASS')
+    nP = rep.count('PASS')
+    print(f'\n總結: {nF} 個 FAIL, {nW} 個 WARN, {nP} 個 PASS，共 {nF + nW + nP} 項')
     sys.exit(1 if nF else 0)
 
 
