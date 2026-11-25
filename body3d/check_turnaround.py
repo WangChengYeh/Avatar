@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.36.0（2026-11-26）
+版本 1.37.0（2026-11-26）
 
 版本紀錄:
+  1.37.0 會直接造成重建缺陷、完美照片又遠在門檻內的 WARN 改判 FAIL：第 10f 項同一表面亮度中位數（含避開邊界）> 6 / 255；
+         第 10h 項耳朵 > 5 mm（原 8）；特寫放大倍率 > 3%（原 4%）；俯角 / 仰角距離 > 2%（原 2.5%）；俯仰角 > 4°（原 5°）。
   1.36.0 新增第 11b 項頭部朝向：0° / 45° / 315° 用 MediaPipe 3D 特徵點量臉的轉向，要等於檔名角度（≤ 8° 通過、> 12° FAIL），
          特寫和同角度全身圖一致（≤ 4° 通過、> 8° FAIL）。完美照片 40–47°、兩者差 ≤ 1°。
   1.35.0 角度門檻依完美照片收緊：水平環 ≤ 3° 通過、> 5° FAIL（原 5° / 8°）；俯角 / 仰角環 ≤ 5°、> 7° FAIL（原 6° / 9°）。
@@ -166,15 +168,15 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     「對準身體中心」的意思是身體中心投影在畫面正中央 (1024, 1024)。
   - 主環：相機水平、對準身體中心。俯角環、仰角環、俯視也對準同一個身體中心。
   - 相機距離固定（第 10d 項）：全身圖（水平、俯角、仰角、俯視）同一構圖，同角度人物左右寬度相同，
-    俯視圖與正面同寬。AI 模式差 ≤ 1% 通過，俯角／仰角差 > 2.5% FAIL，正上方差 > 2% FAIL。
-    頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 4% FAIL；8 個角度都比，側面只量頭頂下 12 cm）。
-    特寫和同角度全身圖要是同一張畫的放大：第 10h 項比耳朵位置（頭部對齊後耳朵帶位移 ≤ 3 mm，> 8 mm FAIL）。
+    俯視圖與正面同寬。AI 模式差 ≤ 1% 通過，> 2% FAIL。
+    頭部特寫固定放大為全身圖的 4 倍（頭寬差 ≤ 2%，> 3% FAIL；8 個角度都比，側面只量頭頂下 12 cm）。
+    特寫和同角度全身圖要是同一張畫的放大：第 10h 項比耳朵位置（頭部對齊後耳朵帶位移 ≤ 3 mm，> 5 mm FAIL）。
     構圖數字與提示詞見第九節。
   - 對準點與俯仰角（第 10e 項）：相差 180° 的兩張剪影左右對稱，由此求出旋轉軸，所有全身圖與俯視圖的旋轉軸要在
     畫面正中央（AI 模式差 ≤ 5 mm 通過，俯角／仰角差 > 12 mm FAIL，其餘 > 10 mm FAIL），頭部特寫另成一組。
     25 張全身圖逐張估算身體中心（離地半個身高）的上下位置，距畫面中央 ≤ 15 mm 通過，> 30 mm FAIL。
     俯角 / 仰角環的人物高度要符合 +30° / −20° 正交投影的縮短
-    （換算俯仰角差 ≤ 2°，AI 模式 > 5° FAIL；預期高度和水平相差 < 2% 的角度量不出來，不判），
+    （換算俯仰角差 ≤ 2°，AI 模式 > 4° FAIL；預期高度和水平相差 < 2% 的角度量不出來，不判），
     對準高度在同一環內一致（差 ≤ 10 mm，AI 模式 > 25 mm FAIL；側面 90° / 270° 不量）。
   - 要用長焦距（或正交投影），重建程式假設正交投影。
     本腳本第 10b 項量透視強度：斜角 4 張的兩手指尖中點要在身體中軸上（偏向近手 < 2% 半臂展，
@@ -199,7 +201,8 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
     盡量接近皮膚 / 衣服本身的顏色：成品是無光照 GLB，明暗應由 3D 軟體的燈光產生，不要畫進照片。
     光源不可跟著相機轉：否則同一塊皮膚在不同角度亮度不同，烘焙後有色差接縫。
     第 6c 項粗篩畫面左右亮度差（AI 模式 > 6% 判 WARN）。第 10f 項比較共同表面的亮度
-    （AI 模式下，中位數絕對差 > 3 或 P90 > 18 / 255 報 WARN）。
+    （AI 模式下，中位數絕對差 > 3 或 P90 > 18 / 255 報 WARN；中位數與避開邊界的中位數都 > 6 / 255 判 FAIL：
+    光線跟著相機轉，烘焙後會有色差接縫）。
     第 9b 項粗篩各區 Lab L 中位數（俯角／仰角對同角度水平圖，水平主環與頭部特寫對同組其他張，
     俯視只比頭髮與皮膚），亮差 > 18 / 255 只報 WARN。
     第 10g 項把頭部特寫縮回全身尺度，和同角度全身圖的頭部比亮度（中位數差 > 3 / 255 報 WARN）。
@@ -269,7 +272,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.36.0'
+__version__ = '1.37.0'
 import numpy as np
 import cv2
 
@@ -594,8 +597,8 @@ def ring_ratio_check(good, extra):
 BODY_FRAME, HEAD_ZOOM = 1.95, 4.0              # metres across a full-body image; close-up zoom (same in steps/camera.py)
 HEAD_FRAME = BODY_FRAME / HEAD_ZOOM            # 0.4875 m across a close-up
 WIDTH_PASS, WIDTH_FAIL = 0.01, 0.02            # |ring width / level width - 1|
-WIDTH_TILTED_FAIL = 0.025
-ZOOM_PASS, ZOOM_FAIL = 0.02, 0.04
+WIDTH_TILTED_FAIL = 0.02                       # perfect photos <= 0.1 % (was 2.5 %, tuned to AI photos)
+ZOOM_PASS, ZOOM_FAIL = 0.02, 0.03            # perfect photos -0.2 to -0.6 %
 SHADE_REVIEW = 0.06                            # section 6c: image-side lighting heuristic
 
 
@@ -698,7 +701,7 @@ def outline_width(im):
 CENTRE_PASS, CENTRE_FAIL = 0.005, 0.010        # metres off the median axis column
 CENTRE_TILTED_FAIL = 0.012
 TILT_PASS, TILT_FAIL = 2.0, 4.0                # degrees off the nominal +30° / −20°
-TILT_AI_FAIL = 5.0
+TILT_AI_FAIL = 4.0                               # perfect photos <= 0.75° (was 5°, tuned to AI photos)
 AIMROW_PASS, AIMROW_FAIL = 0.010, 0.020        # metres off the median aim row of the ring
 AIMROW_AI_FAIL = 0.025
 # vertical offset of the body centre from the image centre, per view; perfect photos: up to 11.3 mm (the hull and
@@ -824,6 +827,9 @@ def aim_check(good, extra):
 # Perfect photos (flat render of the texture): |median| ≤ 0.5, P90 ≤ 11.1 / 255; v1220 (light fixed to the camera):
 # median up to 19.5, P90 up to 49.
 SURF_MED_PASS = 3.0
+# FAIL when both the overall and the low-contrast median exceed this, same sign (perfect photos <= 0.7):
+# light that follows the camera bakes as colour seams
+SURF_MED_FAIL = 6.0
 SURF_P90_PASS = 18.0
 SURF_MIN_SAMPLES = 200
 SURF_EDGE_CONTRAST = 25
@@ -964,7 +970,7 @@ def head_luma_check(good, heads, span=0.18):
 # must line up. The best shift is searched for the whole head and for the ear band (6–14 cm below the head top);
 # the ear's shift relative to the head's is where the close-up draws the ear compared with the full-body view.
 # 0° / 180° are skipped (no ear in profile). Perfect photos: 0 mm, gradient correlation 0.99; v1220 / v1240: 1–6 mm.
-EAR_PASS, EAR_FAIL = 0.003, 0.008             # metres
+EAR_PASS, EAR_FAIL = 0.003, 0.005             # metres; perfect photos 0 mm
 EAR_VIEWS = (45, 90, 135, 225, 270, 315)
 
 
@@ -3380,9 +3386,11 @@ def main():
                 report(WARN, label, f'未量測：共同可見表面取樣 {n} 點，至少需 {SURF_MIN_SAMPLES} 點，請複核回投對位')
                 continue
             mp_, pp_ = T(SURF_MED_PASS, 5.0), T(SURF_P90_PASS, 37.5)
-            lvl = WARN if abs(med) > mp_ or p90 > pp_ else PASS
+            mf_ = T(SURF_MED_FAIL, 1e9)
+            both = interior_med is not None and np.sign(interior_med) == np.sign(med) and abs(interior_med) > mf_
+            lvl = FAIL if abs(med) > mf_ and both else WARN if abs(med) > mp_ or p90 > pp_ else PASS
             msg = (f'同一表面亮度差：中位數 {med:+.1f}、第 90 百分位 {p90:.1f} / 255（{n} 點；'
-                   f'目標為中位數絕對值 ≤ {mp_:g} 且 P90 ≤ {pp_:g}，超標報 WARN）')
+                   f'目標為中位數絕對值 ≤ {mp_:g} 且 P90 ≤ {pp_:g}；中位數與避開邊界的中位數都 > {SURF_MED_FAIL:g} 判 FAIL）')
             if lvl != PASS:
                 brighter = f'{name[k1[0]]} {k1[1]}°' if med > 0 else f'{name[k2[0]]} {k2[1]}°'
                 direction = f'{brighter} 的共同取樣區較亮。' if abs(med) > mp_ else ''
