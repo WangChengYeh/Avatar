@@ -100,3 +100,14 @@ def test_fixed_distance_spec_matches_checker():
     assert (camera.BODY_FRAME, camera.HEAD_ZOOM) == (ct.BODY_FRAME, ct.HEAD_ZOOM) == (1.95, 4.0)
     cams = {'01_000deg': dict(kind='main', s=1000.0), '02_045deg': dict(kind='main', s=1010.0), 'el30_000deg': dict(kind='el30', s=900.0)}
     assert camera.body_scale(cams) == 1005.0
+
+
+def test_full_body_views_share_body_centre_and_scale():
+    source = {'01': dict(kind='main', s=1000.0), '02': dict(kind='main', s=1010.0)}
+    rig = camera.body_center_rig(source, 2048, 2048)
+    centre = np.array([[0.0, 0.825, 0.0]])
+    for kind in ('main', 'el30', 'low20', 'top'):
+        yaw, elevation = camera.nominal('el30_225deg' if kind != 'top' else 'top', kind)
+        view = camera.ring_apply(dict(phi=yaw, th=elevation, s=950.0, D=4.0), rig)
+        assert view['s'] == 1005.0 and 'D' not in view
+        np.testing.assert_allclose(np.c_[camera.project(centre, view)], [[1024, 1024]])
