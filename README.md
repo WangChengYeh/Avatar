@@ -28,7 +28,7 @@ Blender 可從 PATH、Homebrew 或系統應用程式目錄尋找。也可用 `--
 | `output/run_all.log` | 18 步流程日誌，含檢查結果與可用的峰值記憶體紀錄 |
 | `output/work/` | 重跑單一步驟或進階檢查用的中間檔 |
 
-照片初篩、烘焙前檢查、GLB 驗證或最後一步成品與原圖比對（`fit`）出現 `FAIL` 時，流程會停止或以結束碼 1 結束。`--force` 可繼續輸出供診斷，最終 GLB 驗證與比對仍會執行。`--from STEP` 和 `--only STEP` 會使用既有的 `output/work/`。
+照片初篩、烘焙前檢查、GLB 驗證或最後一步成品與原圖比對（`fit`）出現 `FAIL` 時，流程會停止或以結束碼 1 結束。`--force` 可繼續輸出供診斷，最終 GLB 驗證與比對仍會執行，但輸出不能交付（`gates.json` 的 `deliverable` 為 `false`，見 [SOP](docs/SOP.md)）。`--from STEP` 和 `--only STEP` 會使用既有的 `output/work/`。
 
 ## 常用指令
 
@@ -95,6 +95,7 @@ node scripts/compare_turnaround.mjs --photos ./photos \
 
 ## 文件
 
+- [標準作業流程（SOP）](docs/SOP.md) · 四道關卡、PASS／WARN／FAIL 怎麼處理、`--force` 規則、交付條件
 - [流程與驗收](docs/Workflow-and-Validation.md) · 輸入規格、重跑步驟、照片與 GLB 檢查、回投 KPI
 - [Loop engineering 的理論基礎](docs/Loop-Engineering-Theory.md) · 為什麼要先改 checker、以原圖為錨、找最早出現差異的步驟
 - [版本與量測紀錄](CHANGELOG.md) · 重要修正、實測範圍和歷史限制
