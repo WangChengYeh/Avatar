@@ -4,6 +4,11 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## body3d 2.14.0 · 照片檢查未通過也打包 zip（_FAIL）
+
+- 階段 1 一定打包 33 張照片：0 FAIL 是 `{name}_stage1_photos.zip`（交付物）；有 FAIL 或缺照片是 `{name}_stage1_photos_FAIL.zip`（不能交付，`manifest.json` 有 `deliverable: false`、`failures` 未通過清單、`missing`）。同時只留一個。
+- `deliver.py stage1` 結束碼：可交付 0、未通過 1。客戶頁顯示「已交付」或「未通過，不能交付」，兩種都有下載連結。
+
 ## body3d 2.13.0 · 階段 1 交付 33 張照片的 zip
 
 - 照片檢查 0 FAIL 時，`run_all.py` 自動打包 `OUT/deliver/{name}_stage1_photos.zip`：33 張原檔照片、照片檢查報告、`manifest.json`（SHA-256、照片檢查版本與總結、時間）。有 FAIL 不產生；重跑照片檢查先刪舊 zip。

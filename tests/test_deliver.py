@@ -1,8 +1,6 @@
-"""stage 1 delivery (docs/SOP.md): the 33 photos are zipped only when the photo check has no FAIL"""
+"""stage 1 (docs/SOP.md): the 33 photos are always zipped; only a check without FAIL makes it the deliverable"""
 import json
 import zipfile
-
-import pytest
 
 import deliver
 
@@ -15,22 +13,33 @@ def photos(tmp_path):
     return d
 
 
+def manifest(z):
+    with zipfile.ZipFile(z) as f:
+        return f.namelist(), json.loads(f.read('manifest.json'))
+
+
 def test_stage1_zip_has_the_33_photos_and_a_manifest(tmp_path):
     d = photos(tmp_path)
-    z = deliver.stage1(str(d), str(tmp_path / 'out'), 'body', (0, 5, 300), '1.39.0')
-    with zipfile.ZipFile(z) as f:
-        names = f.namelist()
-        m = json.loads(f.read('manifest.json'))
-    assert len(deliver.PHOTOS) == 33 and sorted(n for n in names if n.startswith('photos/')) == sorted(
-        'photos/' + p for p in deliver.PHOTOS)
-    assert m['photo_check'] == dict(version='1.39.0', FAIL=0, WARN=5, PASS=300) and len(m['sha256']) == 33
+    z, ok = deliver.stage1(str(d), str(tmp_path / 'out'), 'body', (0, 5, 300), '1.39.0')
+    names, m = manifest(z)
+    assert ok and z.endswith('body_stage1_photos.zip') and len(deliver.PHOTOS) == 33
+    assert sorted(n for n in names if n.startswith('photos/')) == sorted('photos/' + p for p in deliver.PHOTOS)
+    assert m['deliverable'] and m['photo_check'] == dict(version='1.39.0', FAIL=0, WARN=5, PASS=300)
+    assert len(m['sha256']) == 33 and m['failures'] == [] and m['missing'] == []
 
 
-def test_stage1_refuses_a_failing_check_or_missing_photos(tmp_path):
-    d = photos(tmp_path)
-    with pytest.raises(ValueError, match='未通過'):
-        deliver.stage1(str(d), str(tmp_path / 'out'), 'body', (2, 0, 300), '1.39.0')
+def test_failing_check_is_zipped_as_FAIL_and_replaces_the_delivery(tmp_path):
+    d, out = photos(tmp_path), str(tmp_path / 'out')
+    good, _ = deliver.stage1(str(d), out, 'body', (0, 0, 300), '1.39.0')
+    bad, ok = deliver.stage1(str(d), out, 'body', (2, 0, 300), '1.39.0', failures=['head 45° 臉部位置: 8.9 mm'])
+    names, m = manifest(bad)
+    assert not ok and bad.endswith('body_stage1_photos_FAIL.zip') and len(names) == 34
+    assert not m['deliverable'] and m['failures'] == ['head 45° 臉部位置: 8.9 mm']
+    assert not (tmp_path / 'out' / 'deliver' / 'body_stage1_photos.zip').exists()   # the old delivery is gone
     (d / 'top.jpg').unlink()
-    with pytest.raises(ValueError, match='top.jpg'):
-        deliver.stage1(str(d), str(tmp_path / 'out'), 'body', (0, 0, 300), '1.39.0')
-    assert not (tmp_path / 'out' / 'deliver' / 'body_stage1_photos.zip').exists()
+    bad, ok = deliver.stage1(str(d), out, 'body', (0, 0, 300), '1.39.0')
+    assert not ok and manifest(bad)[1]['missing'] == ['top.jpg']
+
+
+def test_fail_lines():
+    assert deliver.fail_lines('  [PASS] a\n  [FAIL] b: 1\n[WARN] c\n  [FAIL] d') == ['b: 1', 'd']

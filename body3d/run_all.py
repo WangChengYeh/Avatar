@@ -32,12 +32,13 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
     gates.json               4 道關卡各自的 FAIL / WARN / PASS / 共計、force、deliverable（見 docs/SOP.md）
     client/index.html        給客戶看的進度與各階段圖（中文，每一步更新；client_report.py）
     progress.json            18 個步驟的狀態與時間
-    deliver/{name}_stage1_photos.zip  階段 1 交付物：33 張照片 + 照片檢查報告 + manifest（照片檢查 0 FAIL 才產生）
+    deliver/{name}_stage1_photos.zip  階段 1 交付物：33 張照片 + 照片檢查報告 + manifest（照片檢查 0 FAIL）
+    deliver/{name}_stage1_photos_FAIL.zip  照片檢查有 FAIL 時：一樣打包，不能交付，manifest 列出未通過項目
     turnaround_report.png    照片檢查報告；work/ 內是中間檔
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.13.0'
+__version__ = '2.14.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
@@ -156,24 +157,23 @@ def main(argv=None):
 
     def step_check():
         status_path = os.path.join(work, 'check_status.json')
-        stage1_zip = os.path.join(out, 'deliver', f'{a.name}_stage1_photos.zip')
-        for f in (status_path, stage1_zip):          # never leave an older delivery next to a failing check
-            if os.path.exists(f):
-                os.remove(f)
+        if os.path.exists(status_path):
+            os.remove(status_path)
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--pose', a.pose,
                   '--out', os.path.join(out, 'turnaround_report.png')],
                  out, log, ok_codes=(0, 1))
         tally('1 照片檢查')
         with open(status_path, 'w') as f:
             json.dump(dict(passed=rc == 0), f)
-        if rc == 0 and '1 照片檢查' not in gates:
-            print('     照片檢查沒有印出總結，不打包階段 1 交付物')
-        elif rc == 0:                                # stage 1 deliverable: the 33 photos (docs/SOP.md)
+        if '1 照片檢查' not in gates:
+            print('     照片檢查沒有印出總結，不打包階段 1 的照片')
+        else:                                        # stage 1: the 33 photos, zipped even when the check fails
             import deliver, re
-            v = re.search(r'check_turnaround 版本 (\S+?)（', open(log, errors='replace').read().split('\n$ ')[-1])
-            z = deliver.stage1(img, out, a.name, gates['1 照片檢查'], v.group(1) if v else '?',
-                               os.path.join(out, 'turnaround_report.png'))
-            print(f'     階段 1 交付：{z}')
+            txt = open(log, errors='replace').read().split('\n$ ')[-1]
+            v = re.search(r'check_turnaround 版本 (\S+?)（', txt)
+            z, ok = deliver.stage1(img, out, a.name, gates['1 照片檢查'], v.group(1) if v else '?',
+                                   os.path.join(out, 'turnaround_report.png'), deliver.fail_lines(txt))
+            print(('     階段 1 交付：' if ok else '     階段 1 未通過（不能交付，照片仍打包供檢查）：') + z)
         if rc == 1 and not a.force:
             raise RuntimeError('照片檢查有 FAIL（見 run_all.log / turnaround_report.png）。修正照片，或加 --force 繼續')
         if rc == 1:
