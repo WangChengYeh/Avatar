@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.23.0（2026-11-25）
+版本 1.24.0（2026-11-25）
 
 版本紀錄:
+  1.24.0 畫面左右亮差與膚色曝光只作粗篩，同一表面回投仍用原門檻驗收。
   1.23.0 曝光粗篩 ±3% → 7%、臉頰粗篩 5 → 12 / 255：依完美照片重新校準（原門檻低於完美照片）。
          光線規格改為固定在人身上的全方位均勻柔光：第 6c 項畫面左右亮度差 > 8% FAIL；第 10f 項相鄰角度同一表面亮度。
          第 10c 項在 AI 模式 ≥ 5% 判 FAIL（#23）。
@@ -222,7 +223,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.23.0'
+__version__ = '1.24.0'
 import numpy as np
 import cv2
 
@@ -499,7 +500,7 @@ BODY_FRAME, HEAD_ZOOM = 1.95, 4.0              # metres across a full-body image
 HEAD_FRAME = BODY_FRAME / HEAD_ZOOM            # 0.4875 m across a close-up
 WIDTH_PASS, WIDTH_FAIL = 0.01, 0.02            # |ring width / level width - 1|
 ZOOM_PASS, ZOOM_FAIL = 0.02, 0.04
-SHADE_PASS, SHADE_FAIL = 0.06, 0.08              # section 6c: |left - right| / sum of the body edges per row              # |close-up head width / level head width / HEAD_ZOOM - 1|
+SHADE_REVIEW = 0.06                            # section 6c: image-side lighting heuristic
 
 
 def silhouette_width(m):
@@ -2409,8 +2410,9 @@ def main():
     # ---- 6c. lighting direction. Spec: even, all-round light fixed to the person, so no image side of the body is
     # systematically brighter (perfect photos: |left-right| ≤ 4.5 %, the texture's own asymmetry). A light fixed to
     # the camera makes the same image side brighter in every view (v190 / v1220: 8–15 %): the same surface then
-    # changes brightness with the view. If a few views are reversed, they are probably flipped copies.
-    print('\n6c. 光線方向（規格：全方位均勻柔光，畫面左右不應有一側較亮）')
+    # changes brightness with the view. The two image sides can show different materials and body regions, so
+    # confirm a suspected lighting or mirror issue with the shared-surface and duplicate-image checks.
+    print('\n6c. 光線方向粗篩（畫面左右可見的材質與部位不同，需以第 10f 項回投確認）')
 
     def light_dir(im, m, r0=0.30, r1=0.95):
         L = cv2.cvtColor(im, cv2.COLOR_BGR2LAB)[..., 0].astype(float)
@@ -2428,15 +2430,14 @@ def main():
         return (float(np.median(v)), float((v > 0).mean())) if len(v) else (0.0, 0.5)
 
     ld = {a: light_dir(v['im'], v['m']) for a, v in good.items()}
-    lp, lf = T(SHADE_PASS, 2.5 * SHADE_PASS), T(SHADE_FAIL, 2.5 * SHADE_FAIL)
+    lp = T(SHADE_REVIEW, 2.5 * SHADE_REVIEW)
     for a, d in sorted(ld.items()):
-        lvl = PASS if abs(d[0]) <= lp else WARN if abs(d[0]) <= lf else FAIL
+        lvl = PASS if abs(d[0]) <= lp else WARN
         msg = f'畫面左右亮度差 {100 * d[0]:+.1f}%（{"左" if d[0] > 0 else "右"}側較亮；應 ≤ {100 * lp:.0f}%）'
         if lvl != PASS:
-            msg += (' → 光線有方向性（常見：光源跟著相機）：同一塊皮膚轉到別的角度亮度會變，烘焙後有色差接縫。'
-                    '提示詞改用 even all-round soft light fixed to the subject, no directional shading')
+            msg += ' → 左右可見的皮膚、衣物面積或本色可能不同。請用第 10f 項比對共同可見的表面。'
         report(lvl, f'{a}° 明暗方向', msg)
-    strong = {a: d for a, d in ld.items() if abs(d[0]) > 0.06 and (d[1] > 0.65 or d[1] < 0.35)}
+    strong = {a: d for a, d in ld.items() if abs(d[0]) > SHADE_REVIEW and (d[1] > 0.65 or d[1] < 0.35)}
     if len(strong) < max(3, 0.6 * len(good)):
         report(PASS, '光線方向', '整組光線沒有明顯方向性（平光），翻轉由第 6b 項與第 10f 項檢查')
     else:
@@ -2445,13 +2446,13 @@ def main():
         side = '畫面左側' if major > 0 else '畫面右側'
         odd = [a for a, d in strong.items() if np.sign(d[0]) != major]
         if not odd:
-            report(PASS, '光線方向', f'每張都是{side}較亮，光線一致（沒有左右翻轉的跡象）')
+            report(WARN, '光線方向', f'多張照片都是{side}較亮，請用第 10f 項確認是否為同一表面的亮差')
         for a in sorted(odd):
             d = ld[a]
             pct = 100 * (d[1] if major < 0 else 1 - d[1])
-            report(strict(WARN), f'{a}° 光線',
+            report(WARN, f'{a}° 光線',
                    f'這張是{"畫面左側" if major < 0 else "畫面右側"}較亮（{pct:.0f}% 的列），'
-                   f'其他張都是{side}較亮 → 很可能是把別張圖左右翻轉做出來的（臉、髮線、衣服細節會是鏡像）')
+                   f'其他張都是{side}較亮，請比對第 6b 項的翻轉複製與第 10f 項的共同表面')
 
     # ---- 7. proportions: front width vs back width, side depth left vs right, per body height level
     print('\n7. 身材比例一致性（各高度的寬度 / 厚度）')
@@ -2630,20 +2631,20 @@ def main():
         # head close-ups: use only neck / shoulders (face vs hair colour would fake a lighting direction)
         ldr = {a: (light_dir(v['im'], v['m'], 0.75, 0.98) if cat == 'head' else light_dir(v['im'], v['m']))
                for a, v in okv.items()}
-        strong_ = {a: d for a, d in ldr.items() if abs(d[0]) > 0.06 and (d[1] > 0.65 or d[1] < 0.35)}
+        strong_ = {a: d for a, d in ldr.items() if abs(d[0]) > SHADE_REVIEW and (d[1] > 0.65 or d[1] < 0.35)}
         if len(strong_) >= max(3, 0.6 * len(okv)):
             maj = np.sign(sum(np.sign(d[0]) for d in strong_.values())) or 1.0
             odd_ = sorted(a for a, d in strong_.items() if np.sign(d[0]) != maj)
-            report(strict(WARN) if odd_ else PASS, f'{cat} 光線方向',
-                   f'{", ".join(f"{a}°" for a in odd_)} 的亮側和其他張相反，可能是左右翻轉做出來的' if odd_
-                   else f'每張都是{"畫面左側" if maj > 0 else "畫面右側"}較亮，一致')
+            report(WARN, f'{cat} 光線方向',
+                   f'{", ".join(f"{a}°" for a in odd_)} 的亮側和其他張相反，請比對翻轉複製與共同表面' if odd_
+                   else f'多張照片都是{"畫面左側" if maj > 0 else "畫面右側"}較亮，請比對共同表面')
         else:
             report(PASS, f'{cat} 光線方向', '光線沒有明顯方向性，此項不判斷')
 
     review_head_photos({a: v for a, v in extra['head'].items() if v.get('m') is not None}, args.out)
 
-    # ---- 9. exposure: skin lightness of every image vs. the main ring (big differences show as seams)
-    print('\n9. 曝光一致性（每張圖的膚色亮度和主環比較）')
+    # ---- 9. exposure heuristic: visible skin areas differ across views; confirm against shared surfaces
+    print('\n9. 曝光粗篩（各角度可見的膚色區域不同，需以第 10f 項回投確認）')
     allimgs = [(f'{a}°', v) for a, v in sorted(good.items())] + \
               [(f'{c} {a}', v) for c, items in extra.items() for a, v in sorted(items.items()) if v.get('m') is not None]
     lv = {k: skin_lightness(v['im'], v['m']) for k, v in allimgs}
@@ -2653,9 +2654,9 @@ def main():
         EXP = T(EXPOSURE_MAX_DIFF, 0.12)
         odd = [(k, x / med - 1) for k, x in lv.items() if x and abs(x / med - 1) > EXP]
         for k, d_ in odd:
-            report(strict(WARN) if abs(d_) > T(0.10, 1.0) else WARN, f'{k} 曝光',
+            report(WARN, f'{k} 曝光',
                    f'膚色亮度比主環{"亮" if d_ > 0 else "暗"} {100 * abs(d_):.0f}%（應在 ±{100 * EXP:g}% 內）；'
-                                       f'光線 / 曝光要和主環相同，否則重建後會看到色差接縫')
+                                       '請用第 10f 項確認同一表面的亮度差')
         if not odd:
             report(PASS, '曝光一致', f'{len(lv)} 張的膚色亮度都在主環的 ±{100 * EXP:.0f}% 內')
 
@@ -2795,9 +2796,8 @@ def main():
                    f'應中位數 ≤ {mp_:g}、P90 ≤ {pp_:g}）')
             if lvl != PASS:
                 brighter = f'{name[k1[0]]} {k1[1]}°' if med > 0 else f'{name[k2[0]]} {k2[1]}°'
-                msg += (f' → {brighter} 整體較亮：光線跟著相機轉或有方向性，同一塊皮膚在不同角度亮度不同，烘焙後會有色差接縫。'
-                        '重新生成時用全方位均勻柔光（光線固定在人身上），每張同一組曝光；'
-                        '左右翻轉做出來的圖也會在不對稱的細節（髮線、衣服）上報出')
+                direction = f'{brighter} 的共同取樣區較亮。' if abs(med) > mp_ else ''
+                msg += (f' → {direction}請先確認回投是否對到同一材質與部位，再檢查光線和曝光。')
             report(lvl, f'{name[k1[0]]} {k1[1]}° / {name[k2[0]]} {k2[1]}° 表面亮度', msg)
 
     # ---- 11. face consistency of the head close-ups

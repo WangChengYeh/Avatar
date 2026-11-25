@@ -64,6 +64,8 @@ python -m pytest -q --photos=./photos
 3. **原圖有問題時，先改 checker，再修圖。** 把規則加到可單獨使用的 [`check_turnaround.py`](body3d/check_turnaround.py)，並先用未修正的照片重跑。如果原圖原本 PASS，先確認新版 checker 能在正確角度和部位報出目標問題。再修照片，用相同指令、門檻和比對條件重跑，確認該項由 FAIL 轉為 PASS，再確認其他角度及既有規則沒有新增 FAIL。保留修圖前後的數值、疊圖與檢查報告。
 4. **重新生成 GLB 並回到 Three.js 驗收。** 用修正後的 33 張照片和最新版腳本，從頭在新的輸出目錄重建，省略 `--force`。確認 GLB 驗證通過，再用第 1 步的相同設定輸出三視圖，重測原本失敗的部位和 KPI。涉及肩臂時，另測站姿與抬手，確認貼圖和網格在動作中也符合預期。本輪試修時若仍超出門檻，在同一個 Issue 回到第 2 步繼續排查。
 
+修圖從水平主環開始，先驗證 T-pose、人物比例、相機構圖，以及全身和同角度頭部特寫。等核心穩定後再修 30° 俯角、−20° 仰角與俯視。每次仍跑完整 33 張並記錄外圍差異。亮度驗收比較回投後共同可見的同一表面，畫面左右亮差和全圖膚色只供複核。
+
 ```sh
 python body3d/check_turnaround.py ./photos-before --out report-before.png
 python body3d/check_turnaround.py ./photos-fixed --out report-after.png
