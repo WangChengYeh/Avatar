@@ -431,3 +431,17 @@ def test_head_yaw_check(monkeypatch):
     assert res['head 45° 特寫對全身朝向'] == 'FAIL'
     assert res['head 315° 頭部朝向'] == 'PASS' and res['head 315° 特寫對全身朝向'] == 'PASS'
     assert res['head 0° 頭部朝向'] == 'PASS'
+
+
+def test_closeup_face_position(broken):
+    """11c: the perfect set passes; the 45° close-up redrawn 40 px lower (about 10 mm at body scale) fails at 45°
+    only — the camera fit cannot take a shift that only one close-up has"""
+    rc, out = check(broken)
+    assert len([l for l in lines(out, 'PASS') if '臉部位置' in l]) == 2
+    f = broken / 'head_045deg.jpg'
+    im = cv2.imread(str(f)); h, w = im.shape[:2]
+    cv2.imwrite(str(f), cv2.warpAffine(im, np.float32([[1, 0, 0], [0, 1, 40]]), (w, h), borderValue=(255, 255, 255)),
+                [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    fails = [l for l in lines(out, 'FAIL') if '臉部位置' in l]
+    assert len(fails) == 1 and 'head 45°' in fails[0], fails
