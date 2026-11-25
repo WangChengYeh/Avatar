@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.38.0（2026-11-26）
+版本 1.39.0（2026-11-26）
 
 版本紀錄:
+  1.39.0 新增第 11c 項特寫臉部位置：規格相機下，45° / 315° 特寫的臉放回同角度全身圖，和全身圖的臉比（以 0° 為準）。
+         ≤ 3 mm 通過、> 6 mm FAIL；完美照片 ≤ 0.6 mm。R13 照片檢查 0 FAIL 卻在烘焙前檢查 FAIL 11 項，原因就是這個（8–9 mm）。
   1.38.0 移除 --mode ai / photo：照片一律要先經 AI 修正才能進來，只有一套門檻（原 ai 模式：完美照片 + 小餘裕，
          翻轉複製、光線翻轉、解析度、地面陰影等判 FAIL）。--mode photo 的較寬門檻刪除。
          臉部檢查改為必要：沒裝 mediapipe 時第 11 / 11b 項判 FAIL（原 WARN）。移除 --camera-check 與結束碼 3：
@@ -276,7 +278,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.38.0'
+__version__ = '1.39.0'
 import numpy as np
 import cv2
 
@@ -1120,6 +1122,73 @@ def face_yaw(im):
     L = r.multi_face_landmarks[0].landmark
     v = np.array([L[454].x - L[234].x, 0.0, L[454].z - L[234].z]) * w
     return float(abs(np.degrees(np.arctan2(v[2], v[0]))))
+
+
+# section 11c, face position: close-up against the full-body view of the same angle. The spec cameras are fixed
+# (orthographic; full-body views aimed at the body centre on the axis, close-ups 4x zoom aimed at the head centre,
+# 12.8 cm below the head top at 1.65 m), so every close-up pixel has a known place in the full-body view. MediaPipe
+# finds the eyes, nose, mouth, chin and forehead in both; the offset between them is how far the AI moved the face.
+# A shift common to all close-ups (framing) is taken by the camera fit, so 45° / 315° are measured against 0°.
+# Perfect photos (old test model, luna-v1): 0.2–0.6 mm. R13 8–9 mm (the pre-bake check then fails 11 items:
+# eyes / nose / mouth of the close-up land 2 cm off the full-body face), polished 7–18 mm, v1240 14–24 mm.
+FACEPOS_PASS, FACEPOS_FAIL = 3.0, 6.0          # mm, close-up face against the full-body face, relative to 0°
+FACEPOS_IDX = [33, 133, 362, 263, 1, 4, 61, 291, 13, 14, 152, 10]    # eye corners, nose, mouth, chin, forehead
+
+
+def face_offset(full, m, close):
+    """offset (mm, image x right / y down) of the close-up face mapped into the full-body view, against the face
+    the detector finds in the full-body view itself; None without a face, 'nomp' without mediapipe"""
+    rows = np.flatnonzero(m.any(1))
+    if not rows.size:
+        return None
+    t, b = rows[0], rows[-1]
+    s = (b - t) / SPEC_HEIGHT                                        # px per metre in the full-body view
+    W = full.shape[1]
+    hc = np.array([W / 2, t + 0.128 * SPEC_HEIGHT / 1.65 * s])       # head centre on the axis (spec aim)
+    Lc = detect_face_landmarks(close)
+    if Lc is None or isinstance(Lc, str):
+        return Lc
+    c = np.flatnonzero(m[t:t + int(0.08 * (b - t))].any(0))          # same crop as body_head_crop
+    if not c.size:
+        return None
+    cx, s_ = (c[0] + c[-1]) // 2, int(0.16 * (b - t))
+    y0, x0 = max(0, t - 20), max(0, cx - s_ // 2 - 40)
+    crop = cv2.resize(full[y0:t + s_, x0:cx + s_ // 2 + 40], None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+    Lf = detect_face_landmarks(crop)
+    if Lf is None or isinstance(Lf, str):
+        return Lf
+    Lf = Lf / 4 + [x0, y0]
+    Lcm = hc + (Lc - [close.shape[1] / 2, close.shape[0] / 2]) / HEAD_ZOOM
+    return 1000 * np.median((Lcm - Lf)[FACEPOS_IDX], 0) / s
+
+
+def face_position_check(views, extra):
+    """11c. [(level, label, message)]"""
+    heads = extra.get('head', {})
+    off = {}
+    for a in YAW_VIEWS:
+        if a in views and a in heads and views[a].get('m') is not None and heads[a].get('im') is not None:
+            off[a] = face_offset(views[a]['im'], views[a]['m'], heads[a]['im'])
+    if 'nomp' in [o for o in off.values() if isinstance(o, str)]:
+        return [(FAIL, '特寫臉部位置', '沒有安裝 mediapipe，第 11c 項無法檢查（必裝：pip install "mediapipe==0.10.14"）')]
+    ref = off.get(0)
+    if ref is None:
+        return [(WARN, '特寫臉部位置', '0° 的特寫或全身圖找不到臉，第 11c 項無法比較（第 11 / 11b 項會說明）')]
+    out = []
+    for a in (45, 315):
+        o = off.get(a)
+        if o is None:
+            out.append((WARN, f'head {a}° 臉部位置', '特寫或全身圖找不到臉，無法比較'))
+            continue
+        d = o - ref; e = float(np.hypot(*d))
+        lvl = PASS if e <= FACEPOS_PASS else WARN if e <= FACEPOS_FAIL else FAIL
+        msg = (f'特寫的臉放回全身圖，和全身圖的臉差 {e:.1f} mm（左右 {d[0]:+.1f}、上下 {d[1]:+.1f}，以 0° 為準；'
+               f'應 ≤ {FACEPOS_PASS:g} mm，> {FACEPOS_FAIL:g} mm 判 FAIL；完美照片 ≤ 0.6 mm）')
+        if lvl != PASS:
+            msg += (' → 特寫和同角度全身圖的臉位置不同：烘焙時特寫的五官會貼到錯的位置（兩層臉）。重新生成這張特寫，'
+                    '它必須是同角度全身圖頭部的 4 倍放大，眼睛、鼻子、嘴的位置和全身圖一致')
+        out.append((lvl, f'head {a}° 臉部位置', msg))
+    return out
 
 
 def body_head_crop(im, m):
@@ -3450,6 +3519,9 @@ def main():
             report(lvl, lab, msg)
         print('\n11b. 頭部朝向（0° / 45° / 315°：臉的轉向要等於檔名角度，特寫和同角度全身圖一致；需要 mediapipe）')
         for lvl, lab, msg in head_yaw_check(good, extra):
+            report(lvl, lab, msg)
+        print('\n11c. 特寫臉部位置（45° / 315° 特寫的臉放回同角度全身圖，以 0° 為準；需要 mediapipe）')
+        for lvl, lab, msg in face_position_check(good, extra):
             report(lvl, lab, msg)
 
     # ---- report image
