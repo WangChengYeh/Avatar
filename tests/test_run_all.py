@@ -156,3 +156,22 @@ def test_synthetic_end_to_end_needs_no_force(synth_set, tmp_path):
     text = open(out / 'run_all.log', errors='replace').read()
     prebake = text.split('--head-overlap-work', 1)[1].split('bake33.py', 1)[0]
     assert '[FAIL]' not in prebake, [l for l in prebake.splitlines() if '[FAIL]' in l]
+
+
+def test_makehuman_template_option():
+    rc, out = run_py('run_all.py', '--help')
+    assert rc == 0 and '--template' in out and 'makehuman' in out
+
+
+@pytest.mark.slow
+def test_makehuman_template_on_perfect_photos(request, synth_set, tmp_path):
+    """--template makehuman on perfect photos: GLB checks pass and the final fit passes without --force
+    (7.3 % measured; the hull pipeline 5.0 %). Needs the MPFB extension in Blender: runs with --e2e-makehuman"""
+    if not request.config.getoption('--e2e-makehuman'):
+        pytest.skip('加 --e2e-makehuman 才跑（需在 Blender 安裝 MPFB，約 25 分鐘）')
+    out = tmp_path / 'mh'
+    rc, log = run_py('run_all.py', synth_set, out, '--name', 'body', '--template', 'makehuman', timeout=7200)
+    assert rc == 0, log[-3000:]
+    import json
+    rep = json.load(open(out / 'fit_report.json'))
+    assert rep['level'] == 'PASS' and rep['mean'] < 0.08

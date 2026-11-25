@@ -16,11 +16,11 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
    8 headreg   頭部特寫相機對位（headreg33.py）
    9 face      MediaPipe 臉部特徵點（face_landmarks.py，選用）
   10 face3d    用臉部特徵點對齊 3/4 頭部特寫相機、補出鼻子 / 眼窩（face33.py，選用）
-  11 uv        Blender 展 UV（bl_uv33s.py）
+  11 uv        Blender 展 UV（bl_uv33s.py）；--template makehuman：擬合 MakeHuman 人體（mh33.py）
   12 bake      頭部投影重疊檢查、多視角貼圖烘焙（bake33.py）
   13 export    Blender 匯出有貼圖的 GLB + 預覽圖（bl_export.py）
   14 joints    從網格量測關節位置（joints.py）
-  15 rig       Blender 建 22 根骨頭、自動權重、匯出（rig.py）
+  15 rig       Blender 建 22 根骨頭、自動權重、匯出（rig.py）；makehuman 版跳過 14、15，第 13 步直接匯出含骨架 GLB
   16 unlit     材質標為 KHR_materials_unlit（glb_unlit.py）
   17 verify    verify_glb.py 驗證兩個 GLB（有 FAIL 時結束碼 1）
   18 fit       最終驗收：成品網格以最終相機投影回 24 張全身原圖，剪影平均不一致 > 10% 判 FAIL（fit_report.py --accept）
@@ -33,7 +33,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.7.0'
+__version__ = '2.8.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
@@ -83,6 +83,9 @@ def main(argv=None):
     ap.add_argument('--from', dest='start', choices=STEPS, default='check')
     ap.add_argument('--only', choices=STEPS)
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
+    ap.add_argument('--template', choices=['hull', 'makehuman'], default='hull',
+                    help='hull：剪影外殼網格＋自動權重（原流程）；makehuman：把 MakeHuman 人體擬合到外殼，'
+                         '用它的拓樸、Mixamo 骨架（含手指）與權重（需在 Blender 安裝 MPFB 擴充）')
     ap.add_argument('--version', action='version', version=f'body3d {__version__}')
     a = ap.parse_args(argv)
 
@@ -153,8 +156,14 @@ def main(argv=None):
         if bad:
             raise RuntimeError('verify_glb 有 FAIL（見 run_all.log）')
 
+    mh = a.template == 'makehuman'
+
+    def skip(msg):
+        return lambda: print('     ' + msg)
+
     def step_fit():
-        rc = run([py, os.path.join(HERE, 'fit_report.py'), work, '--accept', '--json', os.path.join(out, 'fit_report.json')],
+        mesh = ['--mesh', 'body_mh.ply'] if mh else []
+        rc = run([py, os.path.join(HERE, 'fit_report.py'), work, '--accept', '--json', os.path.join(out, 'fit_report.json')] + mesh,
                  out, log, ok_codes=(0, 1))
         txt = open(log, errors='replace').read().split('\n$ ')[-1]
         print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]'))))
@@ -184,6 +193,13 @@ def main(argv=None):
         'verify': step_verify,
         'fit': step_fit,
     }
+    if mh:                                   # MakeHuman body replaces the hull mesh from the UV step on
+        actions.update({
+            'uv': lambda: run([py, S('mh33.py'), work, need_blender()[0]], work, log),
+            'export': lambda: run(need_blender() + [S('mh_export.py'), '--', work, lit], work, log),
+            'joints': skip('MakeHuman 骨架（mh33.py 已擬合關節）'),
+            'rig': skip('MakeHuman Mixamo 骨架與權重（52 根骨頭，含手指）'),
+        })
     todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
     print(f'body3d {__version__}  照片: {img}  輸出: {out}  Blender: {blender or "(找不到)"}')
     t0 = time.time()

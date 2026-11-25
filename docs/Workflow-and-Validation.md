@@ -72,6 +72,32 @@ python body3d/run_all.py ./photos ./output --only uv
 
 預設貼圖解析度為 4096 × 4096，可用 `BODY3D_TEX=2048` 跑 2K 診斷。重跑時確認 `work/` 來自同一組照片與相容的上游步驟。
 
+### MakeHuman 模板（`--template makehuman`，選用）
+
+剪影外殼的網格沒有關節拓樸、手指，骨架權重是自動算的，手臂放下時肩膀會變形。`--template makehuman` 從第 11 步起改用 MakeHuman 人體：
+
+1. `mh33.py` 在 `body33s.ply` 上量手腕、膝蓋、腳踝的中心，`mh_prep.py`（Blender）建立女性 MakeHuman 人體與 Mixamo 骨架（52 根骨頭，含手指），把四肢擺到這些點。
+2. `mh_fit.py` 把模板非剛性擬合到外殼（Laplacian 正則化 ICP；外殼是身體的上界，在外的點強拉、在內的點輕拉；手和腳保留模板形狀）。
+3. `mh_build.py`（Blender）把擬合後的 T-pose 設為靜止姿勢，依 MakeHuman 的關節定義（輔助方塊中心）移動骨頭並保留骨頭 roll，移除輔助幾何，展 UV。
+4. 第 12 步照常烘焙；第 13 步 `mh_export.py` 直接匯出含骨架的 GLB（骨頭名稱沒有 `mixamorig:` 前綴）；第 14、15 步略過；第 18 步 `fit` 用 `body_mh.ply` 驗收。
+
+需要先在 Blender 安裝 MPFB 擴充（MakeHuman for Blender，2.0.18 以上；程式碼 GPL-3，不隨本 repo 散布）。MakeHuman 的人體、骨架與權重是 CC0，成品可商用。
+
+| 量測 | 外殼流程 | MakeHuman |
+| --- | --- | --- |
+| 完美合成照片最終 `fit` | 5.0% | 7.3%（PASS） |
+| v1240 最終 `fit`（照片未過檢查） | 15.3% | 16.7% |
+| GLB 驗證 | 0 FAIL | 0 FAIL／0 WARN |
+| 手臂下垂的肩膀 | 肩頭方塊感 | 圓弧自然 |
+| 手 | 一塊 | 有手指與手指骨 |
+| 臉 | 乾淨 | 鼻、嘴周圍有白點（已知問題） |
+
+已知問題：MakeHuman 臉部有眼瞼、嘴巴內腔等內部幾何，擬合後被推到表面，自動展開的 UV 又把臉切成碎塊，烘焙後鼻、嘴周圍有白點與接縫；前臂外側貼圖也有色塊。預設仍是外殼流程。
+
+```sh
+python body3d/run_all.py ./photos ./output --name body --template makehuman
+```
+
 ## 照片初篩
 
 `check_turnaround.py` 預設使用 `--mode ai`。`--mode photo` 提供部分較寬的真實照片門檻。兩種模式都使用上述 33 張照片格式。
