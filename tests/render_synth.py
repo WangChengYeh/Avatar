@@ -1,4 +1,5 @@
-"""Render a clean synthetic 33-view turnaround set (2048x2048 JPG, white background, orthographic) from a GLB.
+"""Render a clean synthetic 33-view turnaround set (2048x2048 JPG, white background, orthographic) from a GLB:
+the "perfect photos". The reference model is the Yoga2 coach luna-v1.glb (tests/data, CC0, see luna-source.json).
 Used by the tests as known-good input for check_turnaround.py.
     blender -b --factory-startup --python render_synth.py -- model.glb OUT_DIR [PERSP_DISTANCE_M]
 With a distance, a perspective camera that far from the target is used instead (same framing), to produce a
@@ -48,6 +49,26 @@ def ring(phi, el):
 # wide, aimed at the body centre; the head close-ups are one fixed zoom, HEAD_FRAME wide, aimed at the head centre
 BODY_FRAME, HEAD_ZOOM = 1.95, 4.0
 HEAD_FRAME = BODY_FRAME / HEAD_ZOOM
+# T-pose (input spec): a rig whose arms hang down is posed with upper arm, forearm and hand straight out to the side
+for arm in [o for o in s.objects if o.type == 'ARMATURE']:
+    def turn(pb, target):
+        bpy.context.view_layer.update()
+        cur = (arm.matrix_world.to_3x3() @ (pb.tail - pb.head)).normalized()
+        q = cur.rotation_difference(target)
+        M = arm.matrix_world.to_3x3() @ pb.matrix.to_3x3()
+        pb.rotation_mode = 'QUATERNION'
+        pb.rotation_quaternion = (M.inverted() @ q.to_matrix() @ M).to_quaternion() @ pb.rotation_quaternion
+    for side, sx in (('Left', 1), ('Right', -1)):
+        for n in ('Arm', 'ForeArm', 'Hand'):
+            pb = arm.pose.bones.get(side + n)
+            if pb:
+                turn(pb, Vector((sx, 0, 0)))
+    bpy.context.view_layer.update()
+for o in s.objects:                     # helper geometry off the floor (e.g. a unit sphere) is not rendered
+    if o.type == 'MESH':
+        zz = [(o.matrix_world @ v.co).z for v in o.data.vertices]
+        if zz and min(zz) < -0.05:
+            o.hide_render = True
 # body centre (input spec): on the vertical axis, half the figure height above the feet, measured from the model
 # (meshes standing on the floor); the head close-ups aim at the head centre
 dg = bpy.context.evaluated_depsgraph_get(); zs = []
@@ -56,7 +77,7 @@ for o in s.objects:                 # meshes standing on the floor (the test GLB
         z = [(o.matrix_world @ v.co).z for v in o.evaluated_get(dg).to_mesh().vertices]
         if z and min(z) > -0.05:
             zs += z
-body = Vector((0, 0, (min(zs) + max(zs)) / 2)); head = Vector((0, 0, 1.52))
+body = Vector((0, 0, (min(zs) + max(zs)) / 2)); head = Vector((0, 0, max(zs) - 0.128))   # head centre: 12.8 cm below the top
 print('SYNTH body centre', round(body.z, 4), 'height', round(max(zs) - min(zs), 4))
 for i, phi in enumerate(range(0, 360, 45)):
     shot(f'{i + 1:02d}_{phi:03d}deg_{NAMES[phi]}', body, ring(phi, 0), BODY_FRAME)

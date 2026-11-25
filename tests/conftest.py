@@ -24,9 +24,19 @@ def blender():
 
 @pytest.fixture(scope='session')
 def model_glb():
-    p = os.environ.get('BODY3D_GLB', os.path.join(HERE, 'data', 'body_rigged.glb'))
+    p = os.environ.get('BODY3D_GLB', os.path.join(HERE, 'data', 'luna-v1.glb'))
     if not os.path.exists(p):
         pytest.skip(f'沒有測試模型 {p}')
+    return p
+
+
+@pytest.fixture(scope='session')
+def rigged_glb():
+    """a GLB produced by this pipeline (bone names, unlit material, head texture) for the GLB validator tests;
+    the perfect photos use the Yoga2 model (model_glb)"""
+    p = os.path.join(HERE, 'data', 'body_rigged.glb')
+    if not os.path.exists(p):
+        pytest.skip(f'沒有流程輸出模型 {p}')
     return p
 
 
