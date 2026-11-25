@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.34.0（2026-11-25）
+版本 1.35.0（2026-11-25）
 
 版本紀錄:
+  1.35.0 角度門檻依完美照片收緊：水平環 ≤ 3° 通過、> 5° FAIL（原 5° / 8°）；俯角 / 仰角環 ≤ 5°、> 7° FAIL（原 6° / 9°）。
   1.34.0 完美照片改用 Yoga2 教練 luna-v1.glb（T-pose），以新舊兩個模型都 0 FAIL / 0 WARN 校準：去背改用整張畫面的
          背景（手臂伸到畫面邊緣時不再被當背景）；外殼的旋轉軸改用鏡像對；第 10c 項只提醒（手 > 6%、頭 > 12%）；
          俯角 / 仰角環大小一致 < 6%、≥ 8% FAIL；側面不量對準高度；預期高度與水平相差 < 2% 的視角不換算俯仰角；
@@ -123,7 +124,8 @@ check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合�
        第 7c 項（相差 180° 的兩張腳踝寬度差 < 8%）會檢查，不合格判 FAIL。
 
 二、角度要求（本腳本第 4、5、6 項會檢查）
-  - 角度必須「真的」是標示的角度，誤差 ±10° 內。
+  - 角度必須「真的」是標示的角度：水平環誤差 ≤ 3° 通過、> 5° FAIL；俯角 / 仰角環 ≤ 5° 通過、> 7° FAIL
+    （由雙手展開寬度推算；完美照片最多 2° / 4°。照片檢查通過時重建直接用檔名角度，畫偏 5° 指尖就偏約 7 cm）。
       45° 要看得到一半側面；只轉 15–20° 的圖等於又一張正面，沒有用。
   - 90° / 270° 必須是純側面：
       兩條腿完全重疊、只看得到一條腿；臉是純側臉，只看得到一隻眼睛。
@@ -264,7 +266,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.34.0'
+__version__ = '1.35.0'
 import numpy as np
 import cv2
 
@@ -351,6 +353,14 @@ def best_iou_shift(a, b, max_shift=20):
     for dx in range(-max_shift, max_shift + 1, 2):
         best = max(best, iou(a, np.roll(b, dx, axis=1)))
     return best
+
+
+# sections 4 / 8, azimuth from the hand-to-hand span (arccos of the span relative to the front view). Perfect photos:
+# level ring up to 2°, +30° / −20° rings up to 4° (the shoulders' depth adds to the span). With the photo check passed
+# the reconstruction uses the file-name angle exactly (camera.MAX_DPHI = 0), so an angle drawn 5° off puts the
+# fingertips about 7 cm off: pass band = perfect photos + 1°.
+ANGLE_PASS, ANGLE_FAIL = 3, 5
+ANGLE_RING_PASS, ANGLE_RING_FAIL = 5, 7
 
 
 def hand_span(m):
@@ -2781,7 +2791,7 @@ def main():
            f'兩手高度差 {100 * sym:.1f}% 身高（應 < {100 * T(0.015, 0.03):.1f}%）')
 
     # ---- 4. real angle of each view (from the hand span; arms lie in the body plane, span ∝ |cos θ|)
-    print('\n4. 實際角度估計（由雙手展開寬度推算，±10° 內算正確）')
+    print(f'\n4. 實際角度估計（由雙手展開寬度推算，誤差 ≤ {T(ANGLE_PASS, 10)}° 通過，> {T(ANGLE_FAIL, 10)}° 判 FAIL）')
     for a, v in sorted(good.items()):
         if a in (0, 180):
             continue
@@ -2797,8 +2807,9 @@ def main():
                    if not ok_ else f'展開寬比例 {r_:.2f}，像真正側面')
         else:
             err = abs(est - expect)
-            report(PASS if err <= T(5, 10) else WARN if err <= T(8, 10) else FAIL, f'{a:3d}°',
-                   f'推算約 {est:.0f}°（應為 {expect}°，誤差 {err:.0f}°，應 ≤ {T(5, 10)}°）')
+            report(PASS if err <= T(ANGLE_PASS, 10) else WARN if err <= T(ANGLE_FAIL, 10) else FAIL, f'{a:3d}°',
+                   f'推算約 {est:.1f}°（應為 {expect}°，誤差 {err:.1f}°，應 ≤ {T(ANGLE_PASS, 10)}°，'
+                   f'> {T(ANGLE_FAIL, 10)}° 判 FAIL；完美照片最多 2°）')
 
     # ---- 5. true profiles: the legs must overlap
     print('\n5. 側面是否為真正 90°（兩腿應完全重疊）')
@@ -3064,8 +3075,11 @@ def main():
                            f'展開寬比例 {r_:.2f}（真側面應 < 0.40）' + ('' if r_ < 0.40 else '，角度不到 90°'))
                 else:
                     est_ = np.degrees(np.arccos(r_))
-                    report(PASS if abs(est_ - exp_) <= T(6, 12) else WARN if abs(est_ - exp_) <= T(9, 12) else FAIL, f'{cat} {a}° 角度',
-                           f'推算約 {est_:.0f}°（應為 {exp_}°，±{T(6, 12)}° 內；俯 / 仰角會讓推算略有偏差）')
+                    e_ = abs(est_ - exp_)
+                    p_, f_ = T(ANGLE_RING_PASS, 12), T(ANGLE_RING_FAIL, 12)
+                    report(PASS if e_ <= p_ else WARN if e_ <= f_ else FAIL, f'{cat} {a}° 角度',
+                           f'推算約 {est_:.1f}°（應為 {exp_}°，誤差 {e_:.1f}°，應 ≤ {p_}°，> {f_}° 判 FAIL；'
+                           f'俯 / 仰角會讓推算略有偏差，完美照片最多 4°）')
         # (b) flipped copies inside the ring
         angs_ = sorted(okv)
         flips = []
