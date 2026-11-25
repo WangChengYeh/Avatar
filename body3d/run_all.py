@@ -5,8 +5,12 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 用法:
     python run_all.py IMG_DIR OUT_DIR [--name body] [--blender /path/to/blender] [--force] [--from STEP] [--only STEP]
 
+關卡有 FAIL 就停（--force 才繼續，供診斷）。停或不停，做出來的東西都打包成各階段的成果（docs/SOP.md）：
+該階段與之前的關卡全部 0 FAIL 是好的 zip，否則是 _FAIL.zip（停下的那個階段有多少給多少）。
+結束碼：全部完成且 0 FAIL 為 0，其餘為 1。
+
 步驟（每一步都是 Python；Blender 步驟以 `blender -b --python` 執行 Python 腳本）:
-   1 check     check_turnaround.py 檢查照片規範（有 FAIL 就停，--force 才繼續）
+   1 check     check_turnaround.py 檢查照片規範；打包階段 1 成果（33 張照片）
    2 cams      去背、建立正交相機（cams33.py）
    3 refine    聯合微調相機 + 視覺外殼（refine33.py）
    4 arms      T-pose 手臂重建為橢圓柱（arms33.py）
@@ -29,7 +33,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
     {name}_rigged.glb        無光照材質（照片已含光影，建議用這個）
     {name}_rigged_lit.glb    一般 PBR 材質
     v2_*.png                 Blender 預覽圖
-    gates.json               4 道關卡各自的 FAIL / WARN / PASS / 共計、force、deliverable（見 docs/SOP.md）
+    gates.json               4 道關卡各自的 FAIL / WARN / PASS / 共計、deliverable（見 docs/SOP.md）
     client/index.html        給客戶看的進度與各階段圖（中文，每一步更新；client_report.py）
     progress.json            18 個步驟的狀態與時間
     deliver/{name}_stage1_photos.zip  階段 1 交付物：33 張照片 + 照片檢查報告 + manifest（照片檢查 0 FAIL）
@@ -38,7 +42,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.14.0'
+__version__ = '2.15.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
@@ -84,7 +88,7 @@ def main(argv=None):
     ap.add_argument('img_dir'); ap.add_argument('out_dir')
     ap.add_argument('--name', default='body')
     ap.add_argument('--blender')
-    ap.add_argument('--force', action='store_true', help='照片檢查有 FAIL 也繼續')
+    ap.add_argument('--force', action='store_true', help='關卡有 FAIL 也繼續做完（診斷用，之後的成果都標 _FAIL）')
     ap.add_argument('--from', dest='start', choices=STEPS, default='check')
     ap.add_argument('--only', choices=STEPS)
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
@@ -110,6 +114,34 @@ def main(argv=None):
         return [blender, '-b', '--factory-startup', '--python-exit-code', '1', '--python']
 
     gates = {}                     # gate -> (FAIL, WARN, PASS) from each checker's own summary line
+    fails = {}                     # gate -> its [FAIL] lines
+    go_on = a.force
+    packed = set()                 # stages whose result is zipped already
+
+    def stage_files(stage):
+        """what a stage produces (whatever of it exists when it is packed)"""
+        if stage == 2:
+            ov = os.path.join(out, 'view_overlays')
+            return {'cams33.json': os.path.join(work, 'cams33.json'), os.path.basename(mesh_ply): mesh_ply,
+                    'turnaround_report_head_review.png': os.path.join(out, 'turnaround_report_head_review.png'),
+                    **{f'view_overlays/{f}': os.path.join(ov, f) for f in (os.listdir(ov) if os.path.isdir(ov) else [])}}
+        if stage == 3:
+            return {os.path.basename(unlit): unlit, os.path.basename(lit): lit,
+                    **{f: os.path.join(out, f) for f in sorted(os.listdir(out)) if f.startswith('v2_') and f.endswith('.png')}}
+        cdir = os.path.join(out, 'client')
+        return {'fit_report.json': os.path.join(out, 'fit_report.json'), 'gates.json': os.path.join(out, 'gates.json'),
+                '04_body_compare.jpg': os.path.join(cdir, '04_body_compare.jpg'),
+                '05_head_compare.jpg': os.path.join(cdir, '05_head_compare.jpg')}
+
+    def stage_zip(stage, stopped=None):
+        """pack a stage's result, good or _FAIL (docs/SOP.md), with the gates of this stage and the earlier ones;
+        stopped = (step, reason) when the run stopped inside this stage: whatever exists is packed, as _FAIL"""
+        import deliver
+        g = {k: v for k, v in gates.items() if int(k[0]) <= stage}
+        z, ok = deliver.pack(out, a.name, stage, stage_files(stage), g, [l for k in g for l in fails.get(k, [])],
+                             stopped=stopped)
+        packed.add(stage)
+        print(f'     階段 {stage} 成果' + ('（好，可交付）：' if ok else '（不好，標 _FAIL）：') + z)
 
     def tally(gate):
         """read the summary line of the command run last (all checkers print the same format)"""
@@ -120,6 +152,8 @@ def main(argv=None):
         m = re.findall(r'總結: (\d+) 個 FAIL, (\d+) 個 WARN, (\d+) 個 PASS', txt)
         if m:
             gates[gate] = tuple(int(x) for x in m[-1])
+            import deliver
+            fails[gate] = deliver.fail_lines(txt)
 
     def gate_table():
         if not gates:
@@ -129,13 +163,13 @@ def main(argv=None):
         print('\n' + pad('驗收總表', 22) + ' FAIL  WARN  PASS  共計')
         for g, (f, w, p_) in gates.items():
             print('  ' + pad(g, 20) + f'{f:5d}{w:6d}{p_:6d}{f + w + p_:6d}' + ('  ← FAIL' if f else ''))
-        # deliverable (docs/SOP.md): all four gates ran, none has a FAIL, and the run did not use --force
-        all_ran = any(g.startswith('1') for g in gates) and any(g.startswith('4') for g in gates)
-        deliverable = all_ran and not a.force and not any(f for f, _, _ in gates.values())
-        print(f'  可交付: {"是" if deliverable else "否"}' + ('（用了 --force，只供診斷）' if a.force else
-              '' if deliverable else '（有 FAIL，或沒有從頭跑完四道關卡）'))
+        # deliverable (docs/SOP.md): all four gates ran and none has a FAIL
+        all_ran = all(any(g.startswith(n) for g in gates) for n in '1234')
+        deliverable = all_ran and not any(f for f, _, _ in gates.values())
+        print(f'  可交付: {"是" if deliverable else "否"}' + ('' if deliverable else
+              '（有 FAIL）' if any(f for f, _, _ in gates.values()) else '（沒有從頭跑完四道關卡）'))
         json.dump(dict(gates={g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
-                       force=bool(a.force), deliverable=deliverable),
+                       deliverable=deliverable),
                   open(os.path.join(out, 'gates.json'), 'w'), ensure_ascii=False, indent=1)
 
     def client_report(quick=False):
@@ -173,11 +207,11 @@ def main(argv=None):
             v = re.search(r'check_turnaround 版本 (\S+?)（', txt)
             z, ok = deliver.stage1(img, out, a.name, gates['1 照片檢查'], v.group(1) if v else '?',
                                    os.path.join(out, 'turnaround_report.png'), deliver.fail_lines(txt))
-            print(('     階段 1 交付：' if ok else '     階段 1 未通過（不能交付，照片仍打包供檢查）：') + z)
-        if rc == 1 and not a.force:
-            raise RuntimeError('照片檢查有 FAIL（見 run_all.log / turnaround_report.png）。修正照片，或加 --force 繼續')
+            print('     階段 1 成果' + ('（好，可交付）：' if ok else '（有未通過，標 _FAIL）：') + z)
+        if rc == 1 and not go_on:
+            raise RuntimeError('照片檢查有 FAIL（見 run_all.log / turnaround_report.png）。修正照片，或加 --force 繼續做完供診斷')
         if rc == 1:
-            print('     照片檢查有 FAIL，--force 繼續')
+            print('     照片檢查有 FAIL，--force 繼續：之後的成果都標 _FAIL')
 
     def step_face():
         for angle in ('000', '045', '315'):
@@ -188,18 +222,19 @@ def main(argv=None):
                 os.remove(dst)
             if not os.path.exists(f):
                 raise RuntimeError(f'缺少頭部特寫 {f}：臉部步驟是必要的')
-            # exit 2 = no face found: the photo check has already failed it, so only --force goes on
-            run([py, S('face_landmarks.py'), f, dst], work, log, ok_codes=(0, 2) if a.force else (0,))
+            # exit 2 = no face found: the photo check has already failed it, so only --force goes on (results _FAIL)
+            run([py, S('face_landmarks.py'), f, dst], work, log, ok_codes=(0, 2) if go_on else (0,))
 
     def step_bake():
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--head-overlap-work', work,
                   '--view-overlay-dir', os.path.join(out, 'view_overlays')],
                  work, log, ok_codes=(0, 1), show_output=True)
         tally('2 烘焙前檢查')
-        if rc and not a.force:
-            raise RuntimeError('烘焙前頭部檢查有 FAIL（見 run_all.log）。修正照片，或加 --force 繼續')
+        stage_zip(2)
+        if rc and not go_on:
+            raise RuntimeError('烘焙前頭部檢查有 FAIL（見 run_all.log）。修正照片，或加 --force 繼續做完供診斷')
         if rc:
-            print('     烘焙前頭部檢查有 FAIL，--force 繼續')
+            print('     烘焙前頭部檢查有 FAIL，--force 繼續：之後的成果都標 _FAIL')
         run([py, S('bake33.py'), work, img], work, log)
 
     def step_export():
@@ -216,10 +251,14 @@ def main(argv=None):
         txt = open(log, errors='replace').read()
         for part in txt.split('\nverify_glb ')[-2:]:
             print('   verify_glb ' + '\n   '.join(l for l in part.splitlines() if 'FAIL' in l or 'WARN' in l or '總結' in l or l.endswith('.glb')))
-        if bad:
+        stage_zip(3)
+        if bad and not go_on:
             raise RuntimeError('verify_glb 有 FAIL（見 run_all.log）')
+        if bad:
+            print('     GLB 驗證有 FAIL，--force 繼續：之後的成果都標 _FAIL')
 
     mh = a.template == 'makehuman'
+    mesh_ply = os.path.join(work, 'body_mh.ply' if mh else 'body33s.ply')
 
     def skip(msg):
         return lambda: print('     ' + msg)
@@ -231,10 +270,10 @@ def main(argv=None):
         tally('4 最終驗收')
         txt = open(log, errors='replace').read().split('\n$ ')[-1]
         print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]', '總結'))))
-        if rc and not a.force:
-            raise RuntimeError('成品與原圖剪影差異太大（見 fit_report.json）：先修正照片（第 10 / 10d / 10e 項），或加 --force')
+        if rc and not go_on:
+            raise RuntimeError('成品與原圖剪影差異太大（見 fit_report.json）：先修正照片（第 10 / 10d / 10e 項）')
         if rc:
-            print('     成品與原圖剪影差異太大，--force 繼續')
+            print('     成品與原圖剪影差異太大，--force 繼續：成果標 _FAIL')
 
     actions = {
         'check': step_check,
@@ -247,7 +286,7 @@ def main(argv=None):
                          run([py, S('mesh33s.py'), 'occ33d.npy', 'body33s.ply'], work, log)),
         'headreg': lambda: run([py, S('headreg33.py')], work, log),
         'face': step_face,
-        'face3d': lambda: run([py, S('face33.py'), img], work, log, ok_codes=(0, 2) if a.force else (0,)),
+        'face3d': lambda: run([py, S('face33.py'), img], work, log, ok_codes=(0, 2) if go_on else (0,)),
         'uv': lambda: run(need_blender() + [S('bl_uv33s.py'), '--', work], work, log),
         'bake': step_bake,
         'export': step_export,
@@ -267,7 +306,7 @@ def main(argv=None):
     todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
     print(f'body3d {__version__}  照片: {img}  輸出: {out}  Blender: {blender or "(找不到)"}')
     t0 = time.time()
-    progress.update(started=t0, state='running', force=bool(a.force),
+    progress.update(started=t0, state='running',
                     steps=[dict(name=s, status='pending', seconds=None) for s in todo])
     try:
         for i, s in enumerate(todo):
@@ -283,16 +322,26 @@ def main(argv=None):
         save_progress()
         gate_table()
         client_report()
-        print(f'\n失敗於步驟 {s}: {e}', file=sys.stderr)
+        # what was made is still handed over: the stage the run stopped in is packed with whatever it has, as _FAIL
+        from client_report import STAGE_OF
+        here = STAGE_OF.get(s, 1)
+        for n in range(2, here + 1):
+            if n not in packed or n == here:
+                stage_zip(n, stopped=(s, str(e).split('\n')[0]) if n == here else None)
+        client_report(quick=True)                    # the page links the zips packed just now
+        print(f'\n停在步驟 {s}: {e}', file=sys.stderr)
         return 1
     progress.update(state='done', finished=time.time())
     save_progress()
     gate_table()
     client_report()
+    if 'fit' in todo:                                # stage 4 result: the photo / model comparison and the numbers
+        stage_zip(4)
+        client_report(quick=True)                    # the page links the stage 4 zip too
     print(f'\n完成（{(time.time() - t0) / 60:.1f} 分鐘）')
     if 'unlit' in todo or 'verify' in todo:
         print(f'  {unlit}\n  {lit}')
-    return 0
+    return 1 if any(f for f, _, _ in gates.values()) else 0
 
 
 if __name__ == '__main__':

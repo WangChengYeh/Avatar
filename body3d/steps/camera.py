@@ -6,7 +6,7 @@ camera). Without D the camera is orthographic:
     col = cu + s * (P·r),   row = cv - s * (P·u)
 With D it is a pinhole camera at C0 + D·f looking at C0 (same scale s at the centre plane):
     k = D / (D - (P - C0)·f),   col = cu + s * (C0·r + k (P - C0)·r),   row = cv - s * (C0·u + k (P - C0)·u)
-The input spec is orthographic (checked by section 10b). Only when the photos fail the check (run with --force) do
+The input spec is orthographic (checked by section 10b). Only when the photos fail the check (run with --force, results marked _FAIL) do
 cams33.py / refine33.py estimate a D for the elevated / low views, so that photos drawn with perspective can still be
 reconstructed for diagnosis.
 """

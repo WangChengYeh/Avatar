@@ -41,10 +41,10 @@ STEP_ZH = {'check': '照片檢查', 'cams': '去背、建立相機', 'refine': '
            'verify': '模型檔驗證', 'fit': '成品與原圖比對'}
 STAGE_OF = {'check': 1, 'cams': 2, 'refine': 2, 'arms': 2, 'round': 2, 'legs': 2, 'mesh': 2, 'headreg': 2, 'face': 2,
             'face3d': 2, 'uv': 2, 'bake': 3, 'export': 3, 'joints': 3, 'rig': 3, 'unlit': 3, 'verify': 3, 'fit': 4}
-STAGES = {1: ('照片', '1 照片檢查', '交付物：33 張照片。照片檢查全部通過才算交付；有未通過時要先重畫照片，不會開始做模型。'),
-          2: ('重建', '2 烘焙前檢查', '交付物：相機與人體形狀。由照片算出相機和外形，再確認全身照和頭部特寫的頭部對得上（五官位置、亮度）。'),
-          3: ('模型', '3 GLB 驗證', '交付物：兩個模型檔（GLB）。烘焙貼圖、建立骨架、匯出，並驗證檔案結構、骨架與材質。'),
-          4: ('成品驗收', '4 最終驗收', '交付物：原圖對模型的對照。用拍原圖的同一組相機拍模型：左邊原圖、右邊模型，兩邊應該一樣。')}
+STAGES = {1: ('照片', '1 照片檢查', '成果：33 張照片。照片檢查全部通過才是好的成果；有未通過時流程停在這裡，照片照樣打包（標 _FAIL），要重畫照片。'),
+          2: ('重建', '2 烘焙前檢查', '成果：相機與人體形狀。由照片算出相機和外形，再確認全身照和頭部特寫的頭部對得上（五官位置、亮度）。'),
+          3: ('模型', '3 GLB 驗證', '成果：兩個模型檔（GLB）。烘焙貼圖、建立骨架、匯出，並驗證檔案結構、骨架與材質。'),
+          4: ('成品驗收', '4 最終驗收', '成果：原圖對模型的對照。用拍原圖的同一組相機拍模型：左邊原圖、右邊模型，兩邊應該一樣。')}
 LEVEL_ZH = {'FAIL': '未通過', 'WARN': '需複核', 'PASS': '通過'}
 GATE_ZH = {'1 照片檢查': '照片檢查', '2 烘焙前檢查': '烘焙前檢查', '3 GLB 驗證（unlit）': '模型檔驗證（無光照版）',
            '3 GLB 驗證（lit）': '模型檔驗證（一般版）', '4 最終驗收': '成品與原圖比對'}
@@ -218,7 +218,8 @@ def progress_html(prog, gates_seen):
         nf = sum(v['FAIL'] for k, v in gates_seen.items() if gate and k.startswith(gate))
         fix = {'check': '要先重畫照片（見下方階段 1 的未通過清單）', 'bake': '多半是照片的頭部特寫角度或五官位置，見階段 2 清單',
                'verify': '模型檔有問題，由工程師修正', 'fit': '模型和原圖對不上，見階段 4 的對照圖與清單'}.get(at, '')
-        why = (f'停在「{STEP_ZH.get(at, at)}」：' + (f'{nf} 項未通過，{fix}' if nf else '程式執行出錯，請工程師查看紀錄'))
+        why = (f'停在「{STEP_ZH.get(at, at)}」：' + (f'{nf} 項未通過，{fix}' if nf else '程式執行出錯，請工程師查看紀錄')
+               + '。停下前做出來的東西都已打包，見下方各階段的成果')
     tick = (f'<span id="el" data-start="{prog.get("started", 0)}">{fmt_time(el)}</span>' if running else fmt_time(el))
     out = [f'<p class="prog"><b>{head}</b>　{done} / {len(steps)} 步　已用 {tick}'
            + (f'<br><span class="bad">{e(why)}</span>' if why else '') + '</p>']
@@ -268,7 +269,7 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
     body += prog_html
     if not running and gates:
         ok = gates.get('deliverable')
-        word = '可以交付' if ok else '不能交付' + ('（有未通過仍強制做完，只供檢查問題用）' if gates.get('force') else '')
+        word = '可以交付' if ok else '不能交付（有未通過；做出來的東西都已打包，標 _FAIL）'
         body.append(f'<p class="status {"ok" if ok else "bad"}">{e(word)}</p>')
     if g:
         rows = ''.join(f'<tr><td>{e(GATE_ZH.get(k, k))}</td><td class="{"f" if v["FAIL"] else ""}">{v["FAIL"]}</td>'
@@ -280,16 +281,15 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
                     f'≥ 92% 通過，低於 90% 未通過）</p>')
     for n, (title, gate, desc) in STAGES.items():
         body.append(f'<h2>階段 {n}・{e(title)}</h2><p>{e(desc)}</p>')
-        if n == 1:
-            good = os.path.join(a.out, 'deliver', f'{a.name}_stage1_photos.zip')
-            bad = os.path.join(a.out, 'deliver', f'{a.name}_stage1_photos_FAIL.zip')
-            for z, word, cls in ((good, '已交付', 'deliver'), (bad, '未通過，不能交付（照片仍打包供檢查）', 'deliver bad')):
-                if os.path.exists(z):
-                    body.append(f'<p class="{cls}">{word}：<a href="../deliver/{e(os.path.basename(z))}">'
-                                f'{e(os.path.basename(z))}</a>（{os.path.getsize(z) / 2 ** 20:.1f} MB，33 張照片、'
-                                '照片檢查報告、清單）</p>')
-            if not (os.path.exists(good) or os.path.exists(bad)):
-                body.append('<p class="deliver no">照片檢查還沒跑完，還沒有照片的 zip</p>')
+        import deliver
+        good, bad = deliver.zip_paths(a.out, a.name, n)
+        for z, word, cls in ((good, '成果（好，可交付）', 'deliver'), (bad, '成果（有未通過，不好，不能交付）', 'deliver bad')):
+            if os.path.exists(z):
+                body.append(f'<p class="{cls}">{word}：<a href="../deliver/{e(os.path.basename(z))}">'
+                            f'{e(os.path.basename(z))}</a>（{os.path.getsize(z) / 2 ** 20:.1f} MB，'
+                            f'{e(deliver.STAGE_ZH[n])}與清單）</p>')
+        if not (os.path.exists(good) or os.path.exists(bad)):
+            body.append('<p class="deliver no">這個階段還沒做完，還沒有成果</p>')
         for f in made.get(n, []):
             body.append(f'<a href="{f}"><img src="{f}?v={int(os.path.getmtime(os.path.join(cdir, f)))}"></a>')
         if not made.get(n):

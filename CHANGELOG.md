@@ -4,6 +4,15 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## body3d 2.15.0 · 停下也要交出做出來的東西
+
+原則（SOP）：關卡有 FAIL 就停，但停下前做出來的東西一定交出來：通過是好的成果，未通過是不好的成果（`_FAIL`）。只有四道關卡全部通過才能交付。
+
+- 每個階段結束在 `OUT/deliver/` 打包成果：`stage1_photos`、`stage2_reconstruction`、`stage3_models`、`stage4_acceptance`。這個階段和之前的關卡全部 0 FAIL 是好的（原檔名）；否則加 `_FAIL`，manifest 有各關卡數字與未通過項目。
+- 流程停下時（關卡 FAIL 或程式出錯），停在的那個階段做出多少打包多少（`_FAIL`），manifest 的 `stopped` 記錄停在哪一步與原因，`missing` 列出還沒做出來的檔。
+- `--force` 照舊：有 FAIL 也做完，只供診斷，之後的成果全部 `_FAIL`。`gates.json` 拿掉 `force`；`deliverable` = 四道關卡都有結果且全部 0 FAIL。結束碼：全部完成且 0 FAIL 為 0，其餘為 1。
+- 客戶頁每個階段列出成果 zip。SOP、README、流程文件同步。
+
 ## body3d 2.14.0 · 照片檢查未通過也打包 zip（_FAIL）
 
 - 階段 1 一定打包 33 張照片：0 FAIL 是 `{name}_stage1_photos.zip`（交付物）；有 FAIL 或缺照片是 `{name}_stage1_photos_FAIL.zip`（不能交付，`manifest.json` 有 `deliverable: false`、`failures` 未通過清單、`missing`）。同時只留一個。
