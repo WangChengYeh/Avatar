@@ -4,12 +4,12 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
-## 文件整理：依雲端硬碟實際狀態更新、交接清單
+## 文件整理：雲端硬碟用連結器、交接清單；拿掉 file_list.md
 
-- `docs/File-List.md`：各 avatar 的狀態改成雲端硬碟上的實際內容（ChatGPT avatar_001 v033–v047、Gemini avatar_001 v002 四包都不是 _FAIL）；新增雲端硬碟資料夾結構、Claude 讀雲端硬碟的方式（Google Drive 連結器或 `avatar` 分享連結）、**交接清單**（還沒做完的 8 件事，給接手的 session）。
+- 所有人（Claude、ChatGPT、Gemini）都用 Google Drive 連結器讀寫雲端硬碟 `avatar/`，依資料夾或檔名找，所以不需要另外的檔案清單：拿掉 #71 加的每個執行者的 `file_list.md`（next_step 不再產生），以及分享連結的做法。
+- `docs/File-List.md` 保留為重要文件索引：各 avatar 的狀態改成雲端硬碟上的實際內容（ChatGPT avatar_001 v033–v047、Gemini avatar_001 v002 四包都不是 _FAIL）、雲端硬碟資料夾結構、**交接清單**（還沒做完的事，給接手的 session）。
 - SOP：照片與結果包實際放在雲端硬碟 `avatar/`，GitHub 資料 repo 的 Release 改為有 gh 時的備用。
 - 每個執行者的 avatar 各自從 `avatar_001` 編號（Gemini 也是 avatar_001，不是 avatar_002）：runbook、SOP、專案迴圈的目錄圖更新。
-
 ## 重要檔案清單：docs/File-List.md 與每個執行者的 file_list.md
 
 大家（人、Claude、ChatGPT、Gemini）找檔案只看一個地方。

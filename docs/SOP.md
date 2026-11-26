@@ -21,7 +21,7 @@ SOP、程式、問題、程式改動在 GitHub；照片與結果包在雲端硬�
 | 東西 | 放在哪裡 | 誰放、什麼時候 | 誰拿、怎麼拿 |
 | --- | --- | --- | --- |
 | SOP、程式、檢查 | [`WangChengYeh/Avatar`](https://github.com/WangChengYeh/Avatar) 的 main | Claude 合併 PR | 執行者：`next_step.py` 每次自動 `git fetch`，main 有新的就叫你 `git pull`、重跑（UPDATE） |
-| 照片、結果包 | 雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`（一個版本一個資料夾）；每個執行者的 `file_list.md` 一版一列 | 執行者每個版本跑完放上去；`next_step.py` 更新 `file_list.md` | Claude：Google Drive 連結器（依檔名找），或人給的 `avatar` 分享連結 |
+| 照片、結果包 | 雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`（一個版本一個資料夾） | 執行者每個版本跑完放上去 | 所有人（Claude、ChatGPT、Gemini）都用 Google Drive 連結器讀寫，依資料夾或檔名找 |
 | 同上（備用） | [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data) 的 **Release** | 執行者的 `next_step.py` 有 gh 時**自動上傳** | 任何人：`python body3d/data_repo.py fetch <tag> DIR` |
 | 處理不掉的問題 | `WangChengYeh/Avatar` 的 **Issue**（SOP 升級表單） | 執行者（next_step 走到 ESCALATE 時，內文已寫好、附 Release 連結） | Claude：下載 Release 重現、修好開 PR `Fixes #N` |
 | 程式改動 | `WangChengYeh/Avatar` 的 **PR** | 執行者（照 AI 改 code 單）或 Claude | Claude review、合併；執行者下次跑 next_step 自動更新 |

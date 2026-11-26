@@ -167,49 +167,6 @@ def wait_answered(w, state):
     return bool(since) and since != current_code()
 
 
-FILE_LIST_HEAD = ['| agent | avatar | 版本 | 時間 | 結果 | 下一步 | 結果包 | 分享連結 |',
-                  '| --- | --- | --- | --- | --- | --- | --- | --- |']
-
-
-def update_file_list(ws, agent, avatar, next_state):
-    """one row per version in the executor's own file list, avatar/<chatgpt|gemini>/file_list.md (docs/File-List.md):
-    what each round gave and its result packs, so everyone finds the files by name. Each executor writes only its own
-    list. The share-link column is kept as people fill it."""
-    root = os.path.dirname(os.path.abspath(ws))
-    path = os.path.join(root, 'file_list.md')
-    rows, links = {}, {}
-    if os.path.exists(path):
-        for line in open(path, encoding='utf-8').read().splitlines():
-            c = [x.strip() for x in line.strip().strip('|').split('|')]
-            if len(c) == 8 and c[2].startswith('v') and c[2][1:].isdigit():
-                rows[(c[0], c[1], c[2])] = line
-                links[(c[0], c[1], c[2])] = c[7]
-    vs = versions(ws)
-    for n, d in vs:
-        out = os.path.join(d, 'output')
-        g = load(os.path.join(out, 'gates.json'), None)
-        if not g:
-            continue
-        key = (agent.lower(), avatar, f'v{n:03d}')
-        res = '、'.join(f'{k.split()[0]}:{v["FAIL"]}F/{v["WARN"]}W' for k, v in g.get('gates', {}).items())
-        res += '，可交付' if g.get('deliverable') else '，不能交付'
-        when = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.join(out, 'gates.json'))).strftime('%Y-%m-%d %H:%M')
-        dl = os.path.join(out, 'deliver')
-        packs = '<br>'.join(sorted(f for f in os.listdir(dl) if f.endswith('.zip'))) if os.path.isdir(dl) else ''
-        nxt = next_state if n == vs[-1][0] else ''
-        rows[key] = f'| {key[0]} | {key[1]} | {key[2]} | {when} | {res} | {nxt} | {packs} | {links.get(key, "")} |'
-    if not rows:
-        return None
-    text = [f'# {agent} 的 avatar 檔案清單', '', '由 next_step 每一輪自動更新（docs/File-List.md）。「分享連結」欄由人或執行者填，'
-            'next_step 會保留。這一份有人物照片的連結，不要放進公開的 GitHub。', ''] + FILE_LIST_HEAD
-    text += [rows[k] for k in sorted(rows)]
-    try:
-        open(path, 'w', encoding='utf-8').write('\n'.join(text) + '\n')
-        return path
-    except OSError:
-        return None
-
-
 def decide(ws, avatar, agent, name, template, state):
     vs = versions(ws)
     cn, cur = vs[-1] if vs else (0, None)
@@ -363,7 +320,6 @@ def main(argv=None):
     auto_publish(ws, state)
     r = decide(ws, a.avatar, a.agent, a.name, a.template, state)
     state['last'] = dict(r, at=datetime.datetime.now().astimezone().isoformat(timespec='seconds'))
-    fl = update_file_list(ws, a.agent, a.avatar, r['state'])
     rt = state.get('report_to')                         # still shown on DONE (the last report), then cleared
     if rt and r['state'] == 'DONE':
         state.pop('report_to', None)
@@ -376,8 +332,6 @@ def main(argv=None):
                      f'等你回報）。照上面繼續；這一輪跑完，把結果和 Claude 在 issue 留言要的數字回覆到 #{rt["number"]}：'
                      f'`gh issue comment {rt["number"]} --repo WangChengYeh/Avatar --body-file <檔案>`。'
                      '沒有 gh 時，把要回覆的內容寫進 issue_reply.md，交給人貼上。']
-    if fl:
-        text += ['', f'檔案清單：{fl}（這一輪已記上；要給 Claude 看的版本，在「分享連結」欄填上雲端硬碟的連結）']
     pub = state.get('published', {})
     if pub:
         last = sorted(pub)[-1]
