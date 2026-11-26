@@ -9,6 +9,8 @@
 執行者原本只有在等自己的 issue／PR 被解決時才會 `git pull`；Claude 合併其他修正（例如為另一個 avatar 補的檢查）時，執行者不知道，繼續用舊的 SOP。
 - `next_step.py` 每次都先 `git fetch origin main`：本機落後就給新的狀態 **UPDATE**（`git pull`，用目前的照片從頭重跑到新的輸出資料夾；新的 SOP 可能改了檢查，所以已經可交付的也重跑）。正在等的 issue／PR 已解決時一併清掉等待，不會重跑兩次。抓不到 GitHub 時照本機版本繼續，原因寫在 `avatar_state.json` 的 `update_check`。測試時用 `NEXT_STEP_OFFLINE=1` 跳過。
 - 實測：從 GitHub clone、退回 2 個 merge（落後 6 個 commit）→ UPDATE，列出新的 commit 與 pull、重跑指令。
+- **程式更新了就一定重跑**：`run_all.py` 在 `gates.json`、`progress.json` 記錄是哪一版程式（git commit、有沒有未提交的改動）跑的，客戶頁也顯示。`next_step.py` 發現最新結果是舊程式跑的（之後 `body3d/` 改過；只改文件不算），或沒有記錄，就給 RUN：同一組照片用新程式重跑。不管程式是怎麼更新的（UPDATE、手動 pull、別的工具）都會重跑。
+- 修正：只跑了部分關卡（`--only`／`--from`）、沒有 FAIL 也還不能交付的結果，改成 RUN（從頭完整跑），不再誤走 ESCALATE。
 - runbook、啟動提示詞、AGENTS.md／GEMINI.md、專案迴圈都寫明「不用自己記得去 GitHub 抓新的」。
 
 ## 執行者不再停下來問人：next_step.py、AGENTS.md／GEMINI.md

@@ -27,6 +27,7 @@ python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT
 
 ## 規則
 
+- **程式更新了就一定重跑**：每份結果都記錄是哪一版程式（git commit）跑的。最新的結果如果是舊程式跑的（之後 `body3d/` 改過，不管是 next_step 的 UPDATE、你手動 pull、還是別的工具更新的），next_step 一律給 RUN：同一組照片用新程式重跑。只改文件不會重跑。
 - **不用自己記得去 GitHub 抓新的**：next_step 每次都先 `git fetch`，main 比本機新就給 UPDATE（pull、重跑）。Claude 合併的修正（不管是不是為你的 avatar），你下一次跑 next_step 就會拿到。抓不到 GitHub（沒網路）時它照本機的版本繼續，並在 `avatar_state.json` 的 `update_check` 寫原因。
 
 - 只有 **DONE** 和 **WAITING** 可以停下來。其他狀態一律照做、再跑 next_step。
