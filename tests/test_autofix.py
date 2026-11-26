@@ -91,3 +91,16 @@ def test_fix_order_earlier_stage_then_confidence():
     order = dz.fix_order(L)
     assert [d['item'] for d in order] == ['照片高', '照片中', '程式高', '程式低']
     assert [d['order'] for d in order] == [1, 2, 3, 4] and order[0]['stage_name'] == '階段 1 照片'
+
+
+def test_ai_code_request_waits_for_photos_and_takes_the_earliest_stage(tmp_path):
+    import ai_request
+    import diagnose as dz
+    prog = dz.leaf('全身／頭部一致性 45° / 315° 左右', ['關卡 2', '2a'], '特寫環對準點偏離旋轉軸', '程式', 'AI 改程式：headreg', '高',
+                   dict(head_ring_aim_z_mm=21.4))
+    photo = dz.leaf('head 45° 臉部位置', ['關卡 1'], '臉的位置不同', '照片', 'AI 修圖', '高', {})
+    assert ai_request.make_code(str(tmp_path / 'a'), dz.fix_order([prog, photo])) is None     # photos come first
+    late = dz.leaf('GLB', ['關卡 3'], '材質', '程式', 'AI 改程式：glb_unlit', '高', {}, stage=3)
+    r = ai_request.make_code(str(tmp_path / 'b'), dz.fix_order([late, prog]), 'photos')
+    text = (tmp_path / 'b' / 'ai_code_request' / 'AI改code單.md').read_text(encoding='utf-8')
+    assert r and '階段 2' in text and 'headreg' in text and 'GLB' not in text and '21.4' in text and '開 PR' in text

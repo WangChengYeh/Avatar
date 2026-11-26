@@ -217,8 +217,8 @@ def progress_html(prog, gates_seen):
         gate = {'check': '1', 'bake': '2', 'verify': '3', 'fit': '4'}.get(at)
         nf = sum(v['FAIL'] for k, v in gates_seen.items() if gate and k.startswith(gate))
         fix = {'check': '見下方「要修的項目」的診斷', 'bake': '見下方「要修的項目」的診斷：每一項是照片或程式',
-               'verify': '模型檔有問題，由工程師修正', 'fit': '模型和原圖對不上，見階段 4 的對照圖與清單'}.get(at, '')
-        why = (f'停在「{STEP_ZH.get(at, at)}」：' + (f'{nf} 項未通過，{fix}' if nf else '程式執行出錯，請工程師查看紀錄')
+               'verify': '模型檔有問題，交給 AI 改程式（見 AI 改 code 單）', 'fit': '模型和原圖對不上，見階段 4 的對照圖與清單'}.get(at, '')
+        why = (f'停在「{STEP_ZH.get(at, at)}」：' + (f'{nf} 項未通過，{fix}' if nf else '程式執行出錯，交給 AI 改程式（附 run_all.log）')
                + '。停下前做出來的東西都已打包，見下方各階段的成果')
     tick = (f'<span id="el" data-start="{prog.get("started", 0)}">{fmt_time(el)}</span>' if running else fmt_time(el))
     out = [f'<p class="prog"><b>{head}</b>　{done} / {len(steps)} 步　已用 {tick}'
@@ -296,6 +296,11 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
             diag += (f'<p class="deliver fixed"><b>AI 修圖單</b>：{n_ph} 張照片要請 AI 重畫，'
                      '<a href="../ai_fix_request/AI修圖單.md">AI修圖單.md</a>（附原圖與「應該的樣子」參考圖，'
                      '也在結果包的 ai_fix_request/）</p>')
+        creq = os.path.join(a.out, 'ai_code_request', 'AI改code單.md')
+        if os.path.exists(creq):                       # program problems: what to hand to the coding AI
+            diag += ('<p class="deliver fixed"><b>AI 改 code 單</b>：程式的問題交給 AI 改程式，'
+                     '<a href="../ai_code_request/AI改code單.md">AI改code單.md</a>（原因、數字、要補的檢查、要改的檔、驗收方式；'
+                     '也在結果包的 ai_code_request/）</p>')
         body.append('<div class="todo"><b>要修的項目（' + str(len(todo)) + ' 項未通過）</b>' + diag
                     + '<details><summary>未通過項目原文</summary><ol>'
                     + ''.join(f'<li><span class="g">{e(GATE_ZH.get(k, k))}</span>　{e(t)}</li>' for k, t in todo)

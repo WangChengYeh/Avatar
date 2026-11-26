@@ -80,7 +80,7 @@ def diagnose_photo_fails(fail_lines):
                 break
         else:
             out.append(leaf(label, ['關卡 1 照片檢查', f'項目：{label}', '沒有對應的規則'], '未分類', '照片',
-                            '依報告「→」後面的建議重畫；規則需要補', '低', {'line': line}))
+                            'AI 修圖：依報告「→」後面的建議重畫；診斷規則要補（AI 改程式）', '低', {'line': line}))
     return out
 
 
@@ -142,13 +142,13 @@ def diagnose_prebake(photos, work):
     out = []
     if 0 not in res or 45 not in res or 315 not in res:
         return [leaf('全身／頭部一致性', ['關卡 2 烘焙前檢查', '量不到 0° / 45° / 315° 的五官'], '五官偵測失敗', '程式',
-                     '工程師檢查臉部特徵點步驟', '低', {'measured': list(res)})]
+                     'AI 改程式：檢查臉部特徵點步驟（face_landmarks / face33）', '低', {'measured': list(res)})]
     s = cams[FULL[45]]['s']
     r0 = (res[0][0] - BASE_DX, res[0][1] - BASE_DY)
     ev = dict(residual_px={a: [round(v, 1) for v in res[a]] for a in res}, baseline_px=[BASE_DX, BASE_DY])
     if abs(r0[0]) > TOL_PX or abs(r0[1]) > TOL_PX:
         out.append(leaf('全身／頭部一致性 0°', ['關卡 2', '1. 0° 也偏 → 是'], '全部角度一起偏：相機或五官偵測',
-                        '程式', '工程師檢查相機（全身與特寫環的對準點、比例）與特徵點步驟', '中', ev))
+                        '程式', 'AI 改程式：檢查相機（全身與特寫環的對準點、比例）與特徵點步驟', '中', ev))
     # 2. horizontal: depth errors show up opposite at 45° and 315° (orthographic, level: dx = -sin(phi) * depth error)
     anti = (res[45][0] - res[315][0]) / 2
     if abs(anti) > TOL_PX:
@@ -160,11 +160,11 @@ def diagnose_prebake(photos, work):
             out.append(leaf('全身／頭部一致性 45° / 315° 左右', ['關卡 2', '2. 左右偏移、45° 與 315° 反向 → 是',
                             f'2a. 頭部特寫環對準點 z = {1000 * qz:+.1f} mm（完美照片 ±1 mm），預測 {predicted:+.1f} px、實測 {anti:+.1f} px → 對得上'],
                             '頭部特寫相機環的對準點被擬合到旋轉軸前後（headreg 用剪影擬合，頭髮／髮髻造成）', '程式',
-                            '照片檢查通過時，把頭部特寫環的對準點固定在旋轉軸上（和全身環一樣）', '高', e2))
+                            'AI 改程式：照片檢查通過時，把頭部特寫環的對準點固定在旋轉軸上（和全身環一樣；headreg 1.40 已修，再出現表示退步）', '高', e2))
         else:
             out.append(leaf('全身／頭部一致性 45° / 315° 左右', ['關卡 2', '2. 左右偏移、45° 與 315° 反向 → 是',
                             f'2b. 對準點 z = {1000 * qz:+.1f} mm 解釋不了（預測 {predicted:+.1f} px、實測 {anti:+.1f} px）'],
-                            '臉部網格的前後深度不對', '程式', '工程師檢查臉部深度（face3d / 網格）', '中', e2))
+                            '臉部網格的前後深度不對', '程式', 'AI 改程式：檢查臉部深度（face33 / 網格）', '中', e2))
     # 3. vertical: depth does not move a level orthographic view up or down
     p11 = photo_face_offsets(photos)
     for a in (45, 315):
@@ -181,7 +181,7 @@ def diagnose_prebake(photos, work):
                             f'重畫 head_{a:03d}deg：同角度全身圖頭部的 4 倍放大，眼鼻嘴高度一致', '高', e3))
         else:
             out.append(leaf(f'全身／頭部一致性 {a}° 上下', ['關卡 2', '3. 上下偏移 → 是', '3b. 照片沒量到同方向的差 → 程式'],
-                            '特寫相機的上下對準或比例不對', '程式', '工程師檢查頭部特寫環的上下對準', '中', e3))
+                            '特寫相機的上下對準或比例不對', '程式', 'AI 改程式：檢查頭部特寫環的上下對準（headreg）', '中', e3))
     if not out:
         out.append(leaf('全身／頭部一致性', ['關卡 2', '1–3 都沒有超過門檻'], '五官位置在門檻附近或亮度造成', '程式',
                         '看亮度差（P90）與疊圖', '低', ev))
