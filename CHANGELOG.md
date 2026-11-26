@@ -4,6 +4,12 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 文件拿掉圖片資料夾 docs/sop/、docs/loop-engineering/
+
+- `docs/sop/`：客戶頁截圖。截圖會跟著程式過時（`client_stopped.jpg` 已在 #73 拿掉），每次輸出都有真的 `client/index.html`；SOP「你會看到什麼」只留文字說明。
+- `docs/loop-engineering/`：已關閉的 issue #17、#19、#31 的證據圖，repo 裡沒有文件引用。issue 裡的圖連到當時的 commit，刪掉後仍然看得到。
+- 兩者都還在 git 歷史裡。
+
 ## 整理 repo 現況：程式與文件都以「GitHub 放 SOP／程式／issue，雲端硬碟交換檔案」為準
 
 - **next_step**：不再自動把照片上傳到 GitHub 資料 repo 的 Release。`avatar_data` 是公開 repo，人物照片會被公開；改成只在 `AVATAR_DATA_PUBLISH=1` 時上傳。`next_step.md` 最後多一段「雲端硬碟」：這一版要放的檔（四個結果包、`gates.json`、`next_step.md`）與位置 `avatar/<agent>/<avatar_NNN>/vNNN/`。issue 內文寫雲端硬碟的路徑，不再附 Release 連結。
