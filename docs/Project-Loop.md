@@ -11,8 +11,8 @@
 | Agent | 負責 | 在 GitHub 上做什麼 |
 | --- | --- | --- |
 | **Claude** | SOP 與程式的擁有者：寫 SOP、寫程式、code review、處理升級的 issue | 開 PR、review、合併到 main；回覆並關閉 issue |
-| **ChatGPT** | 執行者：照 SOP 開發 **avatar A**：生圖、跑流程、照診斷修圖或改程式 | 從 main 取 SOP 與程式；程式改動開 PR 給 Claude review；處理不掉的發 issue |
-| **Gemini** | 執行者：照 SOP 開發 **avatar B**（同上） | 同上 |
+| **ChatGPT** | 執行者：照 SOP 開發自己的 avatar（`avatar/chatgpt/avatar_001`…）：生圖、跑流程、照診斷修圖或改程式 | 從 main 取 SOP 與程式；程式改動開 PR 給 Claude review；處理不掉的發 issue |
+| **Gemini** | 執行者：照 SOP 開發自己的 avatar（`avatar/gemini/avatar_001`…，同上） | 同上 |
 
 SOP 只有一份，在 main：`docs/SOP.md`、`docs/Diagnosis-Tree.md`、`docs/Workflow-and-Validation.md` 與 `body3d/`。執行者不改 SOP 本身；要改就發 issue。
 
@@ -25,7 +25,7 @@ SOP 只有一份，在 main：`docs/SOP.md`、`docs/Diagnosis-Tree.md`、`docs/W
                 git pull main（SOP 版本）              GitHub issue（升級）
                        │                                   │
         ┌──────────────▼──────────────┐     ┌──────────────┴──────────────┐
-        │ ChatGPT：avatar A            │     │ Gemini：avatar B             │
+        │ ChatGPT：chatgpt/avatar_001  │     │ Gemini：gemini/avatar_001    │
         │ 生圖 → run_all → 診斷 SOP     │     │ 生圖 → run_all → 診斷 SOP     │
         │ 修圖／改程式 → 重跑           │     │ 修圖／改程式 → 重跑           │
         │ 處理不掉 → 發 issue、等更新   │     │ 處理不掉 → 發 issue、等更新   │
@@ -59,8 +59,8 @@ SOP 只有一份，在 main：`docs/SOP.md`、`docs/Diagnosis-Tree.md`、`docs/W
 ### 怎麼發 issue
 
 ```sh
-python body3d/escalate.py OUTPUT_DIR --agent ChatGPT --avatar avatar-A --tried "重畫 el30_090 兩次，10i 仍 FAIL" > issue.md
-gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
+python body3d/escalate.py OUTPUT_DIR --agent ChatGPT --avatar avatar_001 --tried "重畫 el30_090 兩次，10i 仍 FAIL" > issue.md
+gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file issue.md
 ```
 
 `escalate.py` 從輸出資料夾整理出 issue 內文：SOP／程式版本與 commit、驗收總表、診斷（照修的順序）、每一項未通過的原文、停在哪一步、`run_all.log` 最後幾十行。執行者再補：做過什麼、幾輪、自己的判斷。各階段的 `_FAIL.zip`（含 AI 修圖單／改 code 單）拖進 issue 留言附上。
@@ -95,7 +95,7 @@ gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
 照片與結果放兩個地方：
 
 - **執行者自己的機器**：工作區，每個執行者一個資料夾、每個 avatar 一個資料夾、每一輪一個版本（下圖）。
-- **GitHub 資料 repo** [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data)：每個版本做完，next_step 自動上傳成一個 Release（tag `<agent>-<avatar>-vNNN`，附件 `photos.zip`、四個階段的結果包、`gates.json`、`diagnosis.json`、`next_step.md`）。這是三個 agent 之間交換照片與結果的地方；照片是人物照片，資料 repo 建議設成私人。
+- **雲端硬碟** `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`：每個版本做完，執行者用 Google Drive 連結器放上四個階段的結果包、`gates.json`、`next_step.md`（`next_step.md` 的「雲端硬碟」一段會列出來）。這是三個 agent 之間交換照片與結果的地方，所有人都用連結器讀寫。GitHub repo 是公開的：照片不放 GitHub、不附在 issue。
 
 
 ```
@@ -113,10 +113,10 @@ gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
     └── avatar_001/ …             ← 每個執行者的 avatar 各自從 001 編號
 ```
 
-issue 內文附上那個版本的 Release 連結；Claude 用 `python body3d/data_repo.py fetch <tag> DIR` 下載照片與結果包重現（`data_repo.py list chatgpt/avatar_001` 列出版本）。
+issue 內文寫那個版本在雲端硬碟的路徑；Claude 用 Google Drive 連結器拿照片與結果包重現。
 
 ## 兩個 avatar 共用一份 SOP
 
 - 一個 avatar 引起的修正會影響另一個：Claude 合併後在兩邊的 open issue 或 PR 留言，另一個執行者 pull 後也要從頭重跑一次。
 - 門檻只依兩組完美照片校準，不依某一個 avatar 調；某個 avatar 的照片一直過不了，修的是照片（或補檢查），不是放寬門檻。
-- 程式與 SOP 在 `WangChengYeh/Avatar`；照片與結果在 `WangChengYeh/avatar_data` 的 Release。
+- 程式、SOP、issue、PR 在 GitHub `WangChengYeh/Avatar`；照片與結果在雲端硬碟 `avatar/`。

@@ -4,6 +4,16 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 整理 repo 現況：程式與文件都以「GitHub 放 SOP／程式／issue，雲端硬碟交換檔案」為準
+
+- **next_step**：不再自動把照片上傳到 GitHub 資料 repo 的 Release。`avatar_data` 是公開 repo，人物照片會被公開；改成只在 `AVATAR_DATA_PUBLISH=1` 時上傳。`next_step.md` 最後多一段「雲端硬碟」：這一版要放的檔（四個結果包、`gates.json`、`next_step.md`）與位置 `avatar/<agent>/<avatar_NNN>/vNNN/`。issue 內文寫雲端硬碟的路徑，不再附 Release 連結。
+- **文件**：
+  - AGENTS.md、GEMINI.md、runbook（含啟動提示詞）、SOP（誰做什麼、交換表、雲端硬碟的規則、交付條件）、專案迴圈、File-List 都改成雲端硬碟＋Google Drive 連結器；停下來的規則加上「沒有 gh 時交出 issue」。
+  - README：文件清單加上 File-List；Loop engineering 一節標明是 Claude 排查問題的方法。
+  - CLAUDE.md：先讀 File-List 的交接清單、用連結器讀雲端硬碟、照片與連結不進公開 repo、合併只在人明確要求時。
+  - 舊名稱 avatar A／B、avatar-A 改成 `chatgpt/avatar_001`、`gemini/avatar_001`（專案迴圈、escalate.py、issue 表單）。
+- **測試**：issue 寫雲端硬碟路徑、`next_step.md` 列出要放的檔、預設不上傳 Release。
+
 ## 文件整理：雲端硬碟用連結器、交接清單；拿掉 file_list.md
 
 - 所有人（Claude、ChatGPT、Gemini）都用 Google Drive 連結器讀寫雲端硬碟 `avatar/`，依資料夾或檔名找，所以不需要另外的檔案清單：拿掉 #71 加的每個執行者的 `file_list.md`（next_step 不再產生），以及分享連結的做法。

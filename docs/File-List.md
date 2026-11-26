@@ -26,7 +26,7 @@
 | `body3d/run_all.py <photos> <output> --name <名稱>` | 整條流程（照片 → GLB），停或不停都打包各階段結果 |
 | `body3d/check_turnaround.py <photos>` | 只跑照片檢查（第 1 關） |
 | `body3d/escalate.py <output> --agent … --avatar …` | 整理發給 Claude 的 issue 內文 |
-| `body3d/data_repo.py publish／fetch／list` | 和 GitHub 資料 repo `WangChengYeh/avatar_data` 交換照片與結果 |
+| `body3d/data_repo.py publish／fetch／list` | GitHub 資料 repo `WangChengYeh/avatar_data` 的 Release（備用，預設不用：repo 是公開的；只在 `AVATAR_DATA_PUBLISH=1` 時上傳） |
 | `body3d/diagnose.py photos|prebake …` | 單獨看一次診斷樹 |
 
 ## 3. 每一輪會產生的檔案
@@ -35,8 +35,8 @@
 
 | 位置 | 檔案 | 重要在哪 |
 | --- | --- | --- |
-| `<avatar>/next_step.md` | 下一步 | **人只要看這個**：目前狀態、原因、要做的事 |
-| `<avatar>/avatar_state.json` | next_step 的紀錄 | 每一輪的 FAIL、等待中的 issue／PR、上傳結果 |
+| `<avatar>/next_step.md` | 下一步 | **人只要看這個**：目前狀態、原因、要做的事；最後一段「雲端硬碟」列出這一版要放到雲端硬碟的檔與位置 |
+| `<avatar>/avatar_state.json` | next_step 的紀錄 | 每一輪的 FAIL、等待中的 issue／PR |
 | `<avatar>/issue.md`、`issue_title.txt` | 要發給 Claude 的 issue | ESCALATE 時才有；沒有 gh 就交給人發 |
 | `<avatar>/vNNN/photos/` | 這一輪的 33 張照片 | 重畫只改要改的幾張，其他複製上一版 |
 | `<avatar>/vNNN/output/deliver/{name}_stage1_photos(_FAIL).zip` | 階段 1 結果包 | 照片、檢查報告、AI 修圖單（有 FAIL 時） |

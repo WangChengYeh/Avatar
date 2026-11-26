@@ -51,7 +51,7 @@ def test_same_fail_twice_escalates(tmp_path):
     version(ws, 2, G1, ['head 45° 臉部位置'])
     r2 = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
     issue = (ws / 'issue.md').read_text(encoding='utf-8')
-    assert r2['state'] == 'ESCALATE' and '2 輪' in r2['why'] and '沒有上傳到資料 repo' in issue   # offline: no release
+    assert r2['state'] == 'ESCALATE' and '2 輪' in r2['why'] and '雲端硬碟 `avatar/chatgpt/avatar_001/v002`' in issue   # the Drive path, not a release
 
 
 def test_update_when_main_is_newer(tmp_path, monkeypatch):
@@ -96,12 +96,18 @@ def test_code_hash_ignores_commits_follows_content(tmp_path):
     assert run_all.code_hash(str(tmp_path)) != h1
 
 
-def test_issue_links_the_release(tmp_path):
+def test_issue_points_at_the_drive(tmp_path):
+    """results are exchanged on the Drive (docs/SOP.md): the issue names the version's Drive folder, and
+    next_step says which files go there; nothing is uploaded to the public data repo unless asked"""
     ws = avatar(tmp_path); version(ws, 1, G1, ['x'])
-    state = dict(published={'v001': dict(url='https://github.com/o/r/releases/tag/chatgpt-avatar_001-v001', sig=[])})
-    ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+    ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', {})
     issue = (ws / 'issue.md').read_text(encoding='utf-8')
-    assert 'releases/tag/chatgpt-avatar_001-v001' in issue and 'data_repo.py fetch chatgpt-avatar_001-v001' in issue
+    assert '雲端硬碟 `avatar/chatgpt/avatar_001/v001`' in issue and 'releases' not in issue
+    where, files = ns.drive_files(str(ws))
+    assert where == 'avatar/chatgpt/avatar_001/v001' and 'gates.json' in files and 'next_step.md' in files
+    state = {}
+    ns.auto_publish(str(ws), state)
+    assert 'published' not in state and 'publish_error' not in state
 
 
 def test_release_tag_from_the_path(tmp_path):
