@@ -80,6 +80,10 @@ masks = {n: cv2.imread(f'mask_{n}.png', 0) > 0 for n in names}
 LOCK = camera.ring_lock_enabled()
 # fixed distance: the close-ups are HEAD_ZOOM times the full-body scale (spec, checked in section 10d)
 ring = camera.ring_fit(cams, 'head', qy=1.52, s=camera.body_scale(cams) * camera.HEAD_ZOOM if LOCK else None)
+if LOCK:
+    # aim point on the rotation axis (spec; the pre-bake check 'head ring aim' fails beyond 5 mm). Fitting it to the
+    # silhouettes let hair and the bun pull it 21 mm forward (R14), so every 3/4 close-up landed sideways on the head
+    ring['qx'] = ring['qz'] = 0.0
 dev = camera.ring_report(cams, 'head', ring, 'free fit vs ring model')
 if LOCK and len(names) >= 3:
     def score(c, n):
@@ -96,7 +100,7 @@ if LOCK and len(names) >= 3:
             improved = True
             while improved:
                 improved = False
-                for key, dv in (('U', step), ('V', step), ('qx', 0.0005 * step), ('qz', 0.0005 * step)):   # scale: HEAD_ZOOM x full-body scale (spec)
+                for key, dv in (('U', step), ('V', step)):   # scale: HEAD_ZOOM x full-body scale; aim on the axis (spec)
                     for sg in (1, -1):
                         r2 = dict(ring); r2[key] += sg * dv
                         s2 = total(r2)

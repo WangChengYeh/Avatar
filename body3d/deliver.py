@@ -65,6 +65,12 @@ def pack(out, name, stage, files, gates, failures=(), missing=(), extra=None, st
     os.makedirs(os.path.dirname(good), exist_ok=True)
     dst = good if ok else bad
     files = {k: v for k, v in files.items() if v and os.path.exists(v)}
+    req = os.path.join(out, 'ai_fix_request')
+    if not ok and stage <= 2 and os.path.isdir(req):   # photo problems: the AI retouch request goes with the result
+        for root, _, names in os.walk(req):
+            for f in names:
+                p = os.path.join(root, f)
+                files['ai_fix_request/' + os.path.relpath(p, req)] = p
     manifest = dict(stage=stage, contents=STAGE_ZH[stage], name=name, deliverable=ok,
                     created=datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
                     gates={g: dict(FAIL=v[0], WARN=v[1], PASS=v[2]) for g, v in gates.items()},

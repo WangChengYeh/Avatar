@@ -288,6 +288,12 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
                 f"<span class='conf'>信心{e(d['confidence'])}</span> <b>{e(d['item'])}</b>：{e(d['cause'])}"
                 f"<br>怎麼修：{e(d['action'])}<br><span class='g'>路徑：{e(' → '.join(d['path']))}</span></li>"
                 for d in leaves) + '</ol>')
+        req = os.path.join(a.out, 'ai_fix_request', 'AI修圖單.md')
+        if os.path.exists(req):                        # photo problems: what to hand to the AI
+            n_ph = len(os.listdir(os.path.join(a.out, 'ai_fix_request', 'photos')))
+            diag += (f'<p class="deliver fixed"><b>AI 修圖單</b>：{n_ph} 張照片要請 AI 重畫，'
+                     '<a href="../ai_fix_request/AI修圖單.md">AI修圖單.md</a>（附原圖與「應該的樣子」參考圖，'
+                     '也在結果包的 ai_fix_request/）</p>')
         body.append('<div class="todo"><b>要修的項目（' + str(len(todo)) + ' 項未通過）</b>' + diag
                     + '<details><summary>未通過項目原文</summary><ol>'
                     + ''.join(f'<li><span class="g">{e(GATE_ZH.get(k, k))}</span>　{e(t)}</li>' for k, t in todo)

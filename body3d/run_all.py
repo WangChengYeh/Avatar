@@ -136,6 +136,13 @@ def main(argv=None):
         for d in leaves:
             print(f"     診斷［{d['owner']}｜信心{d['confidence']}］{d['item']}：{d['cause']} → {d['action']}")
         json.dump(diagnosis, open(os.path.join(out, 'diagnosis.json'), 'w'), ensure_ascii=False, indent=1)
+        try:                                           # photo problems go back to the AI: the retouch request
+            import ai_request
+            r = ai_request.make(img, out, diagnosis)
+            if r:
+                print(f'     AI 修圖單：{os.path.join(r, "AI修圖單.md")}')
+        except Exception as error:
+            print(f'     AI 修圖單失敗：{error}')
 
     def stage_files(stage):
         """what a stage produces (whatever of it exists when it is packed)"""
@@ -224,6 +231,8 @@ def main(argv=None):
         for f in (status_path, record_path, os.path.join(out, 'diagnosis.json')):
             if os.path.exists(f):
                 os.remove(f)
+        if os.path.isdir(os.path.join(out, 'ai_fix_request')):
+            shutil.rmtree(os.path.join(out, 'ai_fix_request'))
         rc = photo_check()
         # FAIL: fix what can be fixed with high confidence and check again (docs/SOP.md); stop when anything needs
         # regeneration, confidence is low, or a round does not lower the FAIL count
