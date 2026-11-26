@@ -4,6 +4,11 @@ import json
 import next_step as ns
 
 
+def setup_module():
+    import os
+    os.environ['NEXT_STEP_OFFLINE'] = '1'          # these tests do not ask GitHub
+
+
 def out(ws, n, gates, fails=(), deliverable=False):
     d = ws / f'out_v{n}'; d.mkdir()
     json.dump(dict(gates=gates, deliverable=deliverable), open(d / 'gates.json', 'w'))
@@ -30,3 +35,15 @@ def test_same_fail_twice_escalates(tmp_path):
     (ws / 'photos_v2').mkdir(); out(ws, 2, g, ['head 45° 臉部位置'])
     r2 = ns.decide(str(ws), 'A', 'ChatGPT', 'body', 'hull', state)
     assert r2['state'] == 'ESCALATE' and '2 輪' in r2['why'] and (ws / 'issue.md').exists()
+
+
+def test_update_when_main_is_newer(tmp_path, monkeypatch):
+    monkeypatch.delenv('NEXT_STEP_OFFLINE', raising=False)
+    monkeypatch.setattr(ns, 'behind_main', lambda: (2, ['abc123 photo check 1.42', 'def456 docs']))
+    ws = tmp_path / 'ws'; ws.mkdir(); (ws / 'photos_v1').mkdir()
+    out(ws, 1, {'1 照片檢查': dict(FAIL=0, WARN=0, PASS=9)}, deliverable=True)
+    r = ns.decide(str(ws), 'A', 'Gemini', 'body', 'hull', {})
+    assert r['state'] == 'UPDATE' and 'git pull origin main' in r['steps'][0] and 'out_v2' in r['steps'][1]
+    monkeypatch.setattr(ns, 'behind_main', lambda: (None, 'no network'))
+    st = {}
+    assert ns.decide(str(ws), 'A', 'Gemini', 'body', 'hull', st)['state'] == 'DONE' and '查不到' in st['update_check']

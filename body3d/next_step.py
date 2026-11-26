@@ -6,6 +6,7 @@
 WS 是這個 avatar 的工作區：照片資料夾 photos_vN/、輸出資料夾 out_vN/、狀態檔 avatar_state.json 都在裡面。
 next_step 找最新的 out_vN，讀它的驗收結果、診斷、工作單與過去每一輪的記錄，給出**一個**狀態與要照做的指令：
 
+    UPDATE    GitHub 上的 main 有新的 SOP／程式（Claude 合併了）：git pull，用目前的照片從頭重跑
     START     還沒跑過：跑 run_all.py
     RUN       照片有了、還沒跑（或剛 pull 了新的 SOP）：跑 run_all.py
     RETOUCH   照片的問題：照 AI 修圖單重畫 → 放進 photos_v(N+1) → 跑 run_all.py
@@ -65,6 +66,23 @@ def gh(*args):
         return None
 
 
+def behind_main():
+    """(commits the local checkout is behind origin/main, the new commits' subjects) after a git fetch;
+    (None, error) when GitHub cannot be reached — next_step then goes on with what it has"""
+    try:
+        f = subprocess.run(['git', '-C', REPO, 'fetch', '--quiet', 'origin', 'main'], capture_output=True, text=True,
+                           timeout=120)
+        if f.returncode != 0:
+            return None, (f.stderr or 'git fetch 失敗').strip().splitlines()[-1]
+        n = subprocess.run(['git', '-C', REPO, 'rev-list', '--count', 'HEAD..origin/main'], capture_output=True,
+                           text=True).stdout.strip()
+        log = subprocess.run(['git', '-C', REPO, 'log', '--format=%h %s', 'HEAD..origin/main', '-n', '8'],
+                             capture_output=True, text=True).stdout.strip().splitlines()
+        return int(n or 0), log
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return None, str(error)
+
+
 def run_cmd(ws, photos, n, name, template):
     out = os.path.join(ws, f'out_v{n}')
     t = f' --template {template}' if template != 'hull' else ''
@@ -75,6 +93,22 @@ def decide(ws, avatar, agent, name, template, state):
     pn, photos = latest(ws, 'photos')
     on, out = latest(ws, 'out')
     me = f'python {os.path.join(REPO, "body3d", "next_step.py")} --workspace {ws} --avatar {avatar} --agent {agent}'
+    # a newer SOP / program on GitHub (Claude merged something): pull it first, then run again under it
+    if not state.get('offline') and not os.environ.get('NEXT_STEP_OFFLINE'):
+        n_behind, info = behind_main()
+        if n_behind is None:
+            state['update_check'] = f'查不到 GitHub 上的 main（{info}）：先用本機的版本繼續'
+        elif n_behind > 0:
+            w = state.get('waiting')
+            if w and gh(w['kind'], 'view', str(w['number']), '--json', 'state', '--jq', '.state') in ('CLOSED', 'MERGED'):
+                state['waiting'] = None                    # Claude's fix is in this update: one rerun covers both
+            steps = [f'cd {REPO} && git pull origin main   # {n_behind} 個新的 commit：' + '；'.join(info[:3])]
+            if photos:
+                steps.append(run_cmd(ws, photos, latest(ws, 'out')[0] + 1, name, template)
+                             + '   # 新的 SOP 可能改了檢查：用目前的照片從頭重跑')
+            steps.append(me)
+            return dict(state='UPDATE', why=f'GitHub 上的 main 比本機新 {n_behind} 個 commit（Claude 合併了新的 SOP／程式）',
+                        steps=steps)
     if not photos:
         return dict(state='START', why='工作區還沒有照片', steps=[
             f'照 docs/Workflow-and-Validation.md#生圖規格 生 33 張照片，放進 {os.path.join(ws, "photos_v1")}（檔名照規格）',

@@ -36,7 +36,7 @@ SOP 只有一份，在 main：`docs/SOP.md`、`docs/Diagnosis-Tree.md`、`docs/W
 
 **實際做法很簡單：照 [執行者 runbook](Agent-Runbook.md) 反覆跑 `python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT`，照它說的做，只有 DONE 或 WAITING 才停。** 下面是 next_step 背後的規則。AGENTS.md（ChatGPT／Codex）、GEMINI.md（Gemini）會自動讀到這些指示。
 
-1. `git pull` main，記下 SOP 版本：`python body3d/run_all.py --version` 與 `python body3d/check_turnaround.py --version`，以及 commit。
+1. `git pull` main（next_step 每次都會自動檢查，main 比本機新就給 UPDATE：pull、從頭重跑），記下 SOP 版本：`python body3d/run_all.py --version` 與 `python body3d/check_turnaround.py --version`，以及 commit。
 2. 照 [SOP](SOP.md) 做：生圖 → `run_all.py`（新的輸出資料夾）→ 看客戶頁。
 3. 有 FAIL：照[診斷 SOP](Diagnosis-Tree.md#診斷-sop)：照順序（前面階段先修、信心高先修），照片就照 AI 修圖單重畫，程式就照 AI 改 code 單改程式、**開 PR 給 Claude review**（不直接推 main）。
 4. 符合下面「什麼時候發 issue」任何一條 → 發 issue，這個 avatar 停在原地等 Claude；可以同時做別的、但不要繞過問題。
@@ -77,7 +77,8 @@ gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
    - 診斷樹 → 補分支或規則，讓下次信心高。
    - SOP → 改文件，消除矛盾、補缺的步驟。
 4. **交付**：開 PR，內文寫 `Fixes #<issue>`、原因、補的檢查（前後數字）、驗收結果；更新 CHANGELOG。合併到 main。
-5. **回覆 issue**：改了什麼、需要的最低版本（`run_all.py --version`／`check_turnaround.py --version`）、執行者要怎麼繼續（例：「pull main ≥ 1.41.1，新的輸出資料夾從頭跑；el30_090 等 7 張照 AI 修圖單重畫」）。等執行者回報解決再關閉。
+5. **合併後執行者自動更新**：兩個執行者下一次跑 next_step 時都會拿到 UPDATE（`git pull`、用目前的照片從頭重跑），不用另外通知；等 issue 的那一位，issue 關閉後也會走同一個 UPDATE。
+6. **回覆 issue**：改了什麼、需要的最低版本（`run_all.py --version`／`check_turnaround.py --version`）、執行者要怎麼繼續（例：「pull main ≥ 1.41.1，新的輸出資料夾從頭跑；el30_090 等 7 張照 AI 修圖單重畫」）。等執行者回報解決再關閉。
 
 ### 執行者的程式 PR（Claude review）
 
