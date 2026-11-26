@@ -58,7 +58,8 @@ def closeup_reference(photos, angle):
 
 def make(photos, out, leaves):
     """write OUT/ai_fix_request for the photo leaves; returns its path, or None when no photo has to be redrawn"""
-    todo = [d for d in leaves if d.get('owner') == '照片']
+    todo = sorted([d for d in leaves if d.get('owner') == '照片'],
+                  key=lambda d: (d.get('stage', 1), {'高': 0, '中': 1, '低': 2}.get(d.get('confidence'), 3)))
     if not todo:
         return None
     dst = os.path.join(out, 'ai_fix_request')
@@ -71,12 +72,13 @@ def make(photos, out, leaves):
              '共同規格：同一個人物、同一套衣服與髮型、T-pose；光線固定在人身上；正交投影；',
              '全身圖畫面寬 1.95 m、對準身體中心（離地半個身高）；頭部特寫是同角度全身圖頭部的 4 倍放大，',
              '對準頭部中心（頭頂下 12.8 cm）。', '']
+    lines += ['順序：信心高的先修（照片都在階段 1；程式的問題不在這張單上，等照片修好重跑後再看）。', '']
     by_photo = {}
     for d in todo:
         for p in photos_of(d) or ['（未指定照片）']:
             by_photo.setdefault(p, []).append(d)
-    for p, ds in sorted(by_photo.items()):
-        lines.append(f'## {p}.jpg')
+    for k, (p, ds) in enumerate(by_photo.items(), 1):
+        lines.append(f'## {k}. {p}.jpg')
         src = os.path.join(photos, p + '.jpg')
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(dst, 'photos', p + '.jpg'))

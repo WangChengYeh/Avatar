@@ -34,9 +34,24 @@ AIM_Z_MM = 5.0                         # head-ring aim off the axis by more than
 FULL = {0: '01_000deg_front', 45: '02_045deg_front_left', 315: '08_315deg_front_right'}
 
 
-def leaf(item, path, cause, owner, action, confidence, evidence):
+STAGE_NAME = {1: '階段 1 照片', 2: '階段 2 重建', 3: '階段 3 模型', 4: '階段 4 成品驗收'}
+CONF_RANK = {'高': 0, '中': 1, '低': 2}
+
+
+def leaf(item, path, cause, owner, action, confidence, evidence, stage=None):
+    """stage: where the cause is (not the gate that caught it): photos are stage 1; the program leaves here are the
+    reconstruction (stage 2)"""
+    stage = stage or (1 if owner == '照片' else 2)
     return dict(item=item, path=path, cause=cause, owner=owner, action=action, confidence=confidence,
-                evidence=evidence)
+                evidence=evidence, stage=stage, stage_name=STAGE_NAME[stage])
+
+
+def fix_order(leaves):
+    """several FAILs: fix the earlier stage first, and within a stage the higher confidence first. A later stage
+    is built on the earlier ones, so fixing the photos can change (or clear) what the reconstruction does; a
+    high-confidence leaf is the one the measurements explain."""
+    out = sorted(leaves, key=lambda d: (d['stage'], CONF_RANK.get(d['confidence'], 3)))
+    return [dict(d, order=i + 1) for i, d in enumerate(out)]
 
 
 # ---- gate 1: rule-based leaves (what each photo-check item measures says who fixes it)
@@ -187,8 +202,9 @@ def main(argv=None):
         r = subprocess.run([sys.executable, os.path.join(HERE, 'check_turnaround.py'), a.photos, '--out',
                             os.path.join(a.dir, 'diagnose_check.png')], capture_output=True, text=True)
         res = diagnose_photo_fails(deliver.fail_lines(r.stdout))
-    for d in res:
-        print(f"[{d['owner']}｜信心{d['confidence']}] {d['item']}：{d['cause']}\n    路徑：{' → '.join(d['path'])}\n    怎麼修：{d['action']}")
+    for d in fix_order(res):
+        print(f"{d['order']}. [{d['stage_name']}｜{d['owner']}｜信心{d['confidence']}] {d['item']}：{d['cause']}\n"
+              f"    路徑：{' → '.join(d['path'])}\n    怎麼修：{d['action']}")
     return 0
 
 

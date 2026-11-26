@@ -132,9 +132,10 @@ def main(argv=None):
         except Exception as error:                     # the diagnosis must never hide the gate's own result
             print(f'     診斷樹失敗：{error}')
             return
-        diagnosis[:] = [d for d in diagnosis if d['gate'] != gate] + [dict(d, gate=gate) for d in leaves]
-        for d in leaves:
-            print(f"     診斷［{d['owner']}｜信心{d['confidence']}］{d['item']}：{d['cause']} → {d['action']}")
+        diagnosis[:] = dz.fix_order([d for d in diagnosis if d['gate'] != gate] + [dict(d, gate=gate) for d in leaves])
+        for d in diagnosis:                            # in fix order: earlier stage first, then higher confidence
+            print(f"     診斷 {d['order']}［{d['stage_name']}｜{d['owner']}｜信心{d['confidence']}］{d['item']}："
+                  f"{d['cause']} → {d['action']}")
         json.dump(diagnosis, open(os.path.join(out, 'diagnosis.json'), 'w'), ensure_ascii=False, indent=1)
         try:                                           # photo problems go back to the AI: the retouch request
             import ai_request

@@ -79,6 +79,15 @@ def test_ai_request(tmp_path):
     (photos / 'head_045deg.jpg').write_bytes(b'x')
     r = ai_request.make(str(photos), str(tmp_path / 'out'), leaves)
     text = (tmp_path / 'out' / 'ai_fix_request' / 'AI修圖單.md').read_text(encoding='utf-8')
-    assert r and '## head_045deg.jpg' in text and '-13.8' in text and '程式' not in text.split('## ')[1]
+    assert r and '## 1. head_045deg.jpg' in text and '-13.8' in text and '程式' not in text.split('## ')[1]
     assert (tmp_path / 'out' / 'ai_fix_request' / 'photos' / 'head_045deg.jpg').exists()
     assert ai_request.make(str(photos), str(tmp_path / 'o2'), leaves[1:]) is None      # program only: no request
+
+
+def test_fix_order_earlier_stage_then_confidence():
+    import diagnose as dz
+    L = [dz.leaf('程式高', ['p'], 'c', '程式', 'a', '高', {}), dz.leaf('照片中', ['p'], 'c', '照片', 'a', '中', {}),
+         dz.leaf('照片高', ['p'], 'c', '照片', 'a', '高', {}), dz.leaf('程式低', ['p'], 'c', '程式', 'a', '低', {})]
+    order = dz.fix_order(L)
+    assert [d['item'] for d in order] == ['照片高', '照片中', '程式高', '程式低']
+    assert [d['order'] for d in order] == [1, 2, 3, 4] and order[0]['stage_name'] == '階段 1 照片'

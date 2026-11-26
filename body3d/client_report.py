@@ -283,11 +283,13 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
     if todo:                                           # what has to be fixed, before anything else
         diag = ''
         if leaves:                                     # the diagnosis tree's answer: who fixes what, and why
-            diag = ('<p><b>診斷（每一項的原因與誰要修）</b></p><ol class="diag">' + ''.join(
-                f"<li><span class='own {'p' if d['owner'] == '照片' else 'c'}'>{e(d['owner'])}</span>"
+            leaves = sorted(leaves, key=lambda d: d.get('order', 99))
+            diag = ('<p><b>診斷（照修的順序：前面階段先修，同階段信心高的先修）</b></p><ol class="diag">' + ''.join(
+                f"<li>{'<b>先修這一項</b> ' if i == 0 else ''}<span class='g'>{e(d.get('stage_name', ''))}</span> "
+                f"<span class='own {'p' if d['owner'] == '照片' else 'c'}'>{e(d['owner'])}</span>"
                 f"<span class='conf'>信心{e(d['confidence'])}</span> <b>{e(d['item'])}</b>：{e(d['cause'])}"
                 f"<br>怎麼修：{e(d['action'])}<br><span class='g'>路徑：{e(' → '.join(d['path']))}</span></li>"
-                for d in leaves) + '</ol>')
+                for i, d in enumerate(leaves)) + '</ol>')
         req = os.path.join(a.out, 'ai_fix_request', 'AI修圖單.md')
         if os.path.exists(req):                        # photo problems: what to hand to the AI
             n_ph = len(os.listdir(os.path.join(a.out, 'ai_fix_request', 'photos')))
