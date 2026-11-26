@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.39.0（2026-11-26）
+版本 1.40.0（2026-11-26）
 
 版本紀錄:
+  1.40.0 烘焙前檢查新增「頭部特寫環對準點」：重建的特寫相機對準點離旋轉軸 ≤ 3 mm 通過、> 5 mm FAIL（完美照片 ≤ 1 mm；
+         R14 21.5 mm，3/4 特寫左右貼錯位置）。headreg 同時修正：照片通過時對準點固定在旋轉軸上。
   1.39.0 新增第 11c 項特寫臉部位置：規格相機下，45° / 315° 特寫的臉放回同角度全身圖，和全身圖的臉比（以 0° 為準）。
          ≤ 3 mm 通過、> 6 mm FAIL；完美照片 ≤ 0.6 mm。R13 照片檢查 0 FAIL 卻在烘焙前檢查 FAIL 11 項，原因就是這個（8–9 mm）。
   1.38.0 移除 --mode ai / photo：照片一律要先經 AI 修正才能進來，只有一套門檻（原 ai 模式：完美照片 + 小餘裕，
@@ -278,7 +280,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.39.0'
+__version__ = '1.40.0'
 import numpy as np
 import cv2
 
@@ -2015,6 +2017,44 @@ FACE_DEPTH_REGIONS = (
 )
 
 
+# head close-up ring aim (pre-bake, stage 2): the close-ups are aimed at a point on the rotation axis (spec, as the
+# perfect photos are rendered). The reconstruction fits that point from the close-up silhouettes; hair and the bun
+# can pull it off the axis, and then every 3/4 close-up lands sideways on the head mesh: at 45° / 315° the face is
+# shifted by aim_z x sin45 in opposite directions (R14: aim 21.4 mm in front of the axis -> 15.9 px predicted,
+# 15.5 px measured; perfect photos within 1 mm). Orthographic: cu = U - s (qx cos phi - qz sin phi).
+HEAD_AIM_PASS, HEAD_AIM_FAIL = 0.003, 0.005      # metres off the rotation axis
+
+
+def head_ring_aim(cameras):
+    """(qx, qz) in metres of the point the 8 head close-ups are aimed at (least squares over their cameras)"""
+    A, b = [], []
+    for angle in range(0, 360, 45):
+        c = cameras.get(f'head_{angle:03d}deg')
+        if not isinstance(c, dict) or c.get('D'):
+            continue
+        p = np.radians(c['phi'])
+        A.append([1.0, -c['s'] * np.cos(p), c['s'] * np.sin(p)]); b.append(c['cu'])
+    if len(A) < 3:
+        return None
+    _, qx, qz = np.linalg.lstsq(np.array(A), np.array(b), rcond=None)[0]
+    return float(qx), float(qz)
+
+
+def report_head_ring_aim(cameras):
+    q = head_ring_aim(cameras)
+    if q is None:
+        print('[WARN] 頭部特寫環對準點：少於 3 張正交頭部相機，無法計算')
+        return False
+    d = float(np.hypot(*q))
+    status = PASS if d <= HEAD_AIM_PASS else WARN if d <= HEAD_AIM_FAIL else FAIL
+    msg = (f'[{status}] 頭部特寫環對準點：離旋轉軸 {1000 * d:.1f} mm（左右 {1000 * q[0]:+.1f}、前後 {1000 * q[1]:+.1f} mm；'
+           f'應 ≤ {1000 * HEAD_AIM_PASS:g} mm，> {1000 * HEAD_AIM_FAIL:g} mm 判 FAIL；完美照片 ≤ 1 mm）')
+    if status != PASS:
+        msg += ' → 重建把特寫相機的對準點擬合到旋轉軸外（頭髮／髮髻的剪影），3/4 特寫會左右貼錯位置：程式（headreg）'
+    print(msg)
+    return status == FAIL
+
+
 def report_head_yaws(cameras):
     failed = False
     for angle in range(0, 360, 45):
@@ -2187,6 +2227,7 @@ def report_head_overlap(folder, work, overlay_kpis=None, overlay_dir=None):
         print(f'[WARN] 頭部投影重疊：未完成檢查（{error}）')
         return 0
     failed = report_head_yaws(cameras)
+    failed |= report_head_ring_aim(cameras)
     failed |= report_body_head_pairs(folder, work, cameras, overlay_dir)
     try:
         landmarks = np.load(work / 'face_lm33.npy')

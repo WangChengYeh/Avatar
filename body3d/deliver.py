@@ -65,6 +65,12 @@ def pack(out, name, stage, files, gates, failures=(), missing=(), extra=None, st
     os.makedirs(os.path.dirname(good), exist_ok=True)
     dst = good if ok else bad
     files = {k: v for k, v in files.items() if v and os.path.exists(v)}
+    req = os.path.join(out, 'ai_fix_request')
+    if not ok and stage <= 2 and os.path.isdir(req):   # photo problems: the AI retouch request goes with the result
+        for root, _, names in os.walk(req):
+            for f in names:
+                p = os.path.join(root, f)
+                files['ai_fix_request/' + os.path.relpath(p, req)] = p
     manifest = dict(stage=stage, contents=STAGE_ZH[stage], name=name, deliverable=ok,
                     created=datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
                     gates={g: dict(FAIL=v[0], WARN=v[1], PASS=v[2]) for g, v in gates.items()},
@@ -81,13 +87,18 @@ def pack(out, name, stage, files, gates, failures=(), missing=(), extra=None, st
     return dst, ok
 
 
-def stage1(img, out, name, summary, checker_version, report=None, failures=()):
+def stage1(img, out, name, summary, checker_version, report=None, failures=(), autofix=None, diagnosis=None):
     """the 33 photos (+ check report). summary = (FAIL, WARN, PASS) of the photo check"""
     missing = [p for p in PHOTOS if not os.path.exists(os.path.join(img, p))]
     files = {f'photos/{p}': os.path.join(img, p) for p in PHOTOS}
     files['turnaround_report.png'] = report
-    return pack(out, name, 1, files, {'1 照片檢查': tuple(summary)}, failures, missing,
-                dict(photo_check_version=checker_version))
+    extra = dict(photo_check_version=checker_version)
+    if autofix:                                        # photos corrected automatically: what changed, and from what
+        files['autofix.json'] = autofix
+        extra['autofix'] = json.load(open(autofix))['fixes']
+    if diagnosis:
+        extra['diagnosis'] = diagnosis
+    return pack(out, name, 1, files, {'1 照片檢查': tuple(summary)}, failures, missing, extra)
 
 
 def main(argv=None):

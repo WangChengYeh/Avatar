@@ -42,8 +42,9 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.15.0'
+__version__ = '2.16.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
+AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
          'joints', 'rig', 'unlit', 'verify', 'fit']
@@ -89,6 +90,7 @@ def main(argv=None):
     ap.add_argument('--name', default='body')
     ap.add_argument('--blender')
     ap.add_argument('--force', action='store_true', help='關卡有 FAIL 也繼續做完（診斷用，之後的成果都標 _FAIL）')
+    ap.add_argument('--no-autofix', action='store_true', help='照片檢查未通過時不自動修正')
     ap.add_argument('--from', dest='start', choices=STEPS, default='check')
     ap.add_argument('--only', choices=STEPS)
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
@@ -99,6 +101,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     img = os.path.abspath(a.img_dir); out = os.path.abspath(a.out_dir)
+    if (a.start != 'check' or a.only) and a.only != 'check' and os.path.exists(os.path.join(out, 'autofix.json')):
+        img = json.load(open(os.path.join(out, 'autofix.json')))['photos']     # resume with the fixed photos
     work = os.path.join(out, 'work'); os.makedirs(work, exist_ok=True)
     log = os.path.join(out, 'run_all.log')
     py = sys.executable
@@ -117,6 +121,29 @@ def main(argv=None):
     fails = {}                     # gate -> its [FAIL] lines
     go_on = a.force
     packed = set()                 # stages whose result is zipped already
+    diagnosis = []                 # leaves of the diagnosis tree for the FAILs (diagnose.py, docs/Diagnosis-Tree.md)
+
+    def diagnose(gate):
+        """walk the diagnosis tree for this gate's FAILs; print the leaves and keep them for the zip and the page"""
+        try:
+            import diagnose as dz
+            leaves = (dz.diagnose_photo_fails(fails.get('1 照片檢查', [])) if gate == 1
+                      else dz.diagnose_prebake(img, work))
+        except Exception as error:                     # the diagnosis must never hide the gate's own result
+            print(f'     診斷樹失敗：{error}')
+            return
+        diagnosis[:] = dz.fix_order([d for d in diagnosis if d['gate'] != gate] + [dict(d, gate=gate) for d in leaves])
+        for d in diagnosis:                            # in fix order: earlier stage first, then higher confidence
+            print(f"     診斷 {d['order']}［{d['stage_name']}｜{d['owner']}｜信心{d['confidence']}］{d['item']}："
+                  f"{d['cause']} → {d['action']}")
+        json.dump(diagnosis, open(os.path.join(out, 'diagnosis.json'), 'w'), ensure_ascii=False, indent=1)
+        try:                                           # photo problems go back to the AI: the retouch request
+            import ai_request
+            r = ai_request.make(img, out, diagnosis)
+            if r:
+                print(f'     AI 修圖單：{os.path.join(r, "AI修圖單.md")}')
+        except Exception as error:
+            print(f'     AI 修圖單失敗：{error}')
 
     def stage_files(stage):
         """what a stage produces (whatever of it exists when it is packed)"""
@@ -138,7 +165,9 @@ def main(argv=None):
         stopped = (step, reason) when the run stopped inside this stage: whatever exists is packed, as _FAIL"""
         import deliver
         g = {k: v for k, v in gates.items() if int(k[0]) <= stage}
+        dg = [d for d in diagnosis if d['gate'] <= stage]
         z, ok = deliver.pack(out, a.name, stage, stage_files(stage), g, [l for k in g for l in fails.get(k, [])],
+                             extra=dict(diagnosis=dg) if dg else None,
                              stopped=stopped)
         packed.add(stage)
         print(f'     階段 {stage} 成果' + ('（好，可交付）：' if ok else '（不好，標 _FAIL）：') + z)
@@ -189,16 +218,57 @@ def main(argv=None):
         json.dump(progress, open(tmp, 'w'), ensure_ascii=False, indent=1)
         os.replace(tmp, os.path.join(out, 'progress.json'))
 
-    def step_check():
-        status_path = os.path.join(work, 'check_status.json')
-        if os.path.exists(status_path):
-            os.remove(status_path)
+    def photo_check():
         rc = run([py, os.path.join(HERE, 'check_turnaround.py'), img, '--pose', a.pose,
                   '--out', os.path.join(out, 'turnaround_report.png')],
                  out, log, ok_codes=(0, 1))
         tally('1 照片檢查')
+        return rc
+
+    def step_check():
+        nonlocal img
+        status_path = os.path.join(work, 'check_status.json')
+        record_path = os.path.join(out, 'autofix.json')
+        for f in (status_path, record_path, os.path.join(out, 'diagnosis.json')):
+            if os.path.exists(f):
+                os.remove(f)
+        if os.path.isdir(os.path.join(out, 'ai_fix_request')):
+            shutil.rmtree(os.path.join(out, 'ai_fix_request'))
+        rc = photo_check()
+        # FAIL: fix what can be fixed with high confidence and check again (docs/SOP.md); stop when anything needs
+        # regeneration, confidence is low, or a round does not lower the FAIL count
+        record = []
+        for rnd in range(1, AUTOFIX_ROUNDS + 1):
+            if rc != 1 or a.no_autofix or '1 照片檢查' not in gates:
+                break
+            import autofix
+            before = gates['1 照片檢查'][0]
+            p = autofix.plan(img, fails['1 照片檢查'])
+            for why in p['reasons']:
+                print('     不能自動修：' + why)
+            if not p['ok']:
+                print('     自動修正：有項目要重新生成或信心不夠，不修，停在照片檢查')
+                break
+            dst = os.path.join(out, f'photos_fixed_r{rnd}')
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            record += autofix.apply(img, dst, p, rnd)
+            for it in p['items']:
+                print(f"     自動修正第 {rnd} 輪：{it['photo']} 平移 ({it['dx_px']:+.0f}, {it['dy_px']:+.0f}) px，"
+                      f"{it['before_mm']} → {it['after_mm']} mm")
+            img = dst
+            rc = photo_check()
+            if gates['1 照片檢查'][0] >= before:
+                print('     自動修正沒有減少未通過項目，停在照片檢查')
+                rc = 1
+                break
+        if record:
+            json.dump(dict(photos=img, original=os.path.abspath(a.img_dir), fixes=record),
+                      open(record_path, 'w'), ensure_ascii=False, indent=1)
         with open(status_path, 'w') as f:
             json.dump(dict(passed=rc == 0), f)
+        if rc == 1:
+            diagnose(1)
         if '1 照片檢查' not in gates:
             print('     照片檢查沒有印出總結，不打包階段 1 的照片')
         else:                                        # stage 1: the 33 photos, zipped even when the check fails
@@ -206,7 +276,9 @@ def main(argv=None):
             txt = open(log, errors='replace').read().split('\n$ ')[-1]
             v = re.search(r'check_turnaround 版本 (\S+?)（', txt)
             z, ok = deliver.stage1(img, out, a.name, gates['1 照片檢查'], v.group(1) if v else '?',
-                                   os.path.join(out, 'turnaround_report.png'), deliver.fail_lines(txt))
+                                   os.path.join(out, 'turnaround_report.png'), deliver.fail_lines(txt),
+                                   autofix=record_path if record else None,
+                                   diagnosis=[d for d in diagnosis if d['gate'] == 1])
             print('     階段 1 成果' + ('（好，可交付）：' if ok else '（有未通過，標 _FAIL）：') + z)
         if rc == 1 and not go_on:
             raise RuntimeError('照片檢查有 FAIL（見 run_all.log / turnaround_report.png）。修正照片，或加 --force 繼續做完供診斷')
@@ -230,6 +302,8 @@ def main(argv=None):
                   '--view-overlay-dir', os.path.join(out, 'view_overlays')],
                  work, log, ok_codes=(0, 1), show_output=True)
         tally('2 烘焙前檢查')
+        if rc:
+            diagnose(2)
         stage_zip(2)
         if rc and not go_on:
             raise RuntimeError('烘焙前頭部檢查有 FAIL（見 run_all.log）。修正照片，或加 --force 繼續做完供診斷')
@@ -325,6 +399,9 @@ def main(argv=None):
         # what was made is still handed over: the stage the run stopped in is packed with whatever it has, as _FAIL
         from client_report import STAGE_OF
         here = STAGE_OF.get(s, 1)
+        if s == 'bake' and gates.get('2 烘焙前檢查', (0,))[0]:  # the pre-bake check (end of stage 2) runs inside 'bake'
+            here = 2
+        progress['stopped_stage'] = here; save_progress()
         for n in range(2, here + 1):
             if n not in packed or n == here:
                 stage_zip(n, stopped=(s, str(e).split('\n')[0]) if n == here else None)

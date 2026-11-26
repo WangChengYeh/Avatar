@@ -98,6 +98,7 @@ node scripts/compare_turnaround.mjs --photos ./photos \
 
 ## 文件
 
+- [未通過時的診斷 SOP 與診斷樹](docs/Diagnosis-Tree.md) · 每一個未通過項目問到原因；多個 FAIL 時前面階段、信心高的先修；在所屬階段補檢查再修；照片叫 AI 修圖（含 R14 實例）
 - [標準作業流程（SOP）](docs/SOP.md) · 每個階段的成果（好／_FAIL）、四道關卡、PASS／WARN／FAIL 怎麼處理、交付條件
 - [流程與驗收](docs/Workflow-and-Validation.md) · 輸入規格、重跑步驟、照片與 GLB 檢查、回投 KPI
 - [Loop engineering 的理論基礎](docs/Loop-Engineering-Theory.md) · 為什麼要先改 checker、以原圖為錨、找最早出現差異的步驟
