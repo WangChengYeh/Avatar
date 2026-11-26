@@ -4,7 +4,7 @@
 
 **一句話：要找什麼先看這一頁。** 這份清單由 Claude 維護，每次合併改到這裡列的東西就一起更新。人和三個 agent（Claude、ChatGPT、Gemini）都看同一份。
 
-這個 repo 是公開的，所以這裡**不放雲端硬碟的分享連結**（照片是人物照片）。每一版的檔案與連結記在雲端硬碟的 `avatar/file_list.md`（見[下面](#雲端硬碟上的-file_listmd)）。
+這個 repo 是公開的，所以這裡**不放雲端硬碟的分享連結**（照片是人物照片）。每一版的檔案與連結記在雲端硬碟的 `avatar/<chatgpt|gemini>/file_list.md`（見[下面](#雲端硬碟上的-file_listmd)）。
 
 ## 1. 每個人先讀的
 
@@ -22,7 +22,7 @@
 
 | 檔案 | 什麼時候用 |
 | --- | --- |
-| `body3d/next_step.py --workspace <avatar 資料夾>` | 執行者每做完一步就跑；它說下一步做什麼，並更新 `next_step.md`、`avatar_state.json`、雲端硬碟的 `file_list.md` |
+| `body3d/next_step.py --workspace <avatar 資料夾>` | 執行者每做完一步就跑；它說下一步做什麼，並更新 `next_step.md`、`avatar_state.json`、自己的 `file_list.md` |
 | `body3d/run_all.py <photos> <output> --name <名稱>` | 整條流程（照片 → GLB），停或不停都打包各階段結果 |
 | `body3d/check_turnaround.py <photos>` | 只跑照片檢查（第 1 關） |
 | `body3d/escalate.py <output> --agent … --avatar …` | 整理發給 Claude 的 issue 內文 |
@@ -63,7 +63,7 @@
 
 ## 雲端硬碟上的 file_list.md
 
-`avatar/file_list.md`（和 `chatgpt/`、`gemini/` 同一層）由 next_step 每一輪自動更新，一個版本一列：
+每個執行者各一份，放在自己的資料夾：`avatar/chatgpt/file_list.md`（ChatGPT）、`avatar/gemini/file_list.md`（Gemini）。由各自的 next_step 每一輪自動更新，只寫自己的，一個版本一列：
 
 | 欄位 | 內容 |
 | --- | --- |

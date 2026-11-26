@@ -172,9 +172,10 @@ FILE_LIST_HEAD = ['| agent | avatar | 版本 | 時間 | 結果 | 下一步 | 結
 
 
 def update_file_list(ws, agent, avatar, next_state):
-    """one row per version in avatar/file_list.md (next to the agent folders; docs/File-List.md): what each round
-    gave and its result packs, so everyone finds the files by name. The share-link column is kept as people fill it."""
-    root = os.path.dirname(os.path.dirname(os.path.abspath(ws)))
+    """one row per version in the executor's own file list, avatar/<chatgpt|gemini>/file_list.md (docs/File-List.md):
+    what each round gave and its result packs, so everyone finds the files by name. Each executor writes only its own
+    list. The share-link column is kept as people fill it."""
+    root = os.path.dirname(os.path.abspath(ws))
     path = os.path.join(root, 'file_list.md')
     rows, links = {}, {}
     if os.path.exists(path):
@@ -199,7 +200,7 @@ def update_file_list(ws, agent, avatar, next_state):
         rows[key] = f'| {key[0]} | {key[1]} | {key[2]} | {when} | {res} | {nxt} | {packs} | {links.get(key, "")} |'
     if not rows:
         return None
-    text = ['# avatar 檔案清單', '', '由 next_step 每一輪自動更新（docs/File-List.md）。「分享連結」欄由人或執行者填，'
+    text = [f'# {agent} 的 avatar 檔案清單', '', '由 next_step 每一輪自動更新（docs/File-List.md）。「分享連結」欄由人或執行者填，'
             'next_step 會保留。這一份有人物照片的連結，不要放進公開的 GitHub。', ''] + FILE_LIST_HEAD
     text += [rows[k] for k in sorted(rows)]
     try:
