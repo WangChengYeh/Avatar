@@ -10,6 +10,7 @@
 
 | 檔案 | 誰讀 | 內容 |
 | --- | --- | --- |
+| [docs/Handoff.md](Handoff.md) | Claude（每個新 session 先讀） | 還沒做完的事：下一步、在哪裡 |
 | [docs/SOP.md](SOP.md) | 所有人 | 四個階段、四道關卡、可以交付了嗎 |
 | [docs/Agent-Runbook.md](Agent-Runbook.md) | ChatGPT、Gemini | 反覆跑 next_step、每個狀態怎麼做、什麼時候可以停 |
 | [AGENTS.md](../AGENTS.md)／[GEMINI.md](../GEMINI.md) | ChatGPT／Gemini | 自動讀到的入口，指向 runbook |
@@ -71,16 +72,4 @@ avatar/                       ← 所有人用 Google Drive 連結器讀寫
 
 所有人讀雲端硬碟的方式：Google Drive 連結器（依資料夾或檔名找、讀檔、放檔）。連結器是在 session 開始時載入，剛設定好的要開新的 session 才看得到。
 
-## 5. 交接：還沒做完的事
-
-給接手的 Claude session（以及人）。做完一項就從這裡刪掉。
-
-| 項目 | 下一步 | 在哪裡 |
-| --- | --- | --- |
-| Gemini avatar_001 v002 四關看起來都過了 | 下載 `gates.json` 與四包，確認 0 FAIL、照 SOP 做交付檢查（WARN 逐項看、在 App 匯入 GLB 截圖站姿與抬手）；可交付就在 File-List 改狀態 | 雲端硬碟 `avatar/gemini/avatar_001/v002` |
-| ChatGPT avatar_001 v047 還在第 1 關 | 看 `Avatar-R47_stage1_photos_FAIL.zip` 的 manifest：是不是已經改成指名手臂、手臂有沒有變好；沒進步就在 #65 回覆 | 雲端硬碟 `avatar/chatgpt/avatar_001/v047`、issue #65 |
-| #65 還開著 | 等 ChatGPT 回報 R31 系列（現在是 R47）重畫、`--template makehuman` 重跑後的第 4 關數字 | issue #65 |
-| synth 完美照片用 MakeHuman，第 2 關右臉頰 1 個 WARN | P90 22.4／20（外殼流程 18.0）；查肩頸在 315° 的遮擋 | `check_turnaround.py` 頭部重疊、`mh_fit.py` |
-| 中間角度與擺姿勢後的貼圖沒有直接的自動檢查 | 目前靠臉頰亮度、五官投影間接抓（R31 的臉部接縫就是在 App 裡才看到） | 第 3／4 關 |
-| `test_camera_benchmark_perspective` 在 main 上失敗 | 用故意壞掉的透視照片跑基準，現在被照片檢查擋下回傳非零；基準應該用 `--force` 或接受非零 | `tests/test_run_all.py`、`body3d/camera_benchmark.py` |
-| 肩帶附近貼圖色塊、兩腿內側暗線 | 兩種模板都有，照片與烘焙的問題 | `bake33.py` |
+還沒做完的事見[交接清單](Handoff.md)。
