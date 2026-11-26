@@ -90,7 +90,7 @@ def test_camera_benchmark_perspective(persp_set, tmp_path):
 def test_blender_script_error_fails_the_step(synth_set, tmp_path):
     """審查第 1 項：全新輸出資料夾只跑 uv（沒有網格）→ Blender 腳本出錯，CLI 要回傳非零並指出步驟"""
     rc, out = run_py('run_all.py', synth_set, tmp_path / 'fresh', '--only', 'uv')
-    assert rc != 0 and '失敗於步驟 uv' in out
+    assert rc != 0 and '停在步驟 uv' in out
 
 
 def test_face_step_aligns_closeups(synth_set, tmp_path):

@@ -1,14 +1,16 @@
-"""MakeHuman template, step 2: fit the T-posed template to the photo hull body33s.ply (Laplacian-regularised
-non-rigid ICP), carry the displacement to the helper vertices (they define the joints) and back to the rest pose
-(inverse linear blend skinning). Hands (fingers) and feet keep the template's shape and follow the body.
-    python mh_fit.py WORK_DIR        (reads mh_prep.npz, body33s.ply; writes mh_fit.npz)
+"""MakeHuman template, step 2: fit the T-posed template to the photos: inflate it to the hull body33s.ply, fit it
+to the hull (Laplacian-regularised non-rigid ICP; hands and feet rigid, placed on the hull's), then refine it on
+the 24 full-body silhouettes; carry the displacement to the helper vertices (they define the joints) and back to the
+rest pose (inverse linear blend skinning). Also exports the hull's head (hull_head.npz) for mh_build.
+    python mh_fit.py WORK_DIR        (reads mh_prep.npz, body33s.ply, cams33.json, mask_*.png; writes mh_fit.npz,
+                                      hull_head.npz)
 Pipeline frame: X her left, Y up, Z toward the front camera. Blender: (x, y, z)_bl -> (x, z, -y)."""
 import os, sys
 import numpy as np, trimesh, scipy.sparse as sp
 from scipy.sparse.linalg import factorized
 from scipy.spatial import cKDTree
-D = sys.argv[1]
-PREP, HULL, OUT = (os.path.join(D, f) for f in ('mh_prep.npz', 'body33s.ply', 'mh_fit.npz'))
+D = WORK = sys.argv[1]
+PREP, HULL, OUT, RELIEF = (os.path.join(D, f) for f in ('mh_prep.npz', 'body33s.ply', 'mh_fit.npz', 'face_relief.npz'))
 d = np.load(PREP, allow_pickle=True)
 bl2gl = lambda a: np.c_[a[:, 0], a[:, 2], -a[:, 1]]
 gl2bl = lambda a: np.c_[a[:, 0], -a[:, 2], a[:, 1]]
@@ -81,10 +83,41 @@ def rigid_parts(D, cp, w_data):
                 Dp = np.broadcast_to(D[m].mean(0), D.shape)
         else:
             Dp = np.broadcast_to(D[m].mean(0), D.shape).copy()
+            if k.startswith('hand'):
+                # the fingertips reach where the photos' do (the hull's tip along the arm): the arm field alone
+                # left the template hand a few cm short or long (luna-v1: wrist missing, fingertips extra)
+                sx = np.sign(X0[m, 0].mean())
+                tip_t = (sx * (X0[m, 0] + Dp[m, 0])).max()
+                tip_h = (sx * H[:, 0]).max()
+                Dp[:, 0] += sx * (tip_h - tip_t)
+                # then turn the hand as one piece about its centre to lie in the hull's hand (palm direction,
+                # finger spread plane): weighted Kabsch to the hull's closest points
+                A_ = X0[m] + Dp[m]
+                cpa, dd, ins, _ = closest(A_)
+                ww = np.where(ins, 0.3, 1.0) * (dd < 0.04)
+                if ww.sum() > 10:
+                    ca = (ww[:, None] * A_).sum(0) / ww.sum(); cb = (ww[:, None] * cpa).sum(0) / ww.sum()
+                    Hm = ((A_ - ca) * ww[:, None]).T @ (cpa - cb)
+                    U_, _, Vt = np.linalg.svd(Hm)
+                    R_ = Vt.T @ U_.T
+                    if np.linalg.det(R_) < 0:
+                        Vt[-1] *= -1; R_ = Vt.T @ U_.T
+                    ang = np.degrees(np.arccos(np.clip((np.trace(R_) - 1) / 2, -1, 1)))
+                    if ang < 35:
+                        Dp = Dp + ((X0 + Dp - ca) @ R_.T + cb - (X0 + Dp))
             if k.startswith('foot'):
                 # the feet stand on the floor: the leg field alone let a thin hull pull them 5 cm under it (R17;
                 # pre-bake check 'mesh on the floor')
                 Dp[:, 1] += FLOOR - (X0[m, 1] + Dp[m, 1]).min()
+                # and on the photos' footprint: the leg field carried the template foot a few cm forward of it
+                # (luna-v1: heel missing, toes extra in every side view). Centre the sole on the hull's sole.
+                sole_t = X0[m] + Dp[m]; sole_t = sole_t[sole_t[:, 1] < FLOOR + 0.03]
+                sx = np.sign(X0[m, 0].mean())
+                sole_h = H[(H[:, 1] < FLOOR + 0.03) & (np.sign(H[:, 0]) == sx)]
+                if len(sole_t) > 10 and len(sole_h) > 10:
+                    ct = (sole_t[:, [0, 2]].min(0) + sole_t[:, [0, 2]].max(0)) / 2
+                    chh = (sole_h[:, [0, 2]].min(0) + sole_h[:, [0, 2]].max(0)) / 2
+                    Dp[:, [0, 2]] += chh - ct
         b = part_w[k][:, None]
         out = (1 - b) * out + b * Dp
     return out
@@ -109,7 +142,27 @@ SN = hull.face_normals[fid]; stree = cKDTree(S)
 def closest(Q):
     dist, j = stree.query(Q)
     return S[j], dist, ((Q - S[j]) * SN[j]).sum(1) < 0, j
-INSIDE_W = 0.03
+INSIDE_W = 0.1
+# The template body (MakeHuman default build, weight 0.45) is a size thinner than most hulls: 7-10 mm inside it
+# everywhere on luna-v1, so with the gentle inside pull every silhouette came out too small (final acceptance
+# 14.4 %). Inflate the template first: each vertex moves out along its normal by the smoothed depth at which it
+# sits inside the hull (body only; face, hands and feet keep their shape), then the fit below starts at the
+# hull's size. Concavities the hull bridges (armpits, between the thighs) are deeper than INFLATE_MAX and only
+# take the cap, the smoothing keeps neighbouring vertices together.
+INFLATE_MAX = 0.02
+if INFLATE_MAX > 0:
+    _, dist0, inside0, j0 = closest(X0)
+    n0 = vnormals(X0)
+    ok0 = inside0 & ((n0 * SN[j0]).sum(1) > 0.5)
+    off = np.where(ok0, np.minimum(dist0, INFLATE_MAX), 0.0)
+    nbr = sp.diags(1 / np.maximum(deg, 1)) @ A
+    for _ in range(20):
+        off = 0.5 * off + 0.5 * (nbr @ off)
+    off *= base_w > 0                                      # not the face, hands or feet
+    X0 = X0 + off[:, None] * n0
+    X = X0.copy()
+    print('inflate: template moved out by median %.1f mm (p90 %.1f) to the hull before the fit'
+          % (1000 * np.median(off[off > 0]), 1000 * np.percentile(off[off > 0], 90)))
 for it, lam in enumerate((40, 20, 12, 8, 6, 6)):
     cp, dist, inside, j = closest(X)
     # only closest points facing the same way count (standard ICP normal test): a cavity or a fold would match the
@@ -129,6 +182,47 @@ for it, lam in enumerate((40, 20, 12, 8, 6, 6)):
     X = X0 + D
     print('  iter', it, 'lam', lam, 'mean |d| mm', round(1000 * np.mean(dist), 1), 'outside', int((~inside).sum()),
           'normal-rejected', int((~agree).sum()))
+# --- silhouette refinement: the hull is an upper bound (fat between the eight level views) and the template a
+# generic body, so the fit above still misses the photos' outline by 1-2 cm here and there (luna-v1: 8.5 % after
+# the fit). Fit the outline itself: in every full-body view, a vertex on the model's rim that lands off the photo's
+# outline moves along its normal (in the image plane) by that distance; the moves of all views are combined by
+# the same smooth solve as above. Face, hands and feet keep their shape; only near-outline misses count (an
+# occluded rim lands deep inside the photo silhouette and is ignored).
+SIL_ITERS = 4
+if SIL_ITERS and os.path.exists(os.path.join(WORK, 'cams33.json')):
+    import json as _json, cv2
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import camera
+    cams_ = {n: c for n, c in _json.load(open(os.path.join(WORK, 'cams33.json'))).items()
+             if c.get('kind') in ('main', 'el30', 'low20')}
+    sdfs = {}
+    for n in cams_:
+        m_ = (cv2.imread(os.path.join(WORK, f'mask_{n}.png'), 0) > 0).astype(np.uint8)
+        sdfs[n] = (cv2.distanceTransform(1 - m_, cv2.DIST_L2, 5) - cv2.distanceTransform(m_, cv2.DIST_L2, 5)).astype(np.float32)
+    free = base_w > 0
+    for it in range(SIL_ITERS):
+        nrm = vnormals(X)
+        acc_ = np.zeros_like(X); cnt_ = np.zeros(len(X))
+        for n, c in cams_.items():
+            r_, u_, f_ = camera.axes(c['phi'], c['th'])
+            nf = nrm @ f_
+            rim = free & (np.abs(nf) < 0.25)
+            col, row = camera.project(X[rim], c)
+            sd = cv2.remap(sdfs[n], col.astype(np.float32).reshape(1, -1), row.astype(np.float32).reshape(1, -1),
+                           cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).ravel()
+            near_ = np.abs(sd) < 20
+            ip = nrm[rim] - nf[rim, None] * f_                 # outward direction in the image plane
+            ip /= np.linalg.norm(ip, axis=1, keepdims=True) + 1e-9
+            ids_ = np.flatnonzero(rim)[near_]
+            acc_[ids_] += ip[near_] * (-sd[near_] / c['s'])[:, None]
+            cnt_[ids_] += 1
+        has = cnt_ > 0
+        T_ = np.zeros_like(X); T_[has] = acc_[has] / cnt_[has, None]
+        Wd = sp.diags(np.where(has, 1.0, 0.0) + 1e-4)
+        solve_ = factorized((Wd + 4.0 * LtL).tocsc())
+        Dd = np.stack([solve_(Wd @ T_[:, k]) for k in range(3)], 1)
+        X = X + Dd * free[:, None]
+        print('  silhouette refinement %d: %d rim vertices, mean move %.1f mm' % (it, has.sum(), 1000 * np.abs(T_[has]).sum(1).mean()))
 cp, dist, _, _ = closest(X)
 fold = (vnormals(X) * vnormals(X0)).sum(1) < 0
 print('vertices turned over (normal > 90° from the template):', int(fold.sum()))
@@ -144,4 +238,14 @@ Pb = gl2bl(Pn)
 Minv = np.linalg.inv(d['Mv'])
 R = np.einsum('nij,nj->ni', Minv, np.c_[Pb, np.ones(len(Pb))])[:, :3]
 np.savez(OUT, rest=R, posed=Pb)
+# --- the head comes from the hull (mh_build): the template face is a generic face, and fitting it to the person
+# (depth relief, mouth cavity, hair bun) left seams, holes and patchwork on the perfect photos, while the hull's head
+# (with face33's relief) bakes cleanly on both. Export the hull above HEAD_CUT of the height, Blender frame.
+HEAD_CUT = 1.40 / 1.65
+hv, hf = np.asarray(hull.vertices), np.asarray(hull.faces)
+ycut = float(H[:, 1].min() + HEAD_CUT * (H[:, 1].max() - H[:, 1].min()))
+keepf = (hv[hf][:, :, 1] > ycut).all(1)
+used = np.unique(hf[keepf]); remap_ = -np.ones(len(hv), int); remap_[used] = np.arange(len(used))
+np.savez(os.path.join(WORK, 'hull_head.npz'), v=gl2bl(hv[used]), f=remap_[hf[keepf]], cut=ycut)
+print('hull head: %d vertices above %.3f m for mh_build' % (len(used), ycut))
 print('mh_fit: mean distance to the hull %.1f mm' % (1000 * dist.mean()))

@@ -1,5 +1,6 @@
 """MakeHuman template, step 3 (Blender): make the photo T-pose the rest pose, put the fitted body on the mesh, move
-the bones to the joints the moved helpers define (rolls kept), remove the helper geometry, drop the 'mixamorig:' prefix, split body / head bake groups and
+the bones to the joints the moved helpers define (rolls kept), remove the helper geometry, replace the head by the hull's (hull_head.npz, bridged at the neck, skin weights
+transferred), drop the 'mixamorig:' prefix, split body / head bake groups and
 unwrap them like bl_uv33s.py. Writes uvmesh.npz / uvmesh.blend (the bake33.py inputs) and body_mh.ply.
     blender -b --python mh_build.py -- WORK_DIR"""
 import importlib, json, os, sys, bpy
@@ -50,6 +51,36 @@ for name, spec in rigdef.items():
     eb.align_roll(z)
 bpy.ops.object.mode_set(mode='OBJECT')
 ExportService.bake_modifiers_remove_helpers(h, bake_masks=True, remove_helpers=True)
+# --- the head from the hull (mh_fit exported it): cut the template at the neck, put the hull's head on, bridge the
+# two cut loops and give the new head the template head's skin weights (nearest surface)
+import bmesh
+HH = np.load(os.path.join(D, 'hull_head.npz'))
+zcut = float(HH['cut'])                                     # pipeline y = Blender z
+src = h.copy(); src.data = h.data.copy(); bpy.context.collection.objects.link(src)
+bm = bmesh.new(); bm.from_mesh(h.data)
+bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z > zcut], context='VERTS')
+nb = len(bm.verts)
+newv = [bm.verts.new(Vector(p)) for p in HH['v']]
+bm.verts.ensure_lookup_table()
+for f in HH['f']:
+    try:
+        bm.faces.new([newv[i] for i in f])
+    except ValueError:
+        pass
+bm.normal_update()
+loop = [e for e in bm.edges if e.is_boundary and all(abs(v.co.z - zcut) < 0.03 for v in e.verts)]
+r = bmesh.ops.bridge_loops(bm, edges=loop)
+bm.to_mesh(h.data); bm.free(); h.data.update()
+g = h.vertex_groups.new(name='hull_head'); g.add(list(range(nb, nb + len(HH['v']))), 1.0, 'REPLACE')
+dt = h.modifiers.new('heads', 'DATA_TRANSFER'); dt.object = src
+dt.use_vert_data = True; dt.data_types_verts = {'VGROUP_WEIGHTS'}; dt.vert_mapping = 'POLYINTERP_NEAREST'
+dt.layers_vgroup_select_src = 'ALL'; dt.layers_vgroup_select_dst = 'NAME'; dt.vertex_group = 'hull_head'
+bpy.context.view_layer.objects.active = h
+bpy.ops.object.datalayout_transfer(modifier='heads')
+bpy.ops.object.modifier_apply(modifier='heads')
+h.vertex_groups.remove(h.vertex_groups['hull_head'])
+bpy.data.objects.remove(src)
+print('mh_build: head from the hull: %d vertices above %.3f m, %d bridge faces' % (len(HH['v']), zcut, len(r.get('faces', []))))
 for b in rig.data.bones:
     b.name = b.name.replace('mixamorig:', '')
 h.name, rig.name = 'Body', 'Armature'

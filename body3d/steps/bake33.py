@@ -161,6 +161,11 @@ for n, c in cams.items():
         print(f'gain {n:14s} BGR {np.round(GAIN[n], 3)}  overlap {ov.sum()}')
 
 acc = np.zeros((len(X), 3), np.float32); wsum = np.zeros(len(X)); wconf = np.zeros(len(X), np.float32)
+# the hands (T-pose: past the wrists): a view that looks along the arm sees the hand end-on, in front of the head
+# and body, and a hand that is not exactly where the photo's is (the MakeHuman template hand) takes the hair or the
+# clothes behind it (dark / white fingers with the arms down). Only views that see the hand from the side paint it.
+HAND_X = 0.55 * (X[:, 1].max() - X[:, 1].min()) / 1.65
+hand = np.abs(X[:, 0]) > HAND_X
 for n, c in sorted(cams.items()):
     kind = c['kind']
     frontal_body = kind == 'main' and abs((c['phi'] + 180) % 360 - 180) <= 10 and abs(c['th']) <= 10
@@ -198,6 +203,9 @@ for n, c in sorted(cams.items()):
         vis = depth >= zb[k] - 0.012
         edf = np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1)
         w = np.clip(ndot, 0, 1) ** pw * vis * inb * edf * VW[kind] * HEAD_PRI.get(n, 1.0)
+        end_on = abs(camera.axes(c['phi'], c['th'])[2][0]) > 0.8
+        if end_on:
+            w = w * ~hand[sl]
         headw = np.clip((Xc[:, 1] - 1.36) / 0.05, 0, 1)
         if kind == 'head':
             w *= headw                                # close-ups only on the head / upper neck
@@ -213,6 +221,8 @@ for n, c in sorted(cams.items()):
                 w += 120 * shoulder_front_weight(Xc, Ns[sl, 2]) * inb * front_confidence * (1 - headw)
         # confidence uses a gentle power (is this texel seen at all?); blending uses the sharp one (who wins)
         wc = np.clip(ndot, 0, 1) ** 2 * vis * inb * edf
+        if end_on:
+            wc = wc * ~hand[sl]
         if kind == 'head':
             wc *= headw
         wconf[sl] += wc

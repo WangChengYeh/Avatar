@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.42.0（2026-11-26）
+版本 1.42.1（2026-11-26）
 
 版本紀錄:
+  1.42.1 臉頰亮度（烘焙前）在頭部表面均勻取樣，不再用網格頂點：MakeHuman 模板臉頰頂點稀疏，同一臉頰只有 2–43 點，一律「取樣不足」WARN、量不到接縫。
   1.42.0 第 10i 項新增「斜角照是外殼形狀」：俯角／仰角全身圖幾乎不切水平環外殼（< 1% FAIL，< 1.5% WARN；完美照片每張 ≥ 2.2%）
          表示照片是照水平環外殼（AI 修圖單的「輪廓上限」綠線）填滿或渲染出來的，不是畫出來的人（R31：15 張 0.0–0.2%，手臂成扁平厚板）。
   1.41.1 烘焙前檢查新增「網格落地」：重建網格最低點 ±1.5 cm 內通過、超過 ±3 cm FAIL（R17 MakeHuman −5.2 cm）。
@@ -285,7 +286,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.42.0'
+__version__ = '1.42.1'
 import numpy as np
 import cv2
 
@@ -1764,6 +1765,28 @@ def read_view(folder, work, stem):
     return image, mask
 
 
+def head_surface_samples(vertices, normals, triangles, spacing=0.002, top=1.40):
+    """points spread evenly over the head surface (about one per `spacing` squared), normals interpolated: the
+    cheek comparison must not depend on how dense the mesh is (the MakeHuman template has a few vertices per cm²
+    on the cheek, the hull mesh many, so the same cheek gave 2-43 samples instead of hundreds)"""
+    T = triangles[(vertices[triangles][:, :, 1] >= top).any(1)]
+    a, b, c = (vertices[T[:, k]] for k in range(3))
+    area = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    rng = np.random.default_rng(0)
+    n = np.floor(area / spacing ** 2 + rng.random(len(T))).astype(int)      # expected count = area / spacing²
+    idx = np.repeat(np.arange(len(T)), n)
+    u, v = rng.random(len(idx)), rng.random(len(idx))
+    flip = u + v > 1
+    u[flip], v[flip] = 1 - u[flip], 1 - v[flip]
+    w = 1 - u - v
+    Ti = T[idx]
+    P = w[:, None] * vertices[Ti[:, 0]] + u[:, None] * vertices[Ti[:, 1]] + v[:, None] * vertices[Ti[:, 2]]
+    N = w[:, None] * normals[Ti[:, 0]] + u[:, None] * normals[Ti[:, 1]] + v[:, None] * normals[Ti[:, 2]]
+    N /= np.linalg.norm(N, axis=1, keepdims=True) + 1e-12
+    keep = P[:, 1] >= top
+    return P[keep], N[keep]
+
+
 def cheek_band(landmarks, shape, col, row):
     """Locate the transition around the eroded landmark outline used for the frontal bake."""
     face = np.zeros(shape, np.uint8)
@@ -2143,8 +2166,13 @@ def report_mesh_floor(work):
     try:
         with np.load(Path(work) / 'uvmesh.npz') as mesh:
             y0 = float(mesh['pos'][:, 1].min())
+            span = float(np.ptp(mesh['pos'][:, 1]))
+            body = 'grp' in mesh.files                 # the pipeline's mesh has bake groups; test patches do not
     except (OSError, KeyError, ValueError) as error:
         print(f'[WARN] 網格落地：讀不到網格（{error}）')
+        return False
+    if span < 1.0 or not body:                        # a test patch, not a reconstructed body: nothing stands on it
+        print(f'[INFO] 網格落地：不是重建的全身網格（高 {100 * span:.0f} cm、沒有烘焙分組），略過')
         return False
     d = abs(y0)
     status = PASS if d <= FLOOR_PASS else WARN if d <= FLOOR_FAIL else FAIL
@@ -2339,8 +2367,11 @@ def report_head_overlap(folder, work, overlay_kpis=None, overlay_dir=None):
         landmarks = landmarks[:, :2]
         with np.load(work / 'uvmesh.npz') as mesh:
             vertices = mesh['pos']
-            head = vertices[:, 1] >= 1.40
-            points, normals = vertices[head], mesh['nrm'][head]
+            if 'tri' in mesh.files:
+                points, normals = head_surface_samples(vertices, mesh['nrm'], mesh['tri'])
+            else:                                       # a point set without faces: its points are the samples
+                head = vertices[:, 1] >= 1.40
+                points, normals = vertices[head], mesh['nrm'][head]
         frontal_image, frontal_mask = read_view(folder, work, FRONT)
         col, row, frontal_luma, frontal_valid = projected_samples(
             points, normals, cameras[FRONT], frontal_image, frontal_mask)

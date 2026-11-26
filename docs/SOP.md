@@ -257,6 +257,6 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 
 ### 已知限制
 
-- MakeHuman 模板（`--template makehuman`）仍在試驗：側面輪廓是模板的通用臉，全身剪影吻合度比外殼流程差。預設的外殼流程才是交付路線。
+- MakeHuman 模板（`--template makehuman`）：身體、手指、骨架來自 MakeHuman，頭來自外殼（body3d 2.18 起；之前用 MakeHuman 的通用臉，0°–45° 之間有接縫，R31）。兩組完美照片四道關卡 0 FAIL；四道關卡都 0 FAIL 時可交付。預設仍是外殼流程。
 - 檢查還沒涵蓋網格自我穿插；Yoga2 看到斑點或摺痕時，先用 Blender 實際渲染確認（`verify_glb --renders` 的頭部圖用點去畫，會冒出假的小點）。
 - Yoga2 的站姿、抬手截圖還沒自動化：由 AI 用瀏覽器開 Yoga2 匯入 GLB 後截圖。
