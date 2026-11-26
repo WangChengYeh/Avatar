@@ -25,6 +25,7 @@ import datetime
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -108,13 +109,15 @@ def code_changed_since(commit):
 
 def run_cmd(photos, out, name, template):
     t = f' --template {template}' if template != 'hull' else ''
-    return f'python {os.path.join(REPO, "body3d", "run_all.py")} {photos} {out} --name {name}{t}'
+    q = shlex.quote
+    return f'{q(sys.executable)} {q(os.path.join(REPO, "body3d", "run_all.py"))} {q(photos)} {q(out)} --name {q(name)}{t}'
 
 
 def next_version_steps(ws, n, photos, name, template, why=''):
     """copy this round's photos into a new version v(n) and run it there (a rerun never overwrites a version)"""
     new = vdir(ws, n)
-    return [f'mkdir -p {new}/photos && cp {photos}/*.jpg {new}/photos/' + (f'   # {why}' if why else ''),
+    q = shlex.quote                                    # Google Drive paths have spaces ("My Drive")
+    return [f'mkdir -p {q(new + "/photos")} && cp {q(photos)}/*.jpg {q(new + "/photos")}/' + (f'   # {why}' if why else ''),
             run_cmd(f'{new}/photos', f'{new}/output', name, template)]
 
 
@@ -123,7 +126,8 @@ def decide(ws, avatar, agent, name, template, state):
     cn, cur = vs[-1] if vs else (0, None)
     photos = os.path.join(cur, 'photos') if cur and has_photos(os.path.join(cur, 'photos')) else None
     out = os.path.join(cur, 'output') if cur and os.path.isdir(os.path.join(cur, 'output')) else None
-    me = f'python {os.path.join(REPO, "body3d", "next_step.py")} --workspace {ws}'
+    q = shlex.quote
+    me = f'{q(sys.executable)} {q(os.path.join(REPO, "body3d", "next_step.py"))} --workspace {q(ws)}'   # the same Python, with the packages
     # a newer SOP / program on GitHub (Claude merged something): pull it first, then run again under it
     if not state.get('offline') and not os.environ.get('NEXT_STEP_OFFLINE'):
         n_behind, info = behind_main()
@@ -133,7 +137,7 @@ def decide(ws, avatar, agent, name, template, state):
             w = state.get('waiting')
             if w and gh(w['kind'], 'view', str(w['number']), '--json', 'state', '--jq', '.state') in ('CLOSED', 'MERGED'):
                 state['waiting'] = None                    # Claude's fix is in this update: one rerun covers both
-            steps = [f'cd {REPO} && git pull origin main   # {n_behind} 個新的 commit：' + '；'.join(info[:3])]
+            steps = [f'cd {shlex.quote(REPO)} && git pull origin main   # {n_behind} 個新的 commit：' + '；'.join(info[:3])]
             if photos and out:
                 steps += next_version_steps(ws, cn + 1, photos, name, template, '新的 SOP 可能改了檢查：同一組照片從頭重跑')
             elif photos:
@@ -154,7 +158,7 @@ def decide(ws, avatar, agent, name, template, state):
         if st in ('CLOSED', 'MERGED'):
             state['waiting'] = None
             return dict(state='RUN', why=f'{kind} #{num} 已解決（{st}）：拿新的 SOP／程式從頭重跑', steps=[
-                f'cd {REPO} && git pull origin main'] + next_version_steps(ws, cn + 1, photos, name, template) + [me])
+                f'cd {shlex.quote(REPO)} && git pull origin main'] + next_version_steps(ws, cn + 1, photos, name, template) + [me])
         return dict(state='WAITING', why=f'等 Claude 處理 {kind} #{num}（目前 {st or "查不到狀態：檢查 gh 是否登入"}）', steps=[
             f'可以停下來。之後再跑：{me}'])
     if not out or not (os.path.exists(os.path.join(out, 'gates.json')) or os.path.exists(os.path.join(out, 'progress.json'))):
@@ -167,8 +171,13 @@ def decide(ws, avatar, agent, name, template, state):
         return dict(state='WAITING', why=f'{os.path.basename(cur)} 還在跑', steps=[f'等它跑完，再跑：{me}'])
     # results made by older code are not results: rerun the same photos with the code of this checkout
     made_by = (gates.get('code') or progress.get('code') or {})
-    changed = code_changed_since(made_by.get('commit'))
-    if changed or not made_by.get('commit'):
+    if made_by.get('hash'):                            # the code's own fingerprint: uncommitted edits count as they are
+        sys.path.insert(0, HERE)
+        import run_all
+        changed = made_by['hash'] != run_all.code_hash()
+    else:
+        changed = code_changed_since(made_by.get('commit'))
+    if changed or not (made_by.get('hash') or made_by.get('commit')):
         why = (f'{os.path.basename(cur)} 是舊的程式跑的（commit {str(made_by.get("commit"))[:7]}，之後 body3d/ 改過）'
                if changed else f'{os.path.basename(cur)} 沒有記錄是哪一版程式跑的')
         return dict(state='RUN', why=why + '：用目前的程式、同一組照片重跑',
@@ -203,7 +212,7 @@ def decide(ws, avatar, agent, name, template, state):
         redo = sorted(os.listdir(os.path.join(req, 'photos')))
         return dict(state='RETOUCH', why=f'照片的問題（{first["item"]}，信心{first["confidence"]}）', steps=[
             f'把 {os.path.join(req, "AI修圖單.md")} 與 {req}/photos、{req}/reference 交給生圖 AI，照單重畫：{"、".join(redo)}',
-            f'mkdir -p {new}/photos && cp {photos}/*.jpg {new}/photos/   # 先複製整組，再用重畫好的覆蓋那 {len(redo)} 張',
+            f'mkdir -p {q(new + "/photos")} && cp {q(photos)}/*.jpg {q(new + "/photos")}/   # 先複製整組，再用重畫好的覆蓋那 {len(redo)} 張',
             f'把重畫好的照片（同檔名）放進 {new}/photos',
             run_cmd(f'{new}/photos', f'{new}/output', name, template), me])
     if not reason and first and first['owner'] != '照片' and os.path.exists(os.path.join(out, 'ai_code_request', 'AI改code單.md')):
@@ -221,7 +230,7 @@ def decide(ws, avatar, agent, name, template, state):
     open(issue, 'w', encoding='utf-8').write(body)
     title = f'[SOP] {agent}／{avatar}：{reason}'
     return dict(state='ESCALATE', why=reason, steps=[
-        f'gh issue create --repo WangChengYeh/Avatar --title "{title}" --body-file {issue}   # 記下 issue 編號 N',
+        f'gh issue create --repo WangChengYeh/Avatar --title {q(title)} --body-file {q(issue)}   # 記下 issue 編號 N',
         f'把 {os.path.join(out, "deliver")} 裡的 _FAIL.zip 拖進 issue 留言附上',
         f'{me} --waiting-issue N   # 登記等待；Claude 關閉 issue 後 next_step 會叫你 pull、重跑'])
 
@@ -248,7 +257,7 @@ def main(argv=None):
     state['last'] = dict(r, at=datetime.datetime.now().astimezone().isoformat(timespec='seconds'))
     json.dump(state, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     stop = r['state'] in ('DONE', 'WAITING')
-    text = [f'# 下一步：{r["state"]}', '', f'原因：{r["why"]}', ''] + [f'{i}. `{s}`' if s.startswith(('python', 'gh ', 'mkdir', 'cd '))
+    text = [f'# 下一步：{r["state"]}', '', f'原因：{r["why"]}', ''] + [f'{i}. `{s}`' if s.startswith(('python', 'gh ', 'mkdir', 'cd ', '/', "'"))
                                                                    else f'{i}. {s}' for i, s in enumerate(r['steps'], 1)]
     text += ['', '可以停下來。' if stop else '**照上面做完，再跑一次 next_step。不要停下來問人。**']
     open(os.path.join(ws, 'next_step.md'), 'w', encoding='utf-8').write('\n'.join(text))

@@ -84,3 +84,13 @@ def test_agent_and_avatar_from_the_path(tmp_path):
     assert ns.main(['--workspace', str(ws)]) == 0
     st = json.load(open(ws / 'avatar_state.json'))
     assert st['last']['state'] == 'START' and 'next_step.py --workspace' in (ws / 'next_step.md').read_text(encoding='utf-8')
+
+
+def test_code_hash_ignores_commits_follows_content(tmp_path):
+    """same code = same fingerprint, committed or not; an edit changes it"""
+    import run_all
+    (tmp_path / 'a.py').write_text('x = 1\n'); (tmp_path / 'b.json').write_text('{}')
+    h1 = run_all.code_hash(str(tmp_path))
+    assert run_all.code_hash(str(tmp_path)) == h1
+    (tmp_path / 'a.py').write_text('x = 2\n')
+    assert run_all.code_hash(str(tmp_path)) != h1

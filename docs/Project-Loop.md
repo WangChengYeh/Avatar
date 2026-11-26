@@ -34,7 +34,7 @@ SOP 只有一份，在 main：`docs/SOP.md`、`docs/Diagnosis-Tree.md`、`docs/W
 
 ### 執行者（ChatGPT／Gemini）每一輪
 
-**實際做法很簡單：照 [執行者 runbook](Agent-Runbook.md) 反覆跑 `python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT`，照它說的做，只有 DONE 或 WAITING 才停。** 下面是 next_step 背後的規則。AGENTS.md（ChatGPT／Codex）、GEMINI.md（Gemini）會自動讀到這些指示。
+**實際做法很簡單：照 [執行者 runbook](Agent-Runbook.md) 反覆跑 `python body3d/next_step.py --workspace "<Google Drive>/avatar/<chatgpt|gemini>/<avatar_NNN>"`，照它說的做，只有 DONE 或 WAITING 才停。** 下面是 next_step 背後的規則。AGENTS.md（ChatGPT／Codex）、GEMINI.md（Gemini）會自動讀到這些指示。
 
 1. `git pull` main（next_step 每次都會自動檢查，main 比本機新就給 UPDATE：pull、從頭重跑），記下 SOP 版本：`python body3d/run_all.py --version` 與 `python body3d/check_turnaround.py --version`，以及 commit。
 2. 照 [SOP](SOP.md) 做：生圖 → `run_all.py`（新的輸出資料夾）→ 看客戶頁。
@@ -90,8 +90,29 @@ gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
 - 相關測試通過；新檢查有測試。
 - 不影響另一個 avatar：改了共用的檢查或門檻時，PR 寫清楚另一個 avatar 會不會因此多出 FAIL（Claude 會在 issue 或 PR 裡通知另一個執行者）。
 
+## avatar 放在哪裡
+
+所有 avatar 都放在 Google Drive，每個執行者一個資料夾，每個 avatar 一個資料夾，每一輪一個版本：
+
+```
+<Google Drive>/avatar/
+├── chatgpt/                      ← ChatGPT 負責的 avatar
+│   └── avatar_001/               ← 一個 avatar（工作區 WS）
+│       ├── v001/                 ← 一個版本（一輪）
+│       │   ├── photos/           ← 這一輪的 33 張照片
+│       │   └── output/           ← run_all 的輸出（deliver/、client/…）
+│       ├── v002/ …               ← 重畫或重跑都開下一個版本，複製上一版的照片，不覆蓋舊的
+│       ├── avatar_state.json     ← next_step 的記錄（每一輪的 FAIL、等待中的 issue／PR）
+│       ├── next_step.md          ← 下一步（人只要看這個）
+│       └── issue.md              ← 要發給 Claude 的 issue 內文（需要時才有）
+└── gemini/
+    └── avatar_002/ …
+```
+
+issue 內文會寫出版本的位置（例如 `avatar/gemini/avatar_002/v002`），Claude 從 Drive 拿照片與結果重現。
+
 ## 兩個 avatar 共用一份 SOP
 
 - 一個 avatar 引起的修正會影響另一個：Claude 合併後在兩邊的 open issue 或 PR 留言，另一個執行者 pull 後也要從頭重跑一次。
 - 門檻只依兩組完美照片校準，不依某一個 avatar 調；某個 avatar 的照片一直過不了，修的是照片（或補檢查），不是放寬門檻。
-- 每個 avatar 的輸入照片、輸出資料夾留在執行者那邊；GitHub 上只放 issue、PR、與需要時附的 zip。
+- 每個 avatar 的照片與輸出都在 Google Drive；GitHub 上只放 SOP、程式、issue、PR。
