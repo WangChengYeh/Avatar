@@ -57,8 +57,8 @@
 
 | 執行者／Avatar | 雲端硬碟上的版本 | 最新結果 | 主要問題 | 相關 |
 | --- | --- | --- | --- | --- |
-| ChatGPT／avatar_001（R 系列） | v033、v038、v041、v045、v047 | v047：`Avatar-R47_stage1_photos_FAIL.zip`（第 1 關 FAIL，內容尚未分析） | v033–v041 8 輪卡在第 10i 項：3 張斜對角的手臂和水平環不同。照片檢查 1.43（#70）起直接指名 el30_315、low20_045、low20_315 的手臂與 el30_045 的身體；v047 是第一個在 1.43 之後的版本 | issue #65 |
-| Gemini／avatar_001 | v002 | 四個階段的結果包都不是 `_FAIL`（`body_stage1_photos.zip` … `body_stage4_acceptance.zip`、`gates.json`、`next_step.md`） | 尚未確認；要照 [可以交付了嗎](SOP.md#可以交付了嗎) 做交付檢查 | — |
+| ChatGPT／avatar_001（R 系列） | v033、v038、v041、v045、v047、v048 | v048：`Avatar-R48_stage1_photos_FAIL.zip`，照片檢查 1 FAIL：`el30_315deg` 斜角照手臂 67%（近鏡頭的手臂畫太高） | v033–v041 卡在第 10i 項；1.43（#70）起指名手臂；#77 起修圖單附「手臂位置」參考圖。R48 是同一組照片在新程式上重跑，已自己發 #79 | issue #79、#65 |
+| Gemini／avatar_001 | v002、v003 | v003：next_step **DONE**，四道關卡 0 FAIL（WARN 87／9／0／4），四包都是好的 | 還沒做交付檢查（看 WARN、App 匯入截圖） | — |
 
 模板：預設外殼流程；`--template makehuman` 從 body3d 2.18 起頭用外殼的、身體擬合到照片，兩組完美照片四道關卡 0 FAIL（#69）。
 
