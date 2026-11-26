@@ -271,18 +271,22 @@ def decide(ws, avatar, agent, name, template, state):
         # nothing failed but not deliverable: the four gates did not all run (e.g. --only / --from): run it all
         return dict(state='RUN', why=f'{os.path.basename(cur)} 沒有跑完四道關卡（沒有 FAIL，但也還不能交付）：從頭完整跑',
                     steps=next_version_steps(ws, cn + 1, photos, name, template) + [me])
-    # the same FAIL item two runs in a row -> escalate (the executor does not decide this)
+    # the same FAIL item two runs in a row -> escalate (the executor does not decide this). Only runs of the same
+    # code count: after an update the new SOP gets its own tries (R48: the same photos rerun on new code, with a
+    # new arm reference in the retouch request, escalated before anyone redrew with it)
     import escalate
     history = state.setdefault('runs', [])
     items = fail_items(out)
+    code = made_by.get('hash') or made_by.get('commit')
     if not history or history[-1].get('out') != out:
-        history.append(dict(out=out, photos=photos, fail=items,
+        history.append(dict(out=out, photos=photos, fail=items, code=code,
                             at=datetime.datetime.now().astimezone().isoformat(timespec='seconds')))
+    same_code = [r for r in history if r.get('code') == code]
     repeated = set(items)
-    for r in history[-REPEAT_ROUNDS:]:
+    for r in same_code[-REPEAT_ROUNDS:]:
         repeated &= set(r.get('fail', []))
     reason = None
-    if len(history) >= REPEAT_ROUNDS and repeated:
+    if len(same_code) >= REPEAT_ROUNDS and repeated:
         reason = escalate.REASONS[1]
     reason = reason or escalate.auto_reason(diagnosis, progress, gates)
     first = sorted(diagnosis, key=lambda d: d.get('order', 99))[0] if diagnosis else None
