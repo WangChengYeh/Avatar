@@ -29,8 +29,6 @@ IMG = sys.argv[1]
 SIDE = ('head_045deg', 'head_315deg')
 MAX_T = 0.025                       # largest depth correction (m)
 FADE = 0.015                        # fade-in width inside the landmark outline: no movement on the outline (m)
-if os.path.exists('face_relief.npz'):               # never leave a previous run's landmarks for mh_fit
-    os.remove('face_relief.npz')
 if not os.path.exists('face_lm33.npy'):
     print('face33: no face_lm33.npy (no face in head_000deg; run the face step)', file=sys.stderr); sys.exit(2)
 try:
@@ -188,7 +186,4 @@ d = np.clip(rbf(uvV[front]), -MAX_T, MAX_T) * w
 V2 = V.copy(); V2[front] += d[:, None] * f0
 print(f'  moved {int((np.abs(d) > 1e-4).sum())} vertices, max {1000 * np.abs(d).max():.1f} mm')
 trimesh.Trimesh(V2, F, process=False).export('body33s.ply')
-# the 3D landmarks for a template body (mh_fit.py): the MakeHuman face is a generic face, so it takes this relief too
-np.savez('face_relief.npz', inner=(P[idx] + t[:, None] * f0)[inner], ids=idx[inner], outline=P[idx][outline], f0=f0,
-         r0=camera.axes(c0['phi'], c0['th'])[0], u0=camera.axes(c0['phi'], c0['th'])[1])
 json.dump(cams, open('cams33.json', 'w'), indent=1)

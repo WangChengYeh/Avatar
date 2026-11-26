@@ -500,3 +500,21 @@ def test_tilted_view_drawn_from_hull(broken):
     rc, out = check(broken)
     fails = [l for l in lines(out, 'FAIL') if '斜角照是外殼形狀' in l]
     assert sorted(l.split()[1] for l in fails) == ['el30_000deg', 'low20_135deg'], fails
+
+
+def test_head_samples_do_not_depend_on_mesh_density():
+    """the cheek comparison samples the head surface, not the vertices: a coarse mesh (the MakeHuman template's
+    cheek) and a fine one of the same surface give about the same number of samples"""
+    import check_turnaround as ct
+    def plane(n):                                   # a 10 x 10 cm patch at head height, n x n vertices
+        g = np.linspace(0, 0.1, n)
+        X, Y = np.meshgrid(g, g)
+        V = np.c_[X.ravel(), 1.45 + Y.ravel(), np.zeros(n * n)]
+        N = np.tile([0.0, 0.0, 1.0], (n * n, 1))
+        i = np.arange(n - 1)
+        a = (i[:, None] * n + i[None, :]).ravel()
+        T = np.r_[np.c_[a, a + 1, a + n], np.c_[a + 1, a + n + 1, a + n]]
+        return V, N, T
+    coarse = ct.head_surface_samples(*plane(4))[0]
+    fine = ct.head_surface_samples(*plane(60))[0]
+    assert abs(len(coarse) - len(fine)) < 0.1 * len(fine) and len(fine) > 2000

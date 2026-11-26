@@ -113,7 +113,7 @@ def test_mesh_floor_check(tmp_path):
     import numpy as np
     import check_turnaround as ct
     for y0, failed in ((-0.052, True), (0.009, False), (0.0, False)):
-        np.savez(tmp_path / 'uvmesh.npz', pos=np.array([[0, y0, 0], [0, 1.65, 0]], float))
+        np.savez(tmp_path / 'uvmesh.npz', pos=np.array([[0, y0, 0], [0, 1.65, 0]], float), grp=np.zeros(1, int))
         assert ct.report_mesh_floor(tmp_path) is failed
 
 
