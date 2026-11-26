@@ -1,0 +1,62 @@
+name: SOP 升級（執行者 → Claude）
+description: 照診斷 SOP 處理不掉的 FAIL、SOP 或檢查的缺口（docs/Project-Loop.md）
+title: "[SOP] <avatar>：<一句話>"
+labels: ["sop-escalation"]   # create the label once in the repo; without it GitHub just skips it
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先跑 `python body3d/escalate.py OUTPUT_DIR --agent <你> --avatar <avatar>`，把輸出貼在「證據」欄。
+        各階段的 `_FAIL.zip`（含 AI 修圖單／改 code 單）拖進下面的欄位附上。
+  - type: dropdown
+    id: agent
+    attributes:
+      label: 執行者
+      options: [ChatGPT, Gemini, 其他]
+    validations:
+      required: true
+  - type: input
+    id: avatar
+    attributes:
+      label: Avatar
+      placeholder: avatar-A
+    validations:
+      required: true
+  - type: dropdown
+    id: reason
+    attributes:
+      label: 為什麼發（docs/Project-Loop.md「什麼時候發 issue」）
+      options:
+        - 診斷信心低或沒有對應的規則
+        - 同一個 FAIL 修了 2 輪還在
+        - SOP 或檢查有缺口（後面才 FAIL，前面沒抓到）
+        - 程式出錯、或 AI 改 code 單做不完
+        - SOP 互相矛盾或不清楚
+        - 懷疑門檻錯
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 證據（escalate.py 的輸出）
+      description: 版本與 commit、驗收總表、診斷、未通過原文、停在哪一步、run_all.log 末段
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: 做過什麼
+      description: 照哪張單、修了幾輪、每一輪的結果（數字）
+    validations:
+      required: true
+  - type: textarea
+    id: judgement
+    attributes:
+      label: 你的判斷
+      description: 你覺得原因在哪個階段、是照片／檢查／程式／SOP，為什麼
+  - type: textarea
+    id: files
+    attributes:
+      label: 附件
+      description: 拖進 stage*_FAIL.zip、客戶頁截圖等

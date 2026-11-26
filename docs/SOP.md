@@ -6,6 +6,8 @@
 
 ## 誰做什麼
 
+三個 agent 怎麼分工（Claude 維護 SOP 與程式；ChatGPT、Gemini 各自開發一個 avatar；處理不掉就發 GitHub issue 給 Claude）見[專案迴圈](Project-Loop.md)。
+
 | 誰 | 做什麼 |
 | --- | --- |
 | **人** | 1. **準備輸入**：人物的參考圖或設定（給 AI 生圖用），新的照片資料夾與輸出資料夾。<br>2. **提供 token**：AI 生圖、AI 寫程式所需的 API key 與額度。<br>其他都不用動手：不改圖、不改程式、不手動修中間檔。 |
