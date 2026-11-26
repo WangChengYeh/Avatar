@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.40.0（2026-11-26）
+版本 1.41.0（2026-11-26）
 
 版本紀錄:
+  1.41.0 新增第 10i 項全視角外殼覆蓋：24 張全身圖用規格相機一起雕出外殼，量它蓋住每張水平全身圖的比例（≥ 96% 通過、
+         < 93% FAIL；完美照片 ≥ 97.2%）。R17 各項都只到 WARN，一起雕卻把身體切瘦（側面 73%，成品比照片小 25–32%）。
   1.40.0 烘焙前檢查新增「頭部特寫環對準點」：重建的特寫相機對準點離旋轉軸 ≤ 3 mm 通過、> 5 mm FAIL（完美照片 ≤ 1 mm；
          R14 21.5 mm，3/4 特寫左右貼錯位置）。headreg 同時修正：照片通過時對準點固定在旋轉軸上。
   1.39.0 新增第 11c 項特寫臉部位置：規格相機下，45° / 315° 特寫的臉放回同角度全身圖，和全身圖的臉比（以 0° 為準）。
@@ -280,7 +282,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.40.0'
+__version__ = '1.41.0'
 import numpy as np
 import cv2
 
@@ -464,6 +466,73 @@ def quick_hull(good, vs=0.01, height=None):
         ok = (col >= 0) & (col < W_) & (row >= 0) & (row < H_)
         votes += ok & (m[np.clip(row, 0, H_ - 1), np.clip(col, 0, W_ - 1)] > 0); n += 1
     return P[votes >= max(1, n - 1)]
+
+
+# section 10i, all-view hull coverage. Every other item checks one photo (or one pair); this one checks what the
+# full-body photos make together. The reconstruction carves the body from all of them, so it is never bigger than
+# any one silhouette: when the +30° / -20° views are each a little off (aim 14-19 mm, distance 1-2 %, all just
+# under their own FAIL), together they cut the body thin. Carve a hull from the 24 full-body views with the spec
+# cameras (orthographic, body centre at the image centre, one scale from the figure height, file-name angles) and
+# measure how much of each level-ring photo it still covers. Perfect photos (old test model, luna-v1): 97.2 % or
+# more in every view. R17 (= R14 full-body photos): 73 % at 90° / 270°, final acceptance 24.7 % (hull template)
+# and 31.6 % (MakeHuman); R13 65.6 %; polished 84.8 %.
+HULL_COVER_PASS, HULL_COVER_FAIL = 0.96, 0.93
+# per tilted view: share of the level-ring hull it cuts away. The all-view hull tolerates two misses, so one or two
+# bad views hardly lower the coverage; their own cut shows them (perfect photos <= 6.6 %, R17 culprits 23-26 %,
+# a +30° side view drawn 60 px forward 25 %)
+HULL_CUT_PASS, HULL_CUT_FAIL = 0.10, 0.15
+HULL_CUT_CULPRIT = HULL_CUT_PASS
+RING_TILT = {'el30': 30.0, 'low20': -20.0}
+
+
+def _spec_axes(phi, th):
+    p, t = np.radians(phi), np.radians(th)
+    r = np.array([np.cos(p), 0.0, -np.sin(p)])
+    u = np.array([-np.sin(t) * np.sin(p), np.cos(t), -np.sin(t) * np.cos(p)])
+    return r, u
+
+
+def all_view_hull(good, extra, vs=0.01, miss=2):
+    """(coverage {angle: fraction of the level-ring silhouette the all-view hull covers}, cut {photo name: share of
+    the level-ring hull this tilted photo removes}) with the spec cameras"""
+    k = SPEC_HEIGHT / 1.65
+    hs = []
+    for v in good.values():
+        r = np.flatnonzero(v['m'].any(1))
+        hs.append(r[-1] - r[0])
+    s = float(np.median(hs)) / SPEC_HEIGHT
+    xs = np.arange(-0.95 * k, 0.95 * k, vs) + vs / 2; ys = np.arange(0.0, 1.72 * k, vs) + vs / 2
+    zs = np.arange(-0.42 * k, 0.42 * k, vs) + vs / 2
+    X, Y, Z = np.meshgrid(xs, ys, zs, indexing='ij')
+    Q = np.stack([X.ravel(), Y.ravel() - SPEC_HEIGHT / 2, Z.ravel()], 1)      # relative to the body centre
+    views = [('main', a, 0.0, v) for a, v in good.items()]
+    views += [(ring, a, th, v) for ring, th in RING_TILT.items() for a, v in extra.get(ring, {}).items()]
+    inside, proj = {}, {}
+    for ring, a, th, v in views:
+        m = cv2.dilate(v['m'].astype(np.uint8), np.ones((5, 5), np.uint8)); H_, W_ = m.shape
+        r, u = _spec_axes(a, th)
+        col = np.round(W_ / 2 + s * (Q @ r)).astype(int); row = np.round(H_ / 2 - s * (Q @ u)).astype(int)
+        ok = (col >= 0) & (col < W_) & (row >= 0) & (row < H_)
+        inside[(ring, a)] = ok & (m[np.clip(row, 0, H_ - 1), np.clip(col, 0, W_ - 1)] > 0)
+        proj[(ring, a)] = (col, row, ok)
+    votes = sum(v.astype(np.uint8) for v in inside.values())
+    keep = votes >= len(views) - miss
+    main_votes = sum(inside[('main', a)].astype(np.uint8) for a in good)
+    main_hull = main_votes >= len(good) - 1
+    cut = {}
+    for ring, a, th, v in views:
+        if ring != 'main' and main_hull.any():
+            cut[v.get('name', f'{ring}_{a:03d}deg')] = float((main_hull & ~inside[(ring, a)]).sum() / main_hull.sum())
+    coverage = {}
+    for a, v in good.items():
+        col, row, ok = proj[('main', a)]; H_, W_ = v['m'].shape
+        img = np.zeros((H_ // 4, W_ // 4), np.uint8); kk = keep & ok
+        img[np.clip(row[kk] // 4, 0, H_ // 4 - 1), np.clip(col[kk] // 4, 0, W_ // 4 - 1)] = 1
+        n = 2 * int(np.ceil(s * vs / 4)) + 1
+        img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, np.ones((n, n), np.uint8))
+        ms = cv2.resize(v['m'].astype(np.uint8), (W_ // 4, H_ // 4), interpolation=cv2.INTER_AREA) > 0
+        coverage[a] = float(1 - (ms & (img == 0)).sum() / max(1, ms.sum()))
+    return coverage, cut
 
 
 def top_consistency(hull, mt, core=0.22):
@@ -3551,6 +3620,31 @@ def main():
                 msg += (' → 特寫裡的耳朵位置和全身圖不同：烘焙時兩張疊在一起會有耳朵重影（#17）。'
                         '重新生成這張特寫，耳朵的高度與前後位置和同角度全身圖一致')
             report(lvl, f'head {a}° 耳朵位置', msg)
+
+    # ---- 10i. all-view hull coverage: what the full-body photos carve together
+    if extra.get('el30') or extra.get('low20'):
+        cov, cut = all_view_hull(good, extra)
+        worst = sorted(cut.items(), key=lambda kv: -kv[1])[:4]
+        culprits = '、'.join(f'{n.removesuffix(".jpg")}（切掉 {100 * c:.0f}%）' for n, c in worst if c > HULL_CUT_CULPRIT)
+        print('\n10i. 全視角外殼覆蓋（24 張全身圖用規格相機一起雕出的外殼，還蓋得住每張水平全身圖多少）')
+        for a, c in sorted(cov.items()):
+            lvl = PASS if c >= HULL_COVER_PASS else WARN if c >= HULL_COVER_FAIL else FAIL
+            msg = (f'外殼蓋住照片人物的 {100 * c:.1f}%（應 ≥ {100 * HULL_COVER_PASS:g}%，< {100 * HULL_COVER_FAIL:g}% 判 FAIL；'
+                   f'完美照片 ≥ 97.2%）')
+            if lvl != PASS:
+                msg += (' → 俯角／仰角的照片和水平環對不上（對準高度、距離、俯仰角各差一點），一起雕會把身體切瘦，成品會比照片小。'
+                        + (f'切最多的（完美照片每張最多切 6.6%）：{culprits}。' if culprits else '')
+                        + '重新生成這些照片：同一個相機距離與構圖、身體中心在畫面正中央、正交投影')
+            report(lvl, f'{a}° 全視角外殼覆蓋', msg)
+        for n, c in sorted(cut.items()):
+            n = n.removesuffix('.jpg')
+            lvl = PASS if c <= HULL_CUT_PASS else WARN if c <= HULL_CUT_FAIL else FAIL
+            msg = (f'這張用規格相機看，切掉水平環外殼的 {100 * c:.1f}%（應 ≤ {100 * HULL_CUT_PASS:g}%，'
+                   f'> {100 * HULL_CUT_FAIL:g}% 判 FAIL；完美照片每張 ≤ 6.6%）')
+            if lvl != PASS:
+                msg += (f' → {n} 和水平環對不上（人物位置、大小或俯仰角不同），重建時會把身體切掉。'
+                        '重新生成這張：和水平環同一個相機距離與構圖、身體中心在畫面正中央、正交投影')
+            report(lvl, f'{n} 外殼切割', msg)
 
     # ---- 11. face consistency of the head close-ups
     if extra.get('head'):
