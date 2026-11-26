@@ -1,13 +1,14 @@
 name: SOP 升級（執行者 → Claude）
 description: 照診斷 SOP 處理不掉的 FAIL、SOP 或檢查的缺口（docs/Project-Loop.md）
-title: "[SOP] <avatar>：<一句話>"
+title: "[<你：ChatGPT／Gemini>] [SOP] <avatar>：<一句話>"
 labels: ["sop-escalation"]   # create the label once in the repo; without it GitHub just skips it
 body:
   - type: markdown
     attributes:
       value: |
         先跑 `python body3d/escalate.py OUTPUT_DIR --agent <你> --avatar <avatar>`，把輸出貼在「證據」欄。
-        各階段的 `_FAIL.zip`（含 AI 修圖單／改 code 單）拖進下面的欄位附上。
+        結果包放在雲端硬碟，下面寫路徑；不要把照片附在公開的 issue。
+        標題開頭寫你是誰（[ChatGPT]／[Gemini]），並加 label agent:<你的名字>（docs/Project-Loop.md#誰做的）。
   - type: dropdown
     id: agent
     attributes:

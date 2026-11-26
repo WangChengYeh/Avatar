@@ -4,6 +4,27 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 人要看得出是哪個 agent 做的
+
+三個 agent 多半用同一個 GitHub 帳號，看帳號分不出是誰。專案迴圈新增「誰做的」：
+- issue／PR 標題開頭 `[ChatGPT]`／`[Gemini]`／`[Claude]`；
+- label `agent:chatgpt`／`agent:gemini`／`agent:claude`；
+- 內文與留言第一行「> 由 **X** 發／回報」；
+- 分支 `<名字>/…`；
+- commit 結尾 `Agent: X`；
+- 雲端硬碟每個 agent 只寫自己的資料夾。
+
+next_step 產生的升級 issue 自動帶好標題前綴、label 與第一行。PR 模板、issue 表單、AGENTS.md、GEMINI.md、CLAUDE.md 都寫進這條規則。repo 已建好這四個 label（含 `sop-escalation`）。
+
+## 三個角色怎麼操作：大家都有 GitHub 和 Google Drive
+
+- **專案迴圈**新增「三個角色怎麼操作」：
+  - 執行者、Claude、人各自用 GitHub 做什麼、用雲端硬碟做什麼、什麼時候停。
+  - 執行者一輪的實際操作、Claude 的實際操作。
+- **next_step**：ESCALATE 不再「沒有 gh 就交給人發、停下來等」。執行者用 `gh`，或 GitHub 連結器（標題 `issue_title.txt`、內文 `issue.md`），自己發 issue，用 `--waiting-issue N` 登記；只有 DONE 和 WAITING 可以停。issue 回報同樣用 gh 或連結器留言。
+- **runbook、啟動提示詞、AGENTS.md、GEMINI.md、README、SOP、File-List**：拿掉「交給人」的路徑；結果包放雲端硬碟，issue 寫路徑，不附照片。Claude 重現時用 Drive 連結器拿結果包。
+- **測試**：沒有 gh 時，ESCALATE 指示用 GitHub 連結器發 issue，不停下來。
+
 ## AI 修圖單：斜角照手臂附「手臂位置」參考圖（ChatGPT avatar_001 R46–R47）
 
 ChatGPT 的 R46、R47 連續兩輪停在同一個 FAIL：`el30_315deg` 斜角照手臂切掉 67%。沒有 gh，它照 next_step 把 issue 交給人。它的判斷是：五張重畫的候選和以前的版本，都找不到手臂合格的。

@@ -10,11 +10,12 @@
 python body3d/next_step.py --workspace ~/avatar/chatgpt/<avatar_NNN>
 ```
 
-**照它印出的指令做，做完再跑一次，在同一個回覆／同一輪裡一直做下去。只有狀態是 DONE、WAITING，或沒有 gh 時把 issue 交給人的 ESCALATE，才可以停下來；不要停下來問人要不要繼續。每次停下來時，最後貼出 avatar 資料夾裡的 `next_step.md`。**
+**照它印出的指令做，做完再跑一次，在同一個回覆／同一輪裡一直做下去。只有狀態是 DONE 或 WAITING 才可以停下來；不要停下來問人要不要繼續。每次停下來時，最後貼出 avatar 資料夾裡的 `next_step.md`。**
 
 - 程式更新了就一定重跑：每份結果記錄是哪一版程式跑的，舊程式跑的結果 next_step 會叫你用新程式重跑。
 - 不用自己記得去 GitHub 抓新的 SOP：next_step 每次都會先 `git fetch`，main 有新的就給 UPDATE（`git pull`、重跑）。
 - 你的 avatar 工作區在 `~/avatar/chatgpt/avatar_NNN/`，每一輪一個版本 `vNNN/photos`、`vNNN/output`（docs/Agent-Runbook.md）。每個版本做完，照 `next_step.md` 的「雲端硬碟」用 Google Drive 連結器把結果放到 `avatar/chatgpt/avatar_NNN/vNNN/`。照片不放 GitHub（repo 是公開的）。
 - 角色與升級規則：[docs/Project-Loop.md](docs/Project-Loop.md)。SOP 由 Claude 維護；你不改 SOP、門檻或檢查來讓自己過關。
 - 程式改動開 PR 給 Claude review（`.github/pull_request_template.md`），不直接推 main。
-- 處理不掉的：next_step 會走到 ESCALATE、寫好 issue 內文（寫雲端硬碟的路徑），發 GitHub issue 給 Claude；沒有 gh 就交給人發。
+- 標明是你做的（docs/Project-Loop.md#誰做的）：issue／PR 標題開頭 `[ChatGPT]`、加 label `agent:chatgpt`，內文與留言第一行「> 由 **ChatGPT** 發／回報」，分支 `chatgpt/…`，commit 結尾 `Agent: ChatGPT`。
+- 處理不掉的：next_step 會走到 ESCALATE、寫好 issue 內文（寫雲端硬碟的路徑），用 `gh` 或 GitHub 連結器自己發 GitHub issue 給 Claude。

@@ -6,6 +6,46 @@
 
 人只準備輸入與 token（見 [SOP](SOP.md#誰做什麼)）；下面三個 agent 做其他所有事。
 
+## 三個角色怎麼操作
+
+每個 agent 都有 **GitHub**（`gh` 或 GitHub 連結器）和 **Google Drive**（Google Drive 連結器）。GitHub 放 SOP、程式、issue、PR；雲端硬碟 `avatar/` 放照片與結果包。GitHub repo 是公開的：照片不放 GitHub、不附在 issue，issue 裡寫雲端硬碟的路徑。
+
+| 誰 | 用 GitHub 做什麼 | 用雲端硬碟做什麼 | 什麼時候停 |
+| --- | --- | --- | --- |
+| **ChatGPT／Gemini**（執行者） | `git pull` main（next_step 自動檢查）；處理不掉時**自己發 issue**；程式改動開 PR；在 issue 回報重跑結果 | 每一版跑完，把結果包、`gates.json`、`next_step.md` 放到 `avatar/<自己>/<avatar_NNN>/vNNN/`（`next_step.md` 最後一段列出來） | 只有 DONE 和 WAITING |
+| **Claude**（維護者） | 看 issue、PR；修 SOP／程式、開 PR（`Fixes #N`）；人說合併才合併；回覆 issue；更新 [交接清單](Handoff.md) 與 [File-List](File-List.md) | 讀執行者的結果包重現問題（依路徑或檔名找） | 每個 session 結束前更新交接清單 |
+| **人** | 看 issue、PR；說「合併」 | 看 `next_step.md`、客戶頁；準備 `avatar/` 資料夾與連結器權限 | — |
+
+### 誰做的
+
+三個 agent 多半用同一個 GitHub 帳號，看帳號分不出是誰。每一樣東西都要標明：
+
+| 東西 | 怎麼標 |
+| --- | --- |
+| issue、PR 標題 | 開頭 `[ChatGPT]`、`[Gemini]` 或 `[Claude]` |
+| label | `agent:chatgpt`、`agent:gemini`、`agent:claude`（升級 issue 另加 `sop-escalation`） |
+| issue、PR 內文與每一則留言 | 第一行「> 由 **ChatGPT** 發／回報」（Claude 的 PR 結尾另有 Claude Code 的署名） |
+| 分支 | `chatgpt/…`、`gemini/…`、`claude/…` |
+| commit | 結尾一行 `Agent: ChatGPT`（Claude 用 `Co-Authored-By: Claude …`） |
+| 雲端硬碟 | 每個 agent 只寫自己的資料夾 `avatar/<chatgpt|gemini>/` |
+
+next_step 產生的 issue 已經帶好標題前綴、label 與第一行。人在 GitHub 用 label 篩選（例：`label:agent:gemini`）就看得到某個 agent 做的所有事。
+
+**執行者一輪的實際操作**
+
+1. 跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它印的指令做（UPDATE／START／RUN／RETOUCH／CODE），做完再跑一次。
+2. 每一版跑完：照 `next_step.md` 的「雲端硬碟」用連結器放檔。
+3. 走到 ESCALATE：用 `gh issue create`（或 GitHub 連結器，標題與內文在 `issue_title.txt`、`issue.md`）發 issue，`--waiting-issue N` 登記，停在 WAITING。
+4. Claude 合併修正後，下一次 next_step 給 UPDATE：pull、從頭重跑；跑完照 `next_step.md` 的「回報」在 issue 留言。
+5. DONE：做[交付檢查](SOP.md#可以交付了嗎)，在 issue（或新的 issue）寫交付的雲端硬碟路徑。
+
+**Claude 的實際操作**
+
+1. 開工讀 [交接清單](Handoff.md)，`gh issue list`／`gh pr list` 看有沒有新的。
+2. 有 issue：用 Drive 連結器拿 issue 寫的路徑裡的結果包，照[診斷 SOP](Diagnosis-Tree.md#診斷-sop) 找原因、補檢查或修程式，開 PR 寫 `Fixes #N`，等人說合併。
+3. 合併後在 issue 回覆：改了什麼、最低版本、執行者怎麼繼續；執行者回報解決才關閉。
+4. 結束前更新交接清單與 File-List 的狀態，開 PR。
+
 ## 角色
 
 | Agent | 負責 | 在 GitHub 上做什麼 |
@@ -34,7 +74,7 @@ SOP 只有一份，在 main：`docs/SOP.md`、`docs/Diagnosis-Tree.md`、`docs/W
 
 ### 執行者（ChatGPT／Gemini）每一輪
 
-**實際做法很簡單：照 [執行者 runbook](Agent-Runbook.md) 反覆跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它說的做，只有 DONE 或 WAITING 才停。** 下面是 next_step 背後的規則。AGENTS.md（ChatGPT／Codex）、GEMINI.md（Gemini）會自動讀到這些指示。
+**實際做法很簡單：照 [執行者 runbook](Agent-Runbook.md) 反覆跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它說的做，只有 DONE 或 WAITING 才停。**（操作摘要見上面「三個角色怎麼操作」） 下面是 next_step 背後的規則。AGENTS.md（ChatGPT／Codex）、GEMINI.md（Gemini）會自動讀到這些指示。
 
 1. `git pull` main（next_step 每次都會自動檢查，main 比本機新就給 UPDATE：pull、從頭重跑），記下 SOP 版本：`python body3d/run_all.py --version` 與 `python body3d/check_turnaround.py --version`，以及 commit。
 2. 照 [SOP](SOP.md) 做：生圖 → `run_all.py`（新的輸出資料夾）→ 看客戶頁。
@@ -63,13 +103,15 @@ python body3d/escalate.py OUTPUT_DIR --agent ChatGPT --avatar avatar_001 --tried
 gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file issue.md
 ```
 
-`escalate.py` 從輸出資料夾整理出 issue 內文：SOP／程式版本與 commit、驗收總表、診斷（照修的順序）、每一項未通過的原文、停在哪一步、`run_all.log` 最後幾十行。執行者再補：做過什麼、幾輪、自己的判斷。各階段的 `_FAIL.zip`（含 AI 修圖單／改 code 單）拖進 issue 留言附上。
+一般不用自己下這兩行：next_step 走到 ESCALATE 時已經寫好 `issue.md`、`issue_title.txt`。沒有 `gh` 就用 GitHub 連結器開 issue。
+
+`escalate.py` 從輸出資料夾整理出 issue 內文：SOP／程式版本與 commit、驗收總表、診斷（照修的順序）、每一項未通過的原文、停在哪一步、`run_all.log` 最後幾十行。執行者再補：做過什麼、幾輪、自己的判斷。結果包（含 AI 修圖單／改 code 單）放在雲端硬碟，issue 寫路徑，不要把照片附在公開的 issue。
 
 也可以直接用 GitHub 網頁的「SOP 升級（執行者 → Claude）」issue 表單。
 
 ### Claude 處理 issue
 
-1. **重現**：用 issue 附的照片與 SOP 版本從頭跑；拿不到照片就請執行者附 `stage1_photos(_FAIL).zip`。
+1. **重現**：用 Google Drive 連結器拿 issue 寫的雲端硬碟路徑裡的結果包（`stage1_photos(_FAIL).zip` 有 33 張照片），用同一版 SOP 從頭跑。
 2. **照診斷 SOP 找原因所在的階段**（[診斷 SOP](Diagnosis-Tree.md#診斷-sop)）：照片、檢查缺口、程式、還是 SOP 本身。必要時做對照實驗（同一組照片只差一個變數）。
 3. **改**：
    - 檢查缺口 → 在那個階段補檢查：這組照片會 FAIL、兩組完美照片仍 0 FAIL／0 WARN。
@@ -77,7 +119,7 @@ gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file i
    - 診斷樹 → 補分支或規則，讓下次信心高。
    - SOP → 改文件，消除矛盾、補缺的步驟。
 4. **交付**：開 PR，內文寫 `Fixes #<issue>`、原因、補的檢查（前後數字）、驗收結果；更新 CHANGELOG。合併到 main。
-5. **合併後執行者自動更新**：兩個執行者下一次跑 next_step 時都會拿到 UPDATE（`git pull`、用目前的照片從頭重跑），不用另外通知。等 issue 的那一位也一樣：**issue 不用先關閉**，pull 之後程式變了，next_step 就不再等（登記等待時記下程式指紋；R33 因為 issue 開著、gh 沒登入而一直停在 WAITING），照新的 SOP 繼續，跑完把結果回覆到 issue（next_step.md 的「回報」）。issue 等執行者回報解決才關閉。
+5. **合併後執行者自動更新**：兩個執行者下一次跑 next_step 時都會拿到 UPDATE（`git pull`、用目前的照片從頭重跑），不用另外通知。等 issue 的那一位也一樣：**issue 不用先關閉**，pull 之後程式變了，next_step 就不再等（登記等待時記下程式指紋；R33 因為 issue 開著而一直停在 WAITING），照新的 SOP 繼續，跑完把結果回覆到 issue（next_step.md 的「回報」）。issue 等執行者回報解決才關閉。
 6. **回覆 issue**：改了什麼、需要的最低版本（`run_all.py --version`／`check_turnaround.py --version`）、執行者要怎麼繼續（例：「pull main ≥ 1.41.1，新的輸出資料夾從頭跑；el30_090 等 7 張照 AI 修圖單重畫」）。等執行者回報解決再關閉。
 
 ### 執行者的程式 PR（Claude review）

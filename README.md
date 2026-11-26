@@ -104,7 +104,7 @@ node scripts/compare_turnaround.mjs --photos ./photos \
 
 - [交接清單](docs/Handoff.md) · 還沒做完的事（每個新的 Claude session 先讀）
 - [重要檔案清單](docs/File-List.md) · 要讀哪些文件、程式入口、每一輪產生的檔案、各 avatar 目前的狀態與交接清單
-- [執行者 runbook](docs/Agent-Runbook.md) · ChatGPT／Gemini 反覆跑 `body3d/next_step.py`、照它說的做，只有 DONE、WAITING（或沒有 gh 時交出 issue）才停；結果用 Google Drive 連結器放到雲端硬碟 `avatar/`
+- [執行者 runbook](docs/Agent-Runbook.md) · ChatGPT／Gemini 反覆跑 `body3d/next_step.py`、照它說的做，只有 DONE 或 WAITING 才停；結果用 Google Drive 連結器放到雲端硬碟 `avatar/`
 - [專案迴圈](docs/Project-Loop.md) · 三個 AI agent：Claude 維護 SOP 與程式、經 GitHub 交付與 review；ChatGPT、Gemini 照 SOP 各開發一個 avatar；處理不掉發 issue 給 Claude
 - [未通過時的診斷 SOP 與診斷樹](docs/Diagnosis-Tree.md) · 每一個未通過項目問到原因；多個 FAIL 時前面階段、信心高的先修；在所屬階段補檢查再修；照片叫 AI 修圖（含 R14 實例）
 - [標準作業流程（SOP）](docs/SOP.md) · 每個階段的成果（好／_FAIL）、四道關卡、PASS／WARN／FAIL 怎麼處理、交付條件

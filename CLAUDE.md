@@ -11,3 +11,4 @@
 - 各 avatar 目前的狀態在 [docs/File-List.md](docs/File-List.md) 第 4 節；處理完 issue／PR 或看過新的結果就更新。
 - 照片與結果包在雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`，用 Google Drive 連結器讀（連結器在 session 開始時載入）。GitHub repo 是公開的：照片、雲端硬碟連結不放進 repo 或 issue，寫路徑。
 - 合併 PR 只在人明確說要合併時做。
+- 標明是你做的（[docs/Project-Loop.md#誰做的](docs/Project-Loop.md#誰做的)）：PR／issue 標題開頭 `[Claude]`、加 label `agent:claude`，issue 留言第一行「> 由 **Claude** 回覆」，分支 `claude/…`。

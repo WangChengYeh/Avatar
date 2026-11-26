@@ -38,7 +38,7 @@
 | --- | --- | --- |
 | `<avatar>/next_step.md` | 下一步 | **人只要看這個**：目前狀態、原因、要做的事；最後一段「雲端硬碟」列出這一版要放到雲端硬碟的檔與位置 |
 | `<avatar>/avatar_state.json` | next_step 的紀錄 | 每一輪的 FAIL、等待中的 issue／PR |
-| `<avatar>/issue.md`、`issue_title.txt` | 要發給 Claude 的 issue | ESCALATE 時才有；沒有 gh 就交給人發 |
+| `<avatar>/issue.md`、`issue_title.txt` | 要發給 Claude 的 issue | ESCALATE 時才有；執行者用 gh 或 GitHub 連結器自己發 |
 | `<avatar>/vNNN/photos/` | 這一輪的 33 張照片 | 重畫只改要改的幾張，其他複製上一版 |
 | `<avatar>/vNNN/output/deliver/{name}_stage1_photos(_FAIL).zip` | 階段 1 結果包 | 照片、檢查報告、AI 修圖單（有 FAIL 時） |
 | `…/{name}_stage2_reconstruction(_FAIL).zip` | 階段 2 | 相機、網格、頭部對照圖 |

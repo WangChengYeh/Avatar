@@ -38,8 +38,7 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 | RUN | 跑它給的 `run_all.py`（可能先 `git pull`） | 不行 |
 | RETOUCH | 把 AI 修圖單交給生圖（你自己的生圖工具），重畫指定的照片；開下一個版本 `v(N+1)/photos`，複製整組再覆蓋重畫的，跑 `run_all.py` | 不行 |
 | CODE | 照 AI 改 code 單改程式、開 PR 給 Claude，用 `--waiting-pr N` 登記 | 不行，登記後回第 1 步 |
-| ESCALATE | 用它寫好的內文 `gh issue create`（內文寫了這一版在雲端硬碟的路徑，結果包要先放上去），用 `--waiting-issue N` 登記 | 不行，登記後回第 1 步 |
-| ESCALATE（沒有 gh） | 把 `issue.md`、`issue_title.txt` 交給人發 issue；拿到編號前不要再重畫或重跑 | 交給人之後**可以** |
+| ESCALATE | 用它寫好的內文**自己發 issue**：`gh issue create`，或用 GitHub 連結器（標題 `issue_title.txt`、內文 `issue.md`，寫了這一版在雲端硬碟的路徑，結果包要先放上去）；用 `--waiting-issue N` 登記 | 不行，登記後回第 1 步 |
 | WAITING | 等 Claude 處理 issue／PR；之後再跑第 1 步。Claude 合併了修正（pull 之後程式變了）就不再等，即使 issue 還開著：照新的 SOP 繼續，這一輪跑完照 next_step.md 的「回報」回覆到 issue | **可以** |
 | DONE | 做交付檢查（看 WARN 記在 Issue、Yoga2 匯入截圖），交付 | **可以** |
 
@@ -48,13 +47,13 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 - **程式更新了就一定重跑**：每份結果都記錄是哪一版程式跑的（程式內容的指紋，加上 git commit）。最新的結果如果是舊程式跑的（之後 `body3d/` 改過，不管是 next_step 的 UPDATE、你手動 pull、還是別的工具更新的），next_step 一律給 RUN：同一組照片用新程式重跑。只改文件不會重跑。
 - **不用自己記得去 GitHub 抓新的**：next_step 每次都先 `git fetch`，main 比本機新就給 UPDATE（pull、重跑）。Claude 合併的修正（不管是不是為你的 avatar），你下一次跑 next_step 就會拿到。抓不到 GitHub（沒網路）時它照本機的版本繼續，並在 `avatar_state.json` 的 `update_check` 寫原因。
 
-- 只有 **DONE**、**WAITING**，以及**沒有 gh 時把 issue 交給人的 ESCALATE** 可以停下來。其他狀態一律照做、再跑 next_step。
+- 只有 **DONE** 和 **WAITING** 可以停下來。其他狀態一律照做、再跑 next_step。
 - 每一版跑完，照 `next_step.md` 的「雲端硬碟」把結果放到 `avatar/<agent>/<avatar_NNN>/vNNN/`：Claude 和人都從那裡看。
 - 不要問人「要繼續嗎」「要不要修」「要不要發 issue」：next_step 已經決定了。要決定的事情（例如同一個 FAIL 修了 2 輪還在要不要升級）它都照[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)的規則判斷好了。
 - 不要改 SOP、門檻、檢查來讓自己過關；不要手動修中間檔（`cams33.json`、網格…）。覺得 SOP 或門檻錯，next_step 會走到 ESCALATE，或你自己發 issue。
 - 每一輪是一個新的版本（`vNNN/photos`、`vNNN/output`），不覆蓋舊的：next_step 靠它們判斷「同一個 FAIL 有沒有一直出現」。
 - 指令照 next_step 印的原樣執行：路徑已經加了引號（路徑有空格也沒問題），Python 也是跑 next_step 的那一個（有裝好套件）。
-- 做不到 next_step 要求的事（例如沒有生圖工具）：這就是 ESCALATE 的理由，發 issue 說明，不要停在原地等人。沒有 `gh` 時，next_step 會讓你把 issue 交給人發。
+- 做不到 next_step 要求的事（例如沒有生圖工具）：這就是 ESCALATE 的理由，發 issue 說明，不要停在原地等人。你有 GitHub（`gh` 或 GitHub 連結器）和 Google Drive 連結器：issue、PR、留言、放檔都自己做。
 - 每次回報給人時，附上 avatar 資料夾裡 `next_step.md` 的內容：人只需要看狀態。
 
 ## 啟動提示詞（第一次交給 agent 時貼上）
@@ -66,13 +65,13 @@ ChatGPT／Gemini 用**聊天介面**時，每回覆一次就結束一輪，不�
 規則：
 1. 每做完一步就跑：python body3d/next_step.py --workspace ~/avatar/AGENT/AVATAR（它每次都會先檢查 GitHub 上有沒有新的 SOP，有就叫你 git pull、重跑）
 2. 照它印出的指令做，做完再跑一次。在同一個回覆裡一直做下去，不要做完一步就結束回覆。
-3. 只有狀態是 DONE、WAITING，或沒有 gh 時把 issue 交給我的 ESCALATE，才可以結束回覆。其他狀態（START、RUN、RETOUCH、CODE、ESCALATE）都不可以停，也不要問我要不要繼續。
+3. 只有狀態是 DONE 或 WAITING 才可以結束回覆。其他狀態（START、RUN、RETOUCH、CODE、ESCALATE）都不可以停，也不要問我要不要繼續。
 4. 每一版跑完，照 next_step.md 的「雲端硬碟」用 Google Drive 連結器把結果放到 avatar/AGENT/AVATAR/vNNN/。
 5. 每次結束回覆時，最後貼出 avatar 資料夾裡 next_step.md 的內容。
 6. 如果因為長度或工具限制必須中斷，最後一行寫「未完成：下一步是 <next_step.md 的狀態>」。我回「繼續」時，你直接從 next_step 接著做，不要重新規劃、不要問問題。
-7. 做不到 next_step 要求的事（例如沒有生圖工具），就照 ESCALATE 發 issue 說明，不要停下來等我；沒有 gh 時把 issue.md 交給我發。
+7. 做不到 next_step 要求的事（例如沒有生圖工具），就照 ESCALATE 發 issue 說明，不要停下來等我。issue、PR、留言用 gh 或 GitHub 連結器自己做。
 ```
 
 用 **agent 模式**（Codex CLI／Codex 雲端、Gemini CLI、ChatGPT agent）時，它們會自動讀 `AGENTS.md`／`GEMINI.md`，通常不需要貼；不確定就照樣貼一次。
 
-人要做的事：一開始貼這段提示詞；agent 停在 WAITING 或「未完成」時回一句「繼續」；agent 沒有 gh 而交出 `issue.md` 時，幫它在 GitHub 發 issue、把編號告訴它。
+人要做的事：一開始貼這段提示詞；agent 停在 WAITING 或「未完成」時回一句「繼續」。
