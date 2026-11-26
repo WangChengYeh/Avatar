@@ -6,8 +6,9 @@
 WS 是這個 avatar 的工作區：照片資料夾 photos_vN/、輸出資料夾 out_vN/、狀態檔 avatar_state.json 都在裡面。
 next_step 找最新的 out_vN，讀它的驗收結果、診斷、工作單與過去每一輪的記錄，給出**一個**狀態與要照做的指令：
 
+    UPDATE    GitHub 上的 main 有新的 SOP／程式（Claude 合併了）：git pull，用目前的照片從頭重跑
     START     還沒跑過：跑 run_all.py
-    RUN       照片有了、還沒跑（或剛 pull 了新的 SOP）：跑 run_all.py
+    RUN       照片有了、還沒跑；或最新的結果是舊的程式跑的（body3d/ 之後改過）：跑 run_all.py
     RETOUCH   照片的問題：照 AI 修圖單重畫 → 放進 photos_v(N+1) → 跑 run_all.py
     CODE      程式的問題：照 AI 改 code 單改程式 → 開 PR 給 Claude → 等合併
     ESCALATE  處理不掉：發 GitHub issue 給 Claude（內文已寫好）→ 等
@@ -65,6 +66,36 @@ def gh(*args):
         return None
 
 
+def behind_main():
+    """(commits the local checkout is behind origin/main, the new commits' subjects) after a git fetch;
+    (None, error) when GitHub cannot be reached — next_step then goes on with what it has"""
+    try:
+        f = subprocess.run(['git', '-C', REPO, 'fetch', '--quiet', 'origin', 'main'], capture_output=True, text=True,
+                           timeout=120)
+        if f.returncode != 0:
+            return None, (f.stderr or 'git fetch 失敗').strip().splitlines()[-1]
+        n = subprocess.run(['git', '-C', REPO, 'rev-list', '--count', 'HEAD..origin/main'], capture_output=True,
+                           text=True).stdout.strip()
+        log = subprocess.run(['git', '-C', REPO, 'log', '--format=%h %s', 'HEAD..origin/main', '-n', '8'],
+                             capture_output=True, text=True).stdout.strip().splitlines()
+        return int(n or 0), log
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return None, str(error)
+
+
+def code_changed_since(commit):
+    """True when body3d/ differs between the commit that made an output and this checkout (code updated since);
+    None when that cannot be told (no commit recorded, commit unknown here)"""
+    if not commit:
+        return None
+    try:
+        r = subprocess.run(['git', '-C', REPO, 'diff', '--quiet', commit, '--', 'body3d'], capture_output=True,
+                           timeout=60)
+        return {0: False, 1: True}.get(r.returncode)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def run_cmd(ws, photos, n, name, template):
     out = os.path.join(ws, f'out_v{n}')
     t = f' --template {template}' if template != 'hull' else ''
@@ -75,6 +106,22 @@ def decide(ws, avatar, agent, name, template, state):
     pn, photos = latest(ws, 'photos')
     on, out = latest(ws, 'out')
     me = f'python {os.path.join(REPO, "body3d", "next_step.py")} --workspace {ws} --avatar {avatar} --agent {agent}'
+    # a newer SOP / program on GitHub (Claude merged something): pull it first, then run again under it
+    if not state.get('offline') and not os.environ.get('NEXT_STEP_OFFLINE'):
+        n_behind, info = behind_main()
+        if n_behind is None:
+            state['update_check'] = f'查不到 GitHub 上的 main（{info}）：先用本機的版本繼續'
+        elif n_behind > 0:
+            w = state.get('waiting')
+            if w and gh(w['kind'], 'view', str(w['number']), '--json', 'state', '--jq', '.state') in ('CLOSED', 'MERGED'):
+                state['waiting'] = None                    # Claude's fix is in this update: one rerun covers both
+            steps = [f'cd {REPO} && git pull origin main   # {n_behind} 個新的 commit：' + '；'.join(info[:3])]
+            if photos:
+                steps.append(run_cmd(ws, photos, latest(ws, 'out')[0] + 1, name, template)
+                             + '   # 新的 SOP 可能改了檢查：用目前的照片從頭重跑')
+            steps.append(me)
+            return dict(state='UPDATE', why=f'GitHub 上的 main 比本機新 {n_behind} 個 commit（Claude 合併了新的 SOP／程式）',
+                        steps=steps)
     if not photos:
         return dict(state='START', why='工作區還沒有照片', steps=[
             f'照 docs/Workflow-and-Validation.md#生圖規格 生 33 張照片，放進 {os.path.join(ws, "photos_v1")}（檔名照規格）',
@@ -100,10 +147,23 @@ def decide(ws, avatar, agent, name, template, state):
     diagnosis = load(os.path.join(out, 'diagnosis.json'), []) or []
     if progress.get('state') == 'running':
         return dict(state='WAITING', why=f'{out} 還在跑', steps=[f'等它跑完，再跑：{me}'])
+    # results made by older code are not results: rerun the same photos with the code of this checkout
+    made_by = (gates.get('code') or progress.get('code') or {})
+    changed = code_changed_since(made_by.get('commit'))
+    if changed or not made_by.get('commit'):
+        why = (f'{os.path.basename(out)} 是舊的程式跑的（commit {str(made_by.get("commit"))[:7]}，之後 body3d/ 改過）'
+               if changed else f'{os.path.basename(out)} 沒有記錄是哪一版程式跑的')
+        return dict(state='RUN', why=why + '：用目前的程式、同一組照片重跑', steps=[
+            run_cmd(ws, photos, on + 1, name, template), me])
     if gates.get('deliverable'):
         return dict(state='DONE', why=f'{out}：四道關卡全部 0 FAIL，四包都是好的', steps=[
             '照 docs/SOP.md#可以交付了嗎 做交付檢查：逐項看需複核（WARN）記在 Issue；在 Yoga2 匯入 GLB 截圖（站姿、抬手）',
             f'交付：{os.path.join(out, "deliver")} 四包 + {os.path.join(out, "client")}'])
+    g_ = gates.get('gates', {})
+    if not any(v['FAIL'] for v in g_.values()) and progress.get('state') != 'stopped':
+        # nothing failed but not deliverable: the four gates did not all run (e.g. --only / --from): run it all
+        return dict(state='RUN', why=f'{os.path.basename(out)} 沒有跑完四道關卡（沒有 FAIL，但也還不能交付）：從頭完整跑',
+                    steps=[run_cmd(ws, photos, on + 1, name, template), me])
     # the same FAIL item two runs in a row -> escalate (the executor does not decide this)
     import escalate
     history = state.setdefault('runs', [])

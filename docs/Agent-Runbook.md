@@ -16,6 +16,7 @@ python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT
 
 | 狀態 | 你做什麼 | 可以停嗎 |
 | --- | --- | --- |
+| UPDATE | GitHub 上的 main 有新的 SOP／程式：`git pull`，用目前的照片從頭重跑（新的輸出資料夾） | 不行 |
 | START | 照生圖規格生 33 張照片放進 `WS/photos_v1`，跑 `run_all.py` | 不行，做完回第 1 步 |
 | RUN | 跑它給的 `run_all.py`（可能先 `git pull`） | 不行 |
 | RETOUCH | 把 AI 修圖單交給生圖（你自己的生圖工具），重畫指定的照片，複製整組到 `WS/photos_v(N+1)` 再覆蓋重畫的，跑 `run_all.py` | 不行 |
@@ -25,6 +26,9 @@ python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT
 | DONE | 做交付檢查（看 WARN 記在 Issue、Yoga2 匯入截圖），交付 | **可以** |
 
 ## 規則
+
+- **程式更新了就一定重跑**：每份結果都記錄是哪一版程式（git commit）跑的。最新的結果如果是舊程式跑的（之後 `body3d/` 改過，不管是 next_step 的 UPDATE、你手動 pull、還是別的工具更新的），next_step 一律給 RUN：同一組照片用新程式重跑。只改文件不會重跑。
+- **不用自己記得去 GitHub 抓新的**：next_step 每次都先 `git fetch`，main 比本機新就給 UPDATE（pull、重跑）。Claude 合併的修正（不管是不是為你的 avatar），你下一次跑 next_step 就會拿到。抓不到 GitHub（沒網路）時它照本機的版本繼續，並在 `avatar_state.json` 的 `update_check` 寫原因。
 
 - 只有 **DONE** 和 **WAITING** 可以停下來。其他狀態一律照做、再跑 next_step。
 - 不要問人「要繼續嗎」「要不要修」「要不要發 issue」：next_step 已經決定了。要決定的事情（例如同一個 FAIL 修了 2 輪還在要不要升級）它都照[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)的規則判斷好了。
@@ -40,7 +44,7 @@ ChatGPT／Gemini 用**聊天介面**時，每回覆一次就結束一輪，不�
 ```text
 你是這個 repo（https://github.com/WangChengYeh/Avatar）的執行者，負責開發 AVATAR，照 docs/Agent-Runbook.md 做。
 規則：
-1. 每做完一步就跑：python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT
+1. 每做完一步就跑：python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT（它每次都會先檢查 GitHub 上有沒有新的 SOP，有就叫你 git pull、重跑）
 2. 照它印出的指令做，做完再跑一次。在同一個回覆裡一直做下去，不要做完一步就結束回覆。
 3. 只有狀態是 DONE 或 WAITING 才可以結束回覆。其他狀態（START、RUN、RETOUCH、CODE、ESCALATE）都不可以停，也不要問我要不要繼續。
 4. 每次結束回覆時，最後貼出 WS/next_step.md 的內容。

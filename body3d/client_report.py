@@ -270,7 +270,9 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
         ver = '?'
     body = [f'<h1>Avatar 製作進度與驗收</h1><p class="meta">照片 {e(os.path.basename(os.path.abspath(a.img)))} · '
             f'輸出 {e(os.path.basename(os.path.abspath(a.out)))} · 流程版本 {e(ver)} · '
-            f'更新時間 {datetime.datetime.now():%Y-%m-%d %H:%M}</p>']
+            f'更新時間 {datetime.datetime.now():%Y-%m-%d %H:%M}'
+            + (f' · 程式 commit {e(str((prog or {}).get("code", {}).get("commit") or "?")[:7])}'
+               + ('（有未提交的改動）' if (prog or {}).get('code', {}).get('dirty') else '') if prog else '') + '</p>']
     prog_html, running = progress_html(prog, g)
     body += prog_html
     if not running and gates:
