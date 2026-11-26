@@ -142,3 +142,14 @@ def test_file_list_one_row_per_version_keeps_links(tmp_path):
     version(ws, 2, G0, deliverable=True)
     text = open(ns.update_file_list(str(ws), 'ChatGPT', 'avatar_001', 'DONE'), encoding='utf-8').read()
     assert 'https://drive/x' in text and '| chatgpt | avatar_001 | v002 |' in text and '可交付' in text
+
+def test_escalate_without_gh_goes_through_a_person(tmp_path, monkeypatch):
+    """R33-R41: the executor had no gh, so `gh issue create` could not run and it kept redrawing for 8 rounds.
+    Without gh the ESCALATE steps hand the issue to a person and say not to redraw meanwhile."""
+    monkeypatch.setattr(ns, 'gh', lambda *a: None)
+    ws = avatar(tmp_path); state = {}
+    version(ws, 1, G1, ['0° 全視角外殼覆蓋']); ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+    version(ws, 2, G1, ['0° 全視角外殼覆蓋'])
+    r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+    assert r['state'] == 'ESCALATE' and '人' in r['why'] and not any(s.startswith('gh issue create') for s in r['steps'])
+    assert any('不要再重畫' in s for s in r['steps']) and (ws / 'issue.md').exists() and (ws / 'issue_title.txt').exists()

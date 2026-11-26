@@ -18,7 +18,7 @@ next_step 看最新的版本，讀它的驗收結果、診斷、工作單與過�
     DONE      四包都是好的：做交付檢查
 
 每個有結果的版本會自動上傳到資料 repo（GitHub Release，data_repo.py），issue 內文附上連結。
-只有 DONE 和 WAITING 可以停下來。其他狀態照指令做完，再跑一次 next_step，不要問人要不要繼續。
+只有 DONE、WAITING，以及沒有 gh 時把 issue 交給人的 ESCALATE 可以停下來。其他狀態照指令做完，再跑一次 next_step，不要問人要不要繼續。
 結果也寫在 WS/next_step.md 與 WS/avatar_state.json。
 """
 import argparse
@@ -325,6 +325,15 @@ def decide(ws, avatar, agent, name, template, state):
     issue = os.path.join(ws, 'issue.md')
     open(issue, 'w', encoding='utf-8').write(body)
     title = f'[SOP] {agent}／{avatar}：{reason}'
+    if gh('auth', 'status') is None:
+        # no gh here (ChatGPT avatar_001: v033-v041, eight rounds of the same FAIL, never escalated: the
+        # `gh issue create` step could not run, so the round went on with another redraw). A person posts it.
+        open(os.path.join(ws, 'issue_title.txt'), 'w', encoding='utf-8').write(title)
+        return dict(state='ESCALATE', why=reason + '（這台沒有登入 gh：issue 由人發）', steps=[
+            f'把 {issue} 的內容與標題（{os.path.join(ws, "issue_title.txt")}）交給人，請人在 '
+            'https://github.com/WangChengYeh/Avatar/issues/new 發 issue，結果包（output/deliver 的 _FAIL.zip）一起附上',
+            '在拿到 issue 編號之前不要再重畫或重跑：同一個 FAIL 已經修了兩輪，再畫一樣不會過',
+            f'{me} --waiting-issue N   # 人給你 issue 編號 N 之後登記等待'], stop=True)
     return dict(state='ESCALATE', why=reason, steps=[
         f'gh issue create --repo WangChengYeh/Avatar --title {q(title)} --body-file {q(issue)}   # 記下 issue 編號 N',
         '照片與結果包已在資料 repo（issue 內文有連結）；沒有上傳成功時，把 output/deliver 裡的 _FAIL.zip 拖進 issue 附上',
@@ -359,7 +368,7 @@ def main(argv=None):
     if rt and r['state'] == 'DONE':
         state.pop('report_to', None)
     json.dump(state, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    stop = r['state'] in ('DONE', 'WAITING')
+    stop = r['state'] in ('DONE', 'WAITING') or r.get('stop', False)   # ESCALATE without gh: wait for the person
     text = [f'# 下一步：{r["state"]}', '', f'原因：{r["why"]}', ''] + [f'{i}. `{s}`' if s.startswith(('python', 'gh ', 'mkdir', 'cd ', '/', "'"))
                                                                    else f'{i}. {s}' for i, s in enumerate(r['steps'], 1)]
     if rt:

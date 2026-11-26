@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.42.1（2026-11-26）
+版本 1.43.0（2026-11-26）
 
 版本紀錄:
+  1.43.0 第 10i 項分開身體與手臂：手臂只用正面與俯視照重建（arms33），斜角照不切手臂；外殼切割只算身體（≤ 3% 通過、> 6% FAIL，
+         完美照片 ≤ 2.1%）；新增「斜角照手臂」（≤ 40% 通過、> 50% FAIL，完美照片 8–36%）；「斜角照是外殼形狀」改看手臂。
+         R33–R41 8 輪覆蓋率 85–89% 沒進步：被切的幾乎全是 3 張斜對角的手臂，修圖單卻只說「重畫切最多的幾張」。
   1.42.1 臉頰亮度（烘焙前）在頭部表面均勻取樣，不再用網格頂點：MakeHuman 模板臉頰頂點稀疏，同一臉頰只有 2–43 點，一律「取樣不足」WARN、量不到接縫。
   1.42.0 第 10i 項新增「斜角照是外殼形狀」：俯角／仰角全身圖幾乎不切水平環外殼（< 1% FAIL，< 1.5% WARN；完美照片每張 ≥ 2.2%）
          表示照片是照水平環外殼（AI 修圖單的「輪廓上限」綠線）填滿或渲染出來的，不是畫出來的人（R31：15 張 0.0–0.2%，手臂成扁平厚板）。
@@ -286,7 +289,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.42.1'
+__version__ = '1.43.0'
 import numpy as np
 import cv2
 
@@ -484,15 +487,22 @@ HULL_COVER_PASS, HULL_COVER_FAIL = 0.96, 0.93
 # per tilted view: share of the level-ring hull it cuts away. The all-view hull tolerates two misses, so one or two
 # bad views hardly lower the coverage; their own cut shows them (perfect photos <= 6.6 %, R17 culprits 23-26 %,
 # a +30° side view drawn 60 px forward 25 %)
-HULL_CUT_PASS, HULL_CUT_FAIL = 0.10, 0.15
+HULL_CUT_PASS, HULL_CUT_FAIL = 0.03, 0.06
+# 1.43: the cut counts the body only (the arms past ARM_X are rebuilt from the front and top views and a tilted view
+# does not carve them). Perfect photos: body cut <= 2.1 % per view (luna-v1 0.7-2.1, synth 0.4-1.2); R41 1.4-6.3 %.
+# The arms on their own: the level-ring hull is fat around them (it cannot see their thickness), so even a perfect
+# tilted view cuts 8-36 % of it; R33-R41 drew the arms at another height or angle in a few diagonal views (52-71 %)
+# and 8 rounds of "redraw the views that cut most" never named the arms.
+ARM_CUT_PASS, ARM_CUT_FAIL = 0.40, 0.50
 # ... and a floor: a real body seen from +30° / -20° is always thinner than the level-ring hull somewhere (arms are
 # round, not the slabs the level ring carves; the torso corners), so every tilted view cuts a little (perfect photos
 # synth 2.2-6.4 %, luna-v1 2.6-6.6 %). A view that cuts almost nothing has the hull's own outline: it was drawn by
 # filling the level-ring hull (the green "should-be outline" of the AI retouch request) or rendered from it, not
 # drawn as the person. R31: 15 of 16 tilted views 0.0-0.2 %, arms as flat slabs, final acceptance 18.8 %.
-HULL_CUT_MIN_PASS, HULL_CUT_MIN_FAIL = 0.015, 0.01
+HULL_CUT_MIN_PASS, HULL_CUT_MIN_FAIL = 0.04, 0.02   # 1.43: on the arm cut (perfect >= 7.7 %, R31 fakes 0-1 %)
 HULL_CUT_CULPRIT = HULL_CUT_PASS
 RING_TILT = {'el30': 30.0, 'low20': -20.0}
+ARM_X = 0.20                     # m from the axis (1.65 m figure): arms33.py rebuilds the arms past here
 
 
 def _spec_axes(phi, th):
@@ -517,7 +527,10 @@ def all_view_hull(good, extra, vs=0.01, miss=2):
     Q = np.stack([X.ravel(), Y.ravel() - SPEC_HEIGHT / 2, Z.ravel()], 1)      # relative to the body centre
     views = [('main', a, 0.0, v) for a, v in good.items()]
     views += [(ring, a, th, v) for ring, th in RING_TILT.items() for a, v in extra.get(ring, {}).items()]
-    inside, proj = {}, {}
+    # the arms (past ARM_X from the axis) are rebuilt from the front and top views only (arms33.py): a tilted view
+    # does not carve them, so it does not cut them here either; how far its arms are off is measured on its own
+    arm = np.abs(Q[:, 0]) > ARM_X * k
+    inside, proj, seen_arm = {}, {}, {}
     for ring, a, th, v in views:
         m = cv2.dilate(v['m'].astype(np.uint8), np.ones((5, 5), np.uint8)); H_, W_ = m.shape
         r, u = _spec_axes(a, th)
@@ -525,14 +538,21 @@ def all_view_hull(good, extra, vs=0.01, miss=2):
         ok = (col >= 0) & (col < W_) & (row >= 0) & (row < H_)
         inside[(ring, a)] = ok & (m[np.clip(row, 0, H_ - 1), np.clip(col, 0, W_ - 1)] > 0)
         proj[(ring, a)] = (col, row, ok)
+        if ring != 'main':
+            seen_arm[(ring, a)] = inside[(ring, a)] & arm
+            inside[(ring, a)] = inside[(ring, a)] | arm
     votes = sum(v.astype(np.uint8) for v in inside.values())
     keep = votes >= len(views) - miss
     main_votes = sum(inside[('main', a)].astype(np.uint8) for a in good)
     main_hull = main_votes >= len(good) - 1
-    cut = {}
+    cut, arm_cut = {}, {}
+    body_hull, arm_hull = main_hull & ~arm, main_hull & arm
     for ring, a, th, v in views:
-        if ring != 'main' and main_hull.any():
-            cut[v.get('name', f'{ring}_{a:03d}deg')] = float((main_hull & ~inside[(ring, a)]).sum() / main_hull.sum())
+        if ring != 'main' and body_hull.any():
+            nm = v.get('name', f'{ring}_{a:03d}deg')
+            cut[nm] = float((body_hull & ~inside[(ring, a)]).sum() / body_hull.sum())
+            if arm_hull.any():
+                arm_cut[nm] = float((arm_hull & ~seen_arm[(ring, a)]).sum() / arm_hull.sum())
     coverage = {}
     for a, v in good.items():
         col, row, ok = proj[('main', a)]; H_, W_ = v['m'].shape
@@ -542,7 +562,7 @@ def all_view_hull(good, extra, vs=0.01, miss=2):
         img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, np.ones((n, n), np.uint8))
         ms = cv2.resize(v['m'].astype(np.uint8), (W_ // 4, H_ // 4), interpolation=cv2.INTER_AREA) > 0
         coverage[a] = float(1 - (ms & (img == 0)).sum() / max(1, ms.sum()))
-    return coverage, cut
+    return coverage, cut, arm_cut
 
 
 def top_consistency(hull, mt, core=0.22):
@@ -3687,9 +3707,9 @@ def main():
 
     # ---- 10i. all-view hull coverage: what the full-body photos carve together
     if extra.get('el30') or extra.get('low20'):
-        cov, cut = all_view_hull(good, extra)
+        cov, cut, arm_cut = all_view_hull(good, extra)
         worst = sorted(cut.items(), key=lambda kv: -kv[1])[:4]
-        culprits = '、'.join(f'{n.removesuffix(".jpg")}（切掉 {100 * c:.0f}%）' for n, c in worst if c > HULL_CUT_CULPRIT)
+        culprits = '、'.join(f'{n.removesuffix(".jpg")}（切掉 {100 * c:.1f}%）' for n, c in worst if c > HULL_CUT_CULPRIT)
         print('\n10i. 全視角外殼覆蓋（24 張全身圖用規格相機一起雕出的外殼，還蓋得住每張水平全身圖多少）')
         for a, c in sorted(cov.items()):
             lvl = PASS if c >= HULL_COVER_PASS else WARN if c >= HULL_COVER_FAIL else FAIL
@@ -3697,27 +3717,38 @@ def main():
                    f'完美照片 ≥ 97.2%）')
             if lvl != PASS:
                 msg += (' → 俯角／仰角的照片和水平環對不上（對準高度、距離、俯仰角各差一點），一起雕會把身體切瘦，成品會比照片小。'
-                        + (f'切最多的（完美照片每張最多切 6.6%）：{culprits}。' if culprits else '')
+                        + (f'切最多的（身體部分，完美照片每張最多切 2.1%）：{culprits}。' if culprits else '')
                         + '重新生成這些照片：同一個相機距離與構圖、身體中心在畫面正中央、正交投影')
             report(lvl, f'{a}° 全視角外殼覆蓋', msg)
         for n, c in sorted(cut.items()):
+            ac = arm_cut.get(n)
             n = n.removesuffix('.jpg')
-            if c < HULL_CUT_MIN_PASS:
-                lvl = FAIL if c < HULL_CUT_MIN_FAIL else WARN
+            if ac is not None and ac < HULL_CUT_MIN_PASS:
+                lvl = FAIL if ac < HULL_CUT_MIN_FAIL else WARN
                 report(lvl, f'{n} 斜角照是外殼形狀',
-                       f'這張用規格相機看，幾乎不切水平環外殼：{100 * c:.1f}%（應 ≥ {100 * HULL_CUT_MIN_PASS:g}%，'
-                       f'< {100 * HULL_CUT_MIN_FAIL:g}% 判 FAIL；完美照片每張 ≥ 2.2%：真實的身體從斜角看一定比外殼瘦）'
+                       f'這張的手臂幾乎不切水平環外殼：{100 * ac:.1f}%（應 ≥ {100 * HULL_CUT_MIN_PASS:g}%，'
+                       f'< {100 * HULL_CUT_MIN_FAIL:g}% 判 FAIL；完美照片每張 ≥ 7.7%：真實的手臂從斜角看一定比外殼細）'
                        f' → {n} 的人物輪廓就是水平環外殼的投影：照片是把「輪廓上限」綠線填滿、或從外殼／重建模型渲染'
                        '出來的，不是畫出來的人（手臂會變成扁平的厚板、側面出現方塊）。用 AI 重新生成這張：同一個人、同一姿勢、'
                        '真實的俯角 30°／仰角 20° 視角，人物在綠線以內、比綠線瘦；不要用渲染或投影產生照片')
                 continue
             lvl = PASS if c <= HULL_CUT_PASS else WARN if c <= HULL_CUT_FAIL else FAIL
-            msg = (f'這張用規格相機看，切掉水平環外殼的 {100 * c:.1f}%（應 ≤ {100 * HULL_CUT_PASS:g}%，'
-                   f'> {100 * HULL_CUT_FAIL:g}% 判 FAIL；完美照片每張 ≤ 6.6%）')
+            msg = (f'這張用規格相機看，切掉水平環外殼身體部分（手臂以外）的 {100 * c:.1f}%（應 ≤ {100 * HULL_CUT_PASS:g}%，'
+                   f'> {100 * HULL_CUT_FAIL:g}% 判 FAIL；完美照片每張 ≤ 2.1%）')
             if lvl != PASS:
                 msg += (f' → {n} 和水平環對不上（人物位置、大小或俯仰角不同），重建時會把身體切掉。'
                         '重新生成這張：和水平環同一個相機距離與構圖、身體中心在畫面正中央、正交投影')
             report(lvl, f'{n} 外殼切割', msg)
+            if ac is None:
+                continue
+            lvl = PASS if ac <= ARM_CUT_PASS else WARN if ac <= ARM_CUT_FAIL else FAIL
+            msg = (f'這張的手臂切掉水平環外殼手臂部分的 {100 * ac:.0f}%（應 ≤ {100 * ARM_CUT_PASS:g}%，'
+                   f'> {100 * ARM_CUT_FAIL:g}% 判 FAIL；外殼在手臂很胖，完美照片也有 8–36%）')
+            if lvl != PASS:
+                msg += (f' → {n} 的手臂和水平環的手臂不一樣（抬的高度、前後角度或長短不同）：手臂只用正面與俯視照重建，'
+                        '這張的手臂貼圖會貼錯位置，成品也比對不上這張照片。重新生成這張，只改手臂：T-pose 手臂完全水平、'
+                        '和水平環同一高度、同樣筆直向兩側伸，手腕與手指方向相同')
+            report(lvl, f'{n} 斜角照手臂', msg)
 
     # ---- 11. face consistency of the head close-ups
     if extra.get('head'):
