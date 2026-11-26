@@ -445,3 +445,19 @@ def test_closeup_face_position(broken):
     rc, out = check(broken)
     fails = [l for l in lines(out, 'FAIL') if '臉部位置' in l]
     assert len(fails) == 1 and 'head 45°' in fails[0], fails
+
+
+def test_all_view_hull_coverage(broken):
+    """10i: the perfect set passes; the +30° side views drawn 60 px forward (each still within its own checks:
+    the 90° / 270° mirror pair keeps the axis centred) carve the body thin, and the culprits are named"""
+    rc, out = check(broken)
+    assert len([l for l in lines(out, 'PASS') if '全視角外殼覆蓋' in l]) == 8
+    assert len([l for l in lines(out, 'PASS') if '外殼切割' in l]) == 16
+    for name, dx in (('el30_090deg.jpg', -60), ('el30_270deg.jpg', 60)):     # toward the face in both views
+        f = broken / name
+        im = cv2.imread(str(f)); h, w = im.shape[:2]
+        cv2.imwrite(str(f), cv2.warpAffine(im, np.float32([[1, 0, dx], [0, 1, 0]]), (w, h), borderValue=(255, 255, 255)),
+                    [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    cut = [l for l in lines(out, 'FAIL') if '外殼切割' in l]
+    assert sorted(l.split()[1] for l in cut) == ['el30_090deg', 'el30_270deg'], cut

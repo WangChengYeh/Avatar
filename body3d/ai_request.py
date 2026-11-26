@@ -64,6 +64,47 @@ def closeup_reference(photos, angle):
     return cv2.warpAffine(full, M, (W, H), flags=cv2.INTER_CUBIC, borderValue=(255, 255, 255))
 
 
+def tilted_reference(photos, name, vs=0.01):
+    """the tilted photo with the outline the level ring implies (green): the body the eight level photos carve,
+    seen by the spec camera of this tilted view. Where the person reaches past the green line, the level ring and
+    this photo disagree and the reconstruction cuts the body."""
+    m_ = re.match(r'(el30|low20)_(\d{3})deg$', name)
+    if not m_:
+        return None
+    ring, a = m_.group(1), int(m_.group(2))
+    im = cv2.imread(os.path.join(photos, name + '.jpg'))
+    if im is None:
+        return None
+    masks = {}
+    for ang, f in FULL.items():
+        full = cv2.imread(os.path.join(photos, f + '.jpg'))
+        if full is None:
+            return None
+        masks[ang] = ct.segment(full)[0]
+    hs = [np.ptp(np.flatnonzero(m.any(1))) for m in masks.values()]
+    s = float(np.median(hs)) / ct.SPEC_HEIGHT
+    xs = np.arange(-0.95, 0.95, vs) + vs / 2; ys = np.arange(0, 1.72, vs) + vs / 2; zs = np.arange(-0.42, 0.42, vs) + vs / 2
+    X, Y, Z = np.meshgrid(xs, ys, zs, indexing='ij')
+    Q = np.stack([X.ravel(), Y.ravel() - ct.SPEC_HEIGHT / 2, Z.ravel()], 1)
+    votes = np.zeros(len(Q), np.uint8)
+    for ang, m in masks.items():
+        H, W = m.shape; r, u = ct._spec_axes(ang, 0.0)
+        c = np.round(W / 2 + s * (Q @ r)).astype(int); w = np.round(H / 2 - s * (Q @ u)).astype(int)
+        ok = (c >= 0) & (c < W) & (w >= 0) & (w < H)
+        votes += ok & (m[np.clip(w, 0, H - 1), np.clip(c, 0, W - 1)] > 0)
+    P = Q[votes >= len(masks) - 1]
+    H, W = im.shape[:2]; r, u = ct._spec_axes(a, ct.RING_TILT[ring])
+    c = np.round(W / 2 + s * (P @ r)).astype(int); w = np.round(H / 2 - s * (P @ u)).astype(int)
+    ok = (c >= 0) & (c < W) & (w >= 0) & (w < H)
+    sil = np.zeros((H, W), np.uint8); sil[w[ok], c[ok]] = 255
+    k = 2 * int(np.ceil(s * vs)) + 1
+    sil = cv2.morphologyEx(sil, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    cnt, _ = cv2.findContours(sil, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    out = im.copy()
+    cv2.drawContours(out, cnt, -1, (0, 170, 0), max(3, W // 500))
+    return out
+
+
 def make(photos, out, leaves):
     """write OUT/ai_fix_request for the photo leaves; returns its path, or None when no photo has to be redrawn"""
     todo = sorted([d for d in leaves if d.get('owner') == '照片'],
@@ -96,6 +137,12 @@ def make(photos, out, leaves):
             nums = {k: v for k, v in ev.items() if k in ('dy_relative_mm', 'photo_11c_dy_mm', 'line')}
             if nums:
                 lines.append('- **量到的數字**：' + '；'.join(f'{k} = {v}' for k, v in nums.items()))
+        if re.match(r'(el30|low20)_\d{3}deg$', p):
+            ref = tilted_reference(photos, p)
+            if ref is not None:
+                cv2.imwrite(os.path.join(dst, 'reference', p + '_應該的輪廓.jpg'), ref, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                lines.append(f'- **參考圖**：`reference/{p}_應該的輪廓.jpg`：綠線是 8 張水平全身圖用規格相機推出來、這個角度應該看到的'
+                             '身體輪廓。人物要落在綠線內、貼著綠線（位置、大小、俯仰都一樣）；超出綠線的部分重建時會被切掉。')
         m = re.match(r'head_(\d{3})deg$', p)
         if m and int(m.group(1)) in FULL:
             ref = closeup_reference(photos, int(m.group(1)))
