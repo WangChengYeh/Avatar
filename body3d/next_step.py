@@ -159,6 +159,11 @@ def decide(ws, avatar, agent, name, template, state):
         return dict(state='DONE', why=f'{out}：四道關卡全部 0 FAIL，四包都是好的', steps=[
             '照 docs/SOP.md#可以交付了嗎 做交付檢查：逐項看需複核（WARN）記在 Issue；在 Yoga2 匯入 GLB 截圖（站姿、抬手）',
             f'交付：{os.path.join(out, "deliver")} 四包 + {os.path.join(out, "client")}'])
+    g_ = gates.get('gates', {})
+    if not any(v['FAIL'] for v in g_.values()) and progress.get('state') != 'stopped':
+        # nothing failed but not deliverable: the four gates did not all run (e.g. --only / --from): run it all
+        return dict(state='RUN', why=f'{os.path.basename(out)} 沒有跑完四道關卡（沒有 FAIL，但也還不能交付）：從頭完整跑',
+                    steps=[run_cmd(ws, photos, on + 1, name, template), me])
     # the same FAIL item two runs in a row -> escalate (the executor does not decide this)
     import escalate
     history = state.setdefault('runs', [])

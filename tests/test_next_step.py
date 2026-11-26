@@ -57,3 +57,11 @@ def test_rerun_when_code_changed(tmp_path, monkeypatch):
     out(ws, 1, {'1 照片檢查': dict(FAIL=0, WARN=0, PASS=9)}, deliverable=True)
     r = ns.decide(str(ws), 'A', 'ChatGPT', 'body', 'hull', {})
     assert r['state'] == 'RUN' and '舊的程式' in r['why'] and 'photos_v1' in r['steps'][0] and 'out_v2' in r['steps'][0]
+
+
+def test_incomplete_run_is_run_again(tmp_path):
+    """only the photo check ran (no FAIL, not deliverable): run all four gates, do not escalate"""
+    ws = tmp_path / 'ws'; ws.mkdir(); (ws / 'photos_v1').mkdir()
+    out(ws, 1, {'1 照片檢查': dict(FAIL=0, WARN=2, PASS=9)})
+    r = ns.decide(str(ws), 'A', 'ChatGPT', 'body', 'hull', {})
+    assert r['state'] == 'RUN' and '沒有跑完' in r['why']
