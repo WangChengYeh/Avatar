@@ -461,3 +461,42 @@ def test_all_view_hull_coverage(broken):
     rc, out = check(broken)
     cut = [l for l in lines(out, 'FAIL') if '外殼切割' in l]
     assert sorted(l.split()[1] for l in cut) == ['el30_090deg', 'el30_270deg'], cut
+
+
+def _hull_render(folder, ring, a, vs=0.01):
+    """what R31 sent: the level-ring hull seen by the spec camera of a tilted view, filled with a skin colour"""
+    import ai_request as ar
+    import check_turnaround as ct
+    masks = {ang: ct.segment(cv2.imread(str(folder / (f + '.jpg'))))[0] for ang, f in ar.FULL.items()}
+    s = float(np.median([np.ptp(np.flatnonzero(m.any(1))) for m in masks.values()])) / ct.SPEC_HEIGHT
+    xs = np.arange(-0.95, 0.95, vs) + vs / 2; ys = np.arange(0, 1.72, vs) + vs / 2; zs = np.arange(-0.42, 0.42, vs) + vs / 2
+    X, Y, Z = np.meshgrid(xs, ys, zs, indexing='ij')
+    Q = np.stack([X.ravel(), Y.ravel() - ct.SPEC_HEIGHT / 2, Z.ravel()], 1)
+    votes = np.zeros(len(Q), np.uint8)
+    for ang, m in masks.items():
+        H, W = m.shape; r, u = ct._spec_axes(ang, 0.0)
+        c = np.round(W / 2 + s * (Q @ r)).astype(int); w = np.round(H / 2 - s * (Q @ u)).astype(int)
+        ok = (c >= 0) & (c < W) & (w >= 0) & (w < H)
+        votes += ok & (m[np.clip(w, 0, H - 1), np.clip(c, 0, W - 1)] > 0)
+    P = Q[votes >= len(masks) - 1]
+    H, W = masks[0].shape; r, u = ct._spec_axes(a, ct.RING_TILT[ring])
+    c = np.round(W / 2 + s * (P @ r)).astype(int); w = np.round(H / 2 - s * (P @ u)).astype(int)
+    ok = (c >= 0) & (c < W) & (w >= 0) & (w < H)
+    sil = np.zeros((H, W), np.uint8); sil[w[ok], c[ok]] = 255
+    k = 2 * int(np.ceil(s * vs)) + 1
+    sil = cv2.morphologyEx(sil, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    im = np.full((H, W, 3), 255, np.uint8); im[sil > 0] = (150, 180, 215)
+    return im
+
+
+def test_tilted_view_drawn_from_hull(broken):
+    """10i floor: a tilted view that is the level-ring hull itself (R31: the green outline filled in) cuts nothing;
+    the perfect set cuts >= 2.2 % in every tilted view and passes"""
+    rc, out = check(broken)
+    assert not [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if '斜角照是外殼形狀' in l]
+    for name in ('el30_000deg', 'low20_135deg'):
+        ring, a = name.split('_')[0], int(name.split('_')[1][:3])
+        cv2.imwrite(str(broken / (name + '.jpg')), _hull_render(broken, ring, a), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    fails = [l for l in lines(out, 'FAIL') if '斜角照是外殼形狀' in l]
+    assert sorted(l.split()[1] for l in fails) == ['el30_000deg', 'low20_135deg'], fails

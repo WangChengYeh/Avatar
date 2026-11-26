@@ -140,9 +140,11 @@ def make(photos, out, leaves):
         if re.match(r'(el30|low20)_\d{3}deg$', p):
             ref = tilted_reference(photos, p)
             if ref is not None:
-                cv2.imwrite(os.path.join(dst, 'reference', p + '_應該的輪廓.jpg'), ref, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                lines.append(f'- **參考圖**：`reference/{p}_應該的輪廓.jpg`：綠線是 8 張水平全身圖用規格相機推出來、這個角度應該看到的'
-                             '身體輪廓。人物要落在綠線內、貼著綠線（位置、大小、俯仰都一樣）；超出綠線的部分重建時會被切掉。')
+                cv2.imwrite(os.path.join(dst, 'reference', p + '_輪廓上限.jpg'), ref, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                lines.append(f'- **參考圖**：`reference/{p}_輪廓上限.jpg`：綠線是 8 張水平全身圖用規格相機雕出的外殼、從這個角度看的'
+                             '輪廓，是**上限**：人物的位置、大小、俯仰要和綠線一致，整個人要在綠線以內；超出綠線的部分重建時會被切掉。'
+                             '真實的身體比綠線瘦（水平環看不到手臂上下、身體斜角的厚度，外殼在那裡是方塊或厚板），所以人物不會貼滿綠線。'
+                             '**不要**把綠線填滿、不要用外殼或重建模型渲染／投影產生照片：那樣的照片過不了第 10i 項「斜角照是外殼形狀」。')
         m = re.match(r'head_(\d{3})deg$', p)
         if m and int(m.group(1)) in FULL:
             ref = closeup_reference(photos, int(m.group(1)))
