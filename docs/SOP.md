@@ -6,11 +6,11 @@
 
 ## 誰做什麼
 
-三個 agent 怎麼分工（Claude 維護 SOP 與程式；ChatGPT、Gemini 各自開發一個 avatar；處理不掉就發 GitHub issue 給 Claude）見[專案迴圈](Project-Loop.md)。
+三個 agent 怎麼分工、各自怎麼操作 GitHub 與雲端硬碟（Claude 維護 SOP 與程式；ChatGPT、Gemini 各自開發一個 avatar；處理不掉就發 GitHub issue 給 Claude）見[專案迴圈：三個角色怎麼操作](Project-Loop.md#三個角色怎麼操作)。
 
 | 誰 | 做什麼 |
 | --- | --- |
-| **人** | 1. **準備輸入**：人物的參考圖或設定（給 AI 生圖用），以及雲端硬碟的 `avatar/` 資料夾（見[專案迴圈](Project-Loop.md#avatar-放在哪裡)）。<br>2. **提供 token**：AI 生圖、AI 寫程式所需的 API key 與額度；Google Drive 連結器（每個 agent 都要能讀寫 `avatar/`）；GitHub token（`gh auth login`）要能在 `WangChengYeh/Avatar` 開 issue／PR（沒有的話，agent 交出的 issue 由人發）。<br>其他都不用動手：不改圖、不改程式、不手動修中間檔。 |
+| **人** | 1. **準備輸入**：人物的參考圖或設定（給 AI 生圖用），以及雲端硬碟的 `avatar/` 資料夾（見[專案迴圈](Project-Loop.md#avatar-放在哪裡)）。<br>2. **提供 token**：AI 生圖、AI 寫程式所需的 API key 與額度；Google Drive 連結器（每個 agent 都要能讀寫 `avatar/`）；每個 agent 都要有 GitHub（`gh auth login` 或 GitHub 連結器），能在 `WangChengYeh/Avatar` 開 issue／PR、留言。<br>其他都不用動手：不改圖、不改程式、不手動修中間檔。 |
 | **AI 生圖** | 依[生圖規格](Workflow-and-Validation.md#生圖規格)生 33 張照片；收到 **AI 修圖單**（`ai_fix_request/`）就照單重畫那幾張。 |
 | **AI 寫程式**（Claude Code、Codex 等） | 照[執行者 runbook](Agent-Runbook.md) 反覆跑 `next_step.py`（它會跑 `run_all.py`、自動抓新的 SOP，每一版跑完照它說的用連結器把結果放到雲端硬碟）、讀客戶頁與診斷；照片有問題就把 AI 修圖單交給 AI 生圖；程式有問題就照 **AI 改 code 單**（`ai_code_request/`）補檢查、改程式、驗收、開 PR；逐項看需複核（WARN）並記在 Issue；在 Yoga2 做匯入驗收。 |
 
@@ -23,7 +23,7 @@ SOP、程式、問題、程式改動在 GitHub；照片與結果包在雲端硬�
 | SOP、程式、檢查 | [`WangChengYeh/Avatar`](https://github.com/WangChengYeh/Avatar) 的 main | Claude 合併 PR | 執行者：`next_step.py` 每次自動 `git fetch`，main 有新的就叫你 `git pull`、重跑（UPDATE） |
 | 照片、結果包 | 雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`（一個版本一個資料夾） | 執行者每個版本跑完放上去 | 所有人（Claude、ChatGPT、Gemini）都用 Google Drive 連結器讀寫，依資料夾或檔名找 |
 | 同上（備用，預設不用） | [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data) 的 **Release**（公開 repo） | 只在設 `AVATAR_DATA_PUBLISH=1` 時由 next_step 上傳 | `python body3d/data_repo.py fetch <tag> DIR` |
-| 處理不掉的問題 | `WangChengYeh/Avatar` 的 **Issue**（SOP 升級表單） | 執行者（next_step 走到 ESCALATE 時，內文已寫好、寫這一版在雲端硬碟的路徑；沒有 gh 就交給人發） | Claude：用連結器從雲端硬碟拿結果包重現、修好開 PR `Fixes #N` |
+| 處理不掉的問題 | `WangChengYeh/Avatar` 的 **Issue**（SOP 升級表單） | 執行者（next_step 走到 ESCALATE 時，內文已寫好、寫這一版在雲端硬碟的路徑；用 gh 或 GitHub 連結器自己發） | Claude：用連結器從雲端硬碟拿結果包重現、修好開 PR `Fixes #N` |
 | 程式改動 | `WangChengYeh/Avatar` 的 **PR** | 執行者（照 AI 改 code 單）或 Claude | Claude review、合併；執行者下次跑 next_step 自動更新 |
 
 **雲端硬碟的規則**

@@ -20,7 +20,7 @@ next_step 看最新的版本，讀它的驗收結果、診斷、工作單與過�
 每個有結果的版本，執行者用 Google Drive 連結器放到雲端硬碟 avatar/<agent>/<avatar>/vNNN/（next_step.md 會寫要放哪些檔、
 放到哪裡），issue 內文寫雲端硬碟的路徑。GitHub repo 是公開的：照片不上傳到 GitHub（資料 repo 的 Release 只在
 AVATAR_DATA_PUBLISH=1 時上傳）。
-只有 DONE、WAITING，以及沒有 gh 時把 issue 交給人的 ESCALATE 可以停下來。其他狀態照指令做完，再跑一次 next_step，不要問人要不要繼續。
+只有 DONE 和 WAITING 可以停下來。其他狀態照指令做完，再跑一次 next_step，不要問人要不要繼續。
 結果也寫在 WS/next_step.md 與 WS/avatar_state.json。
 """
 import argparse
@@ -304,17 +304,12 @@ def decide(ws, avatar, agent, name, template, state):
     issue = os.path.join(ws, 'issue.md')
     open(issue, 'w', encoding='utf-8').write(body)
     title = f'[SOP] {agent}／{avatar}：{reason}'
-    if gh('auth', 'status') is None:
-        # no gh here (ChatGPT avatar_001: v033-v041, eight rounds of the same FAIL, never escalated: the
-        # `gh issue create` step could not run, so the round went on with another redraw). A person posts it.
-        open(os.path.join(ws, 'issue_title.txt'), 'w', encoding='utf-8').write(title)
-        return dict(state='ESCALATE', why=reason + '（這台沒有登入 gh：issue 由人發）', steps=[
-            f'把 {issue} 的內容與標題（{os.path.join(ws, "issue_title.txt")}）交給人，請人在 '
-            f'https://github.com/WangChengYeh/Avatar/issues/new 發 issue（結果包已在雲端硬碟 {drive_dir(ws, cn)}，不要附在公開的 issue）',
-            '在拿到 issue 編號之前不要再重畫或重跑：同一個 FAIL 已經修了兩輪，再畫一樣不會過',
-            f'{me} --waiting-issue N   # 人給你 issue 編號 N 之後登記等待'], stop=True)
+    # everyone has GitHub (docs/Project-Loop.md#三個角色怎麼操作): the executor posts it itself, with gh or its
+    # GitHub connector (R33-R47: no gh, the step could not run, the issue waited for a person)
+    open(os.path.join(ws, 'issue_title.txt'), 'w', encoding='utf-8').write(title)
     return dict(state='ESCALATE', why=reason, steps=[
         f'gh issue create --repo WangChengYeh/Avatar --title {q(title)} --body-file {q(issue)}   # 記下 issue 編號 N',
+        f'（沒有 gh 時用 GitHub 連結器在 WangChengYeh/Avatar 開 issue：標題是 {os.path.join(ws, "issue_title.txt")} 的內容，內文是 {issue}；記下編號 N）',
         f'確認這一版的結果包已在雲端硬碟 {drive_dir(ws, cn)}（issue 內文寫了路徑；照片不要附在公開的 issue）',
         f'{me} --waiting-issue N   # 登記等待；Claude 關閉 issue 後 next_step 會叫你 pull、重跑'])
 
@@ -346,14 +341,13 @@ def main(argv=None):
     if rt and r['state'] == 'DONE':
         state.pop('report_to', None)
     json.dump(state, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    stop = r['state'] in ('DONE', 'WAITING') or r.get('stop', False)   # ESCALATE without gh: wait for the person
+    stop = r['state'] in ('DONE', 'WAITING')
     text = [f'# 下一步：{r["state"]}', '', f'原因：{r["why"]}', ''] + [f'{i}. `{s}`' if s.startswith(('python', 'gh ', 'mkdir', 'cd ', '/', "'"))
                                                                    else f'{i}. {s}' for i, s in enumerate(r['steps'], 1)]
     if rt:
         text += ['', f'**回報**：Claude 已經針對 {rt["kind"]} #{rt["number"]} 更新了 SOP／程式（issue 可能還開著，'
                      f'等你回報）。照上面繼續；這一輪跑完，把結果和 Claude 在 issue 留言要的數字回覆到 #{rt["number"]}：'
-                     f'`gh issue comment {rt["number"]} --repo WangChengYeh/Avatar --body-file <檔案>`。'
-                     '沒有 gh 時，把要回覆的內容寫進 issue_reply.md，交給人貼上。']
+                     f'`gh issue comment {rt["number"]} --repo WangChengYeh/Avatar --body-file <檔案>`（或用 GitHub 連結器留言）。']
     df = drive_files(ws)
     if df:
         text += ['', f'**雲端硬碟**：用 Google Drive 連結器把這一版的 {"、".join(df[1])} 放到 `{df[0]}/`（已經放過就略過）']
