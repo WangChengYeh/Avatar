@@ -127,3 +127,15 @@ def test_wait_ends_when_the_fix_arrives(tmp_path, monkeypatch):
     state = dict(waiting=dict(kind='issue', number=65), runs=[dict(out=str(v), fail=[])])
     r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
     assert r['state'] != 'WAITING' and state['report_to']['number'] == 65
+
+
+def test_escalate_without_gh_goes_through_a_person(tmp_path, monkeypatch):
+    """R33-R41: the executor had no gh, so `gh issue create` could not run and it kept redrawing for 8 rounds.
+    Without gh the ESCALATE steps hand the issue to a person and say not to redraw meanwhile."""
+    monkeypatch.setattr(ns, 'gh', lambda *a: None)
+    ws = avatar(tmp_path); state = {}
+    version(ws, 1, G1, ['0° 全視角外殼覆蓋']); ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+    version(ws, 2, G1, ['0° 全視角外殼覆蓋'])
+    r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+    assert r['state'] == 'ESCALATE' and '人' in r['why'] and not any(s.startswith('gh issue create') for s in r['steps'])
+    assert any('不要再重畫' in s for s in r['steps']) and (ws / 'issue.md').exists() and (ws / 'issue_title.txt').exists()
