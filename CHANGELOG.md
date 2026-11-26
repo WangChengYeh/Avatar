@@ -4,6 +4,16 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 照片與結果改由 GitHub 資料 repo 交換（avatar_data Release）
+
+Google Drive 先不用：三個 agent 之間的照片與結果改用 GitHub 交換，和 SOP、issue、PR 都在 GitHub 上。
+- 資料 repo [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data)：每個 avatar 的每個版本一個 Release，tag `<agent>-<avatar>-vNNN`，附件 `photos.zip`、四個階段的結果包、`gates.json`、`diagnosis.json`、`next_step.md`。不放進 git（照片、GLB 每輪幾十 MB，Release 附件單檔可到 2 GB、不讓 repo 變大）。
+- `body3d/data_repo.py`：`publish WS NNN`（同一版本重傳會取代附件，好／_FAIL 換名時刪掉舊的）、`fetch TAG DIR`（照片解到 `vNNN/photos`、結果包到 `vNNN/output/deliver`）、`list`。
+- `next_step.py` 每次自動上傳最新有結果的版本（結果變了才重傳），Release 連結記在 `avatar_state.json`、顯示在 `next_step.md`；issue 內文附連結與 `fetch` 指令。上傳失敗不擋下一步，原因寫在 `next_step.md`。
+- 工作區在執行者自己的機器（例：`~/avatar/<agent>/<avatar_NNN>/vNNN/{photos,output}`）。SOP：人提供的 GitHub token 要能在 avatar_data 建 Release。
+- 實測：Luna 完美照片（CC0 模型的渲染）上傳成 `chatgpt-avatar_001-v001`（photos.zip 9.4 MB、四個結果包，最大 28.8 MB），再下載回來：33 張照片與四個結果包都還原。next_step 自動上傳並顯示連結。
+- 注意：avatar_data 目前是公開 repo；照片是人物照片，建議改成私人。
+
 ## avatar 放在 Google Drive：avatar/<chatgpt|gemini>/avatar_NNN/vNNN
 
 - 工作區改成 `<Google Drive>/avatar/<chatgpt|gemini>/<avatar_NNN>/`，每一輪一個版本 `vNNN/photos`（33 張）、`vNNN/output`（run_all 輸出）。重畫或重跑都開下一個版本、複製上一版的照片，不覆蓋舊的（Drive 上用複製、不用連結）。`next_step.py --workspace <avatar 資料夾>`：agent 與 avatar 名稱從路徑來。

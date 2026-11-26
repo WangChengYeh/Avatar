@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """next_step.py — 執行者（ChatGPT／Gemini）每做完一步就跑這個：它只回答「下一步做什麼」（docs/Agent-Runbook.md）
 
-    python body3d/next_step.py --workspace "<Google Drive>/avatar/chatgpt/avatar_001"
+    python body3d/next_step.py --workspace ~/avatar/chatgpt/avatar_001
 
-WS 是這個 avatar 的資料夾，放在 Google Drive：avatar/<chatgpt|gemini>/<avatar_NNN>/（agent 與 avatar 名稱從路徑來）。
+WS 是這個 avatar 的資料夾：…/avatar/<chatgpt|gemini>/<avatar_NNN>/（agent 與 avatar 名稱從路徑來）。
 每一輪是一個版本 vNNN/：vNNN/photos（33 張照片）、vNNN/output（run_all 的輸出）；狀態檔 avatar_state.json 在 WS。
 重畫或重跑都開下一個版本（複製上一版的照片），不覆蓋舊的版本。
 next_step 看最新的版本，讀它的驗收結果、診斷、工作單與過去每一輪的記錄，給出**一個**狀態與要照做的指令：
@@ -17,6 +17,7 @@ next_step 看最新的版本，讀它的驗收結果、診斷、工作單與過�
     WAITING   issue 或 PR 還沒解決：等；解決了就 pull、跑 run_all.py
     DONE      四包都是好的：做交付檢查
 
+每個有結果的版本會自動上傳到資料 repo（GitHub Release，data_repo.py），issue 內文附上連結。
 只有 DONE 和 WAITING 可以停下來。其他狀態照指令做完，再跑一次 next_step，不要問人要不要繼續。
 結果也寫在 WS/next_step.md 與 WS/avatar_state.json。
 """
@@ -116,9 +117,37 @@ def run_cmd(photos, out, name, template):
 def next_version_steps(ws, n, photos, name, template, why=''):
     """copy this round's photos into a new version v(n) and run it there (a rerun never overwrites a version)"""
     new = vdir(ws, n)
-    q = shlex.quote                                    # Google Drive paths have spaces ("My Drive")
+    q = shlex.quote                                    # paths may have spaces
     return [f'mkdir -p {q(new + "/photos")} && cp {q(photos)}/*.jpg {q(new + "/photos")}/' + (f'   # {why}' if why else ''),
             run_cmd(f'{new}/photos', f'{new}/output', name, template)]
+
+
+def auto_publish(ws, state):
+    """upload the latest version with results to the data repo (once per change of its results); the release URL
+    goes into the state and the issue body. Never blocks the next step: a failure is recorded and shown."""
+    if state.get('offline') or os.environ.get('NEXT_STEP_OFFLINE') or os.environ.get('NEXT_STEP_NO_PUBLISH'):
+        return
+    vs = versions(ws)
+    if not vs:
+        return
+    n, cur = vs[-1]
+    out = os.path.join(cur, 'output')
+    g = os.path.join(out, 'gates.json')
+    prog = load(os.path.join(out, 'progress.json'), {}) or {}
+    if not os.path.exists(g) or prog.get('state') == 'running':
+        return
+    d = os.path.join(out, 'deliver')
+    sig = [os.path.getmtime(g)] + sorted(os.listdir(d)) if os.path.isdir(d) else [os.path.getmtime(g)]
+    pub = state.setdefault('published', {})
+    key = os.path.basename(cur)
+    if pub.get(key, {}).get('sig') == sig:
+        return
+    try:
+        import data_repo
+        pub[key] = dict(url=data_repo.publish(ws, n), sig=sig)
+        state.pop('publish_error', None)
+    except Exception as error:                         # no gh / no permission / offline: say so, go on
+        state['publish_error'] = f'{key} 沒有上傳到資料 repo：{error}'
 
 
 def decide(ws, avatar, agent, name, template, state):
@@ -225,19 +254,21 @@ def decide(ws, avatar, agent, name, template, state):
     tried = '；'.join(f'{os.path.basename(os.path.dirname(r["out"]))}：{len(r.get("fail", []))} 項 FAIL' for r in history[-4:])
     body = escalate.body(out, agent, avatar, tried=f'最近幾輪：{tried}。重複出現的 FAIL：{"、".join(sorted(repeated)) or "無"}',
                          reason=reason)
-    body = f'**位置**：Google Drive `avatar/{agent.lower()}/{avatar}/{os.path.basename(cur)}`\n\n' + body
+    url = state.get('published', {}).get(os.path.basename(cur), {}).get('url')
+    body = (f'**資料**：{url}（照片與結果包；重現：`python body3d/data_repo.py fetch {os.path.basename(url)} DIR`）\n\n'
+            if url else f'**資料**：沒有上傳到資料 repo（{state.get("publish_error", "未知")}），請把 _FAIL.zip 附在 issue\n\n') + body
     issue = os.path.join(ws, 'issue.md')
     open(issue, 'w', encoding='utf-8').write(body)
     title = f'[SOP] {agent}／{avatar}：{reason}'
     return dict(state='ESCALATE', why=reason, steps=[
         f'gh issue create --repo WangChengYeh/Avatar --title {q(title)} --body-file {q(issue)}   # 記下 issue 編號 N',
-        f'把 {os.path.join(out, "deliver")} 裡的 _FAIL.zip 拖進 issue 留言附上',
+        '照片與結果包已在資料 repo（issue 內文有連結）；沒有上傳成功時，把 output/deliver 裡的 _FAIL.zip 拖進 issue 附上',
         f'{me} --waiting-issue N   # 登記等待；Claude 關閉 issue 後 next_step 會叫你 pull、重跑'])
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description='下一步做什麼')
-    ap.add_argument('--workspace', required=True, help='這個 avatar 的資料夾：<Google Drive>/avatar/<chatgpt|gemini>/<avatar_NNN>')
+    ap.add_argument('--workspace', required=True, help='這個 avatar 的資料夾：…/avatar/<chatgpt|gemini>/<avatar_NNN>')
     ap.add_argument('--avatar', help='預設：資料夾名稱（avatar_NNN）')
     ap.add_argument('--agent', help='預設：上一層資料夾名稱（chatgpt／gemini）')
     ap.add_argument('--name', help='GLB 名稱，預設：avatar 名稱')
@@ -253,12 +284,19 @@ def main(argv=None):
     state = load(sp, {}) or {}
     if a.waiting_issue or a.waiting_pr:
         state['waiting'] = dict(kind='issue' if a.waiting_issue else 'pr', number=a.waiting_issue or a.waiting_pr)
+    auto_publish(ws, state)
     r = decide(ws, a.avatar, a.agent, a.name, a.template, state)
     state['last'] = dict(r, at=datetime.datetime.now().astimezone().isoformat(timespec='seconds'))
     json.dump(state, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     stop = r['state'] in ('DONE', 'WAITING')
     text = [f'# 下一步：{r["state"]}', '', f'原因：{r["why"]}', ''] + [f'{i}. `{s}`' if s.startswith(('python', 'gh ', 'mkdir', 'cd ', '/', "'"))
                                                                    else f'{i}. {s}' for i, s in enumerate(r['steps'], 1)]
+    pub = state.get('published', {})
+    if pub:
+        last = sorted(pub)[-1]
+        text += ['', f'資料：{last} 已上傳 {pub[last]["url"]}']
+    if state.get('publish_error'):
+        text += ['', f'注意：{state["publish_error"]}（下次跑 next_step 會再試；一直失敗就照 ESCALATE 發 issue）']
     text += ['', '可以停下來。' if stop else '**照上面做完，再跑一次 next_step。不要停下來問人。**']
     open(os.path.join(ws, 'next_step.md'), 'w', encoding='utf-8').write('\n'.join(text))
     print('\n'.join(text))
