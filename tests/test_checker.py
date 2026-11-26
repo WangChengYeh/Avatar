@@ -535,3 +535,25 @@ def test_tilted_arms_drawn_off(broken):
     rc, out = check(broken)
     arms = [l for l in lines(out, 'FAIL') if '斜角照手臂' in l]
     assert [l.split()[1] for l in arms] == ['el30_315deg'], arms
+
+
+def test_arm_reference_shows_where_the_arms_belong(broken):
+    """AI 修圖單 for 斜角照手臂: the arm model (front + top views, as arms33 builds it) lies on the arms of a perfect
+    tilted view, and off them once the arms are drawn 6 cm too high (R47 el30_315deg)"""
+    import ai_request
+    def covered(folder):
+        m = ai_request.arm_mask(str(folder), 'el30_315deg')
+        import check_turnaround as ct
+        photo = ct.segment(cv2.imread(str(folder / 'el30_315deg.jpg')))[0] > 0
+        photo = cv2.dilate(photo.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+        return (m & photo).sum() / m.sum()
+    before = covered(broken)
+    f = broken / 'el30_315deg.jpg'
+    im = cv2.imread(str(f)); h, w = im.shape[:2]
+    band = int(0.25 * w / 1.95)
+    moved = cv2.warpAffine(im, np.float32([[1, 0, 0], [0, 1, -int(0.06 * w / 1.95)]]), (w, h), borderValue=(255, 255, 255))
+    moved[:, w // 2 - band:w // 2 + band] = im[:, w // 2 - band:w // 2 + band]
+    cv2.imwrite(str(f), moved, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    after = covered(broken)
+    assert before > 0.7 and after < before - 0.2, (before, after)
+    assert ai_request.arm_reference(str(broken), 'el30_315deg') is not None

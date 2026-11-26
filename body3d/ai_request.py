@@ -105,6 +105,70 @@ def tilted_reference(photos, name, vs=0.01):
     return out
 
 
+def arm_reference(photos, name):
+    """the tilted photo with its arm_mask drawn in orange: where the arms should be"""
+    im = cv2.imread(os.path.join(photos, name + '.jpg'))
+    arm = arm_mask(photos, name)
+    if im is None or arm is None:
+        return None
+    out = im.copy()
+    out[arm] = (0.45 * out[arm] + 0.55 * np.array((0, 140, 255))).astype(np.uint8)
+    cnt, _ = cv2.findContours(arm.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    cv2.drawContours(out, cnt, -1, (0, 100, 230), max(3, im.shape[1] // 600))
+    return out
+
+
+def arm_mask(photos, name, step=0.004):
+    """where the arms of this tilted view should be: the arms the reconstruction builds (arms33: past 20 cm from the
+    axis, height from the front view, depth from the top view), elliptical in cross-section, seen by the spec camera
+    of this view, as a mask. R47: a +30° view whose near arm was drawn a few cm too high; the
+    hull outline is fat around the arms, so the photo's arm sat inside it and looked right."""
+    m_ = re.match(r'(el30|low20)_(\d{3})deg$', name)
+    if not m_:
+        return None
+    ring, a = m_.group(1), int(m_.group(2))
+    im = cv2.imread(os.path.join(photos, name + '.jpg'))
+    front, top = (cv2.imread(os.path.join(photos, f + '.jpg')) for f in (FULL[0], 'top'))
+    if im is None or front is None or top is None:
+        return None
+    mf, mt = ct.segment(front)[0].astype(bool), ct.segment(top)[0].astype(bool)
+    H, W = mf.shape
+    rows = np.flatnonzero(mf.any(1))
+    s = (rows[-1] - rows[0]) / ct.SPEC_HEIGHT                       # px per m, front view
+    tc, fc = np.flatnonzero(mt.any(0)), np.flatnonzero(mf.any(0))
+    if not len(tc) or not len(fc):
+        return None
+    st = (tc[-1] - tc[0]) / ((fc[-1] - fc[0]) / s)                  # px per m, top view (same arm span)
+    tcx = (tc[-1] + tc[0]) / 2
+    band = mt[:, int(tcx - 0.10 * st):int(tcx + 0.10 * st)].any(1)
+    tr = np.flatnonzero(band)
+    trc = (tr[0] + tr[-1]) / 2                                     # the torso's depth centre (front toward the bottom)
+    arm_x = 0.20 * ct.SPEC_HEIGHT / 1.65
+    P = []
+    for x in np.arange(-1.0, 1.0, step):
+        if abs(x) < arm_x:
+            continue
+        c, ctp = int(round(W / 2 + s * x)), int(round(tcx + st * x))
+        if not (0 <= c < W and 0 <= ctp < mt.shape[1]) or not mf[:, c].any() or not mt[:, ctp].any():
+            continue
+        r = np.flatnonzero(mf[:, c])
+        y0, y1 = (H / 2 - r[-1]) / s, (H / 2 - r[0]) / s           # relative to the body centre
+        if y1 - y0 > 0.25:                                         # a body column, not an arm
+            continue
+        zr = np.flatnonzero(mt[:, ctp])
+        zc, zh = ((zr[0] + zr[-1]) / 2 - trc) / st, (zr[-1] - zr[0]) / 2 / st
+        for t in np.linspace(0, 2 * np.pi, 48, endpoint=False):
+            P.append((x, (y0 + y1) / 2 + (y1 - y0) / 2 * np.sin(t), zc + zh * np.cos(t)))
+    if not P:
+        return None
+    P = np.array(P)
+    r_, u_ = ct._spec_axes(a, ct.RING_TILT[ring])
+    col = np.round(W / 2 + s * (P @ r_)).astype(int); row = np.round(H / 2 - s * (P @ u_)).astype(int)
+    ok = (col >= 0) & (col < W) & (row >= 0) & (row < H)
+    arm = np.zeros((H, W), np.uint8); arm[row[ok], col[ok]] = 1
+    return cv2.morphologyEx(arm, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8)) > 0
+
+
 def make(photos, out, leaves):
     """write OUT/ai_fix_request for the photo leaves; returns its path, or None when no photo has to be redrawn"""
     todo = sorted([d for d in leaves if d.get('owner') == '照片'],
@@ -141,6 +205,13 @@ def make(photos, out, leaves):
             ref = tilted_reference(photos, p)
             if ref is not None:
                 cv2.imwrite(os.path.join(dst, 'reference', p + '_輪廓上限.jpg'), ref, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                if any('斜角照手臂' in d['item'] for d in ds):
+                    aref = arm_reference(photos, p)
+                    if aref is not None:
+                        cv2.imwrite(os.path.join(dst, 'reference', p + '_手臂位置.jpg'), aref, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                        lines.append(f'- **手臂參考圖**：`reference/{p}_手臂位置.jpg`：橘色是手臂應該在的位置（重建時手臂只用正面與俯視照建，'
+                                     '這是它從這個角度看的樣子）。把手臂畫在橘色裡：從斜上方（俯角）看，伸向鏡頭那隻水平的手臂在畫面上'
+                                     '會往手的方向斜向下、而且比肩膀低；從斜下方（仰角）看則相反。不要把手臂畫得在畫面上看起來水平或抬高。')
                 lines.append(f'- **參考圖**：`reference/{p}_輪廓上限.jpg`：綠線是 8 張水平全身圖用規格相機雕出的外殼、從這個角度看的'
                              '輪廓，是**上限**：人物的位置、大小、俯仰要和綠線一致，整個人要在綠線以內；超出綠線的部分重建時會被切掉。'
                              '真實的身體比綠線瘦（水平環看不到手臂上下、身體斜角的厚度，外殼在那裡是方塊或厚板），所以人物不會貼滿綠線。'
