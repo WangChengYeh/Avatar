@@ -4,6 +4,14 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 執行者不再停下來問人：next_step.py、AGENTS.md／GEMINI.md
+
+執行者（ChatGPT、Gemini）做完一步常停下來問要不要繼續。原因：SOP 是文件，每一步之後的「下一步」要自己推論，不確定就停。
+- `body3d/next_step.py --workspace WS --avatar A --agent X`：讀工作區（`photos_vN`、`out_vN`、`avatar_state.json`）只給**一個**狀態與照做的指令：START、RUN、RETOUCH（照 AI 修圖單重畫 → `photos_v(N+1)` → 跑）、CODE（改 code 單 → PR → `--waiting-pr`）、ESCALATE（issue 內文已寫好 → `--waiting-issue`）、WAITING（查 issue／PR 狀態，解決了就 pull、重跑）、DONE。只有 DONE、WAITING 可以停。每一輪記錄 FAIL 項目，同一個 FAIL 連續 2 輪就自動走 ESCALATE，不用執行者判斷。
+- `docs/Agent-Runbook.md`：執行者唯一的迴圈與規則（不問人、不改 SOP 過關、每輪新資料夾、做不到就 ESCALATE）。
+- `AGENTS.md`（ChatGPT／Codex 自動讀）、`GEMINI.md`（Gemini CLI 自動讀）、`CLAUDE.md`（維護者職責）。
+- 實測：空工作區 → START；R17 → RETOUCH（7 張照片）；R17 同樣的 FAIL 第 2 輪 → ESCALATE（issue 內文寫好）；Luna → DONE；登記等 issue（open）→ WAITING；登記等 PR（已合併）→ RUN（pull、重跑）。
+
 ## 專案迴圈：三個 AI agent 與 GitHub issue 升級
 
 - [docs/Project-Loop.md](docs/Project-Loop.md)：Claude 維護 SOP 與程式（PR、review、合併、處理 issue）；ChatGPT、Gemini 各自照 SOP 開發一個 avatar（生圖、跑流程、照診斷修圖或改程式，程式改動開 PR 給 Claude review）。什麼時候發 issue（診斷信心低或沒規則、同一個 FAIL 修 2 輪還在、檢查缺口、程式出錯或改 code 單做不完、SOP 矛盾、懷疑門檻錯）、issue 要附什麼、Claude 怎麼處理（重現 → 找原因所在階段 → 補檢查／修程式／補診斷／改 SOP → PR `Fixes #` → 回覆最低版本與怎麼繼續）、執行者怎麼更新繼續、兩個 avatar 共用一份 SOP 的規則。
