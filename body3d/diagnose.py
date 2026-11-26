@@ -61,11 +61,21 @@ PHOTO_RULES = [
      'AI 重新生成這張（不能用渲染或投影）：同一個人、同一姿勢、真實的俯角 30°／仰角 20° 視角，人物在輪廓上限綠線以內、比綠線瘦'),
     (r'全視角外殼覆蓋|外殼切割', '俯角／仰角的照片和水平環對不上，一起雕會把身體切瘦（成品會比照片小）',
      '重畫切最多的那幾張俯角／仰角照片：和水平環同一個相機距離與構圖、身體中心在畫面正中央、正交投影、俯角 30°／仰角 20°'),
+    (r'剪影$', '這張的人物輪廓超出其他照片推出的身體（藍色）：手臂姿勢、身形或透視和水平環不同',
+     '重畫這張：和水平環同一姿勢（手臂水平、手腕與手指方向相同）、同一身形，正交投影；藍色落在哪個部位就修那裡（報告第 10 項、剪影對照圖）'),
+    (r'\d+° vs \d+°|厚度|腳踝', '不同角度看到的身體形狀不一致（鏡像的兩張、左右厚度或腳踝對不上）',
+     '重畫差最多的那一張：同一身形、同一姿勢，雙腳位置相同（照報告這一項指出的部位）'),
+    (r'大小一致|人物高度|頭頂 / 腳底位置|構圖佔比', '各張人物的大小或上下位置不同：相機距離、構圖不一致',
+     '重畫差最多的那幾張：所有全身圖同一個相機距離與構圖（畫面寬 1.95 m、身體中心在畫面正中央）'),
+    (r'輪廓清晰度', '人物邊緣模糊（對焦、動態模糊或放大重取樣），去背邊界不準', '重新生成或用原解析度輸出這幾張，不要放大'),
+    (r'灰白雜點', '照片上有 AI 留下的灰白色塊，重建時會被當成身體', '重畫或修掉這個色塊（報告寫了位置）'),
+    (r'與主環一致性', '俯視圖和水平環對不上（髮髻、腳的位置或身形不同）', '重畫俯視圖：髮髻、腳的位置與身形和水平環相同'),
+    (r'腳間距|頭部疑似重複', '姿勢或照片內容不對（雙腳距離不同、頭部特寫重複）', '照報告這一項的「→」重畫這張'),
     (r'臉部位置', '特寫的臉和同角度全身圖的位置不同', '重畫這張特寫：同角度全身圖頭部的 4 倍放大，五官位置一致（自動平移只修得了一部分，見文件）'),
     (r'頭部朝向|朝向', '臉的轉向和檔名角度不同', '重畫：頭朝正前方、只有相機繞著轉'),
-    (r'^\s*\d+°|角度', '雙手展開寬度推算的角度不對', '重畫這個角度：相機角度要和檔名相同'),
+    (r'^\s*\d+°$|角度', '雙手展開寬度推算的角度不對', '重畫這個角度：相機角度要和檔名相同'),
     (r'耳朵', '特寫的耳朵和全身圖不同', '重畫這張特寫：耳朵高度與前後位置和全身圖一致'),
-    (r'表面亮度|明暗|光線|曝光', '光線跟著相機轉或亮度不同', '重畫：光線固定在人身上，各角度同一曝光'),
+    (r'亮度|明暗|光線|曝光', '光線跟著相機轉或亮度不同', '重畫：光線固定在人身上，各角度同一曝光'),
     (r'距離|放大倍率|寬度', '相機距離／構圖和規格不同', '重畫這張：所有全身圖同一距離，特寫固定 4 倍'),
     (r'對準|置中|頭頂位置', '相機沒有對準規格的點', '重畫這張：身體中心（或特寫的頭部中心）在畫面正中央'),
     (r'俯仰角|透視', '俯仰角或透視不對', '重畫這張：正交投影、俯角 30°／仰角 20°'),
@@ -74,13 +84,34 @@ PHOTO_RULES = [
 ]
 
 
+FULL_NAMES = {0: '01_000deg_front', 45: '02_045deg_front_left', 90: '03_090deg_left', 135: '04_135deg_back_left',
+              180: '05_180deg_back', 225: '06_225deg_back_right', 270: '07_270deg_right', 315: '08_315deg_front_right'}
+
+
+def photos_in_label(label):
+    """the one photo an item is about when its label says so: 'el30 45° 剪影' -> el30_045deg, '主環 90° 剪影' ->
+    03_090deg_left. Labels that compare two photos ('low20 90° / 主環 90°', '45° vs 225°') name none: which one to
+    redraw is in the line, not the label."""
+    if '/' in label or ' vs ' in label:
+        return []
+    m = re.match(r'(\d+)°$', label)                    # the level ring's angle estimate: '45°'
+    if m:
+        return [FULL_NAMES[int(m.group(1))]] if int(m.group(1)) in FULL_NAMES else []
+    m = re.match(r'(el30|low20|head|主環) (\d+)°', label)
+    if not m:
+        return []
+    ring, a = m.group(1), int(m.group(2))
+    return [FULL_NAMES[a]] if ring == '主環' and a in FULL_NAMES else [] if ring == '主環' else [f'{ring}_{a:03d}deg']
+
+
 def diagnose_photo_fails(fail_lines):
     out, seen = [], {}
     for line in fail_lines:
         label = line.split(':', 1)[0].strip()
         for pat, cause, action in PHOTO_RULES:
             if re.search(pat, label):
-                names = re.findall(r'(?:el30|low20)_\d{3}deg', line)          # photos the check names (10i culprits)
+                names = re.findall(r'(?:el30|low20|head)_\d{3}deg|\d{2}_\d{3}deg_[a-z_]+|\btop\b(?=\.jpg)', line)  # photos named
+                names += photos_in_label(label)
                 if names:
                     action += '：' + '、'.join(dict.fromkeys(names))
                 if (cause, action) in seen:                                   # the same finding at several angles

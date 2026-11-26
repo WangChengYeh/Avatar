@@ -72,6 +72,7 @@ def test_head_ring_aim_check():
 
 def test_ai_request(tmp_path):
     import ai_request
+    import diagnose
     leaves = [dict(item='全身／頭部一致性 45° 上下', owner='照片', confidence='高', cause='上下位置不同',
                    action='重畫 head_045deg', evidence=dict(dy_relative_mm=-13.8)),
               dict(item='全身／頭部一致性 45° / 315° 左右', owner='程式', confidence='高', cause='x', action='y', evidence={})]
@@ -95,6 +96,7 @@ def test_fix_order_earlier_stage_then_confidence():
 
 def test_ai_code_request_waits_for_photos_and_takes_the_earliest_stage(tmp_path):
     import ai_request
+    import diagnose
     import diagnose as dz
     prog = dz.leaf('全身／頭部一致性 45° / 315° 左右', ['關卡 2', '2a'], '特寫環對準點偏離旋轉軸', '程式', 'AI 改程式：headreg', '高',
                    dict(head_ring_aim_z_mm=21.4))
@@ -113,3 +115,31 @@ def test_mesh_floor_check(tmp_path):
     for y0, failed in ((-0.052, True), (0.009, False), (0.0, False)):
         np.savez(tmp_path / 'uvmesh.npz', pos=np.array([[0, y0, 0], [0, 1.65, 0]], float))
         assert ct.report_mesh_floor(tmp_path) is failed
+
+
+def test_photo_items_have_rules_and_name_their_photo():
+    """R33: the silhouette item (10) had no rule, so its leaves were 'unclassified', confidence low, no photo to
+    redraw. Every photo-check item that can FAIL gets a rule, and items about one photo name it."""
+    import ai_request
+    import diagnose
+    cases = {
+        'el30 45° 剪影: 藍色 2.7%': ['el30_045deg'],
+        '主環 90° 剪影: 藍色 4.8%': ['03_090deg_left'],
+        'el30 0° 對準高度: +37 mm': ['el30_000deg'],
+        '45°: 推算約 38°': ['02_045deg_front_left'],
+        'el30 45° 角度: 推算約 37°': ['el30_045deg'],
+        '45° vs 225°: 鏡像重合度 0.80': [],
+        '左側 vs 右側 厚度: 6%': [],
+        'el30 大小一致: 5.9%': [],
+        '人物高度: 差異 3.2%': [],
+        '頭頂 / 腳底位置: 2.1%': [],
+        '輪廓清晰度: head_225deg.jpg 9.1、08_315deg_front_right.jpg 8.4': ['08_315deg_front_right', 'head_225deg'],
+        'top top.jpg 灰白雜點: 2.6%': ['top'],
+        'top top.jpg 與主環一致性: 95%': ['top'],
+        '0° 明暗方向: 15%': [],
+    }
+    for line, photos in cases.items():
+        (d,) = diagnose.diagnose_photo_fails([line])
+        assert d['confidence'] == '高' and d['cause'] != '未分類', line
+        assert ai_request.photos_of(d) == photos, (line, ai_request.photos_of(d))
+    assert '亮度' in diagnose.diagnose_photo_fails(['0° 明暗方向: 15%'])[0]['cause']   # not the angle rule
