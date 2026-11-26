@@ -42,7 +42,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.16.0'
+__version__ = '2.17.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
@@ -338,6 +338,16 @@ def main(argv=None):
     mh = a.template == 'makehuman'
     mesh_ply = os.path.join(work, 'body_mh.ply' if mh else 'body33s.ply')
 
+    def step_mh_export():
+        run(need_blender() + [S('mh_export.py'), '--', work, lit], work, log)
+        # previews for stage 3 (the hull path gets them from bl_export): the spec cameras of the level ring
+        rdir = os.path.join(work, 'previews')
+        run(need_blender() + [S('bl_client_render.py'), '--', lit, rdir, '900'], work, log)
+        for phi, v in (('000', 'front'), ('045', 'three_q'), ('090', 'side'), ('180', 'back')):
+            src = os.path.join(rdir, f'main_{phi}.png')
+            if os.path.exists(src):
+                shutil.copy(src, os.path.join(out, f'v2_{v}_FLAT.png'))
+
     def skip(msg):
         return lambda: print('     ' + msg)
 
@@ -377,7 +387,7 @@ def main(argv=None):
     if mh:                                   # MakeHuman body replaces the hull mesh from the UV step on
         actions.update({
             'uv': lambda: run([py, S('mh33.py'), work, need_blender()[0]], work, log),
-            'export': lambda: run(need_blender() + [S('mh_export.py'), '--', work, lit], work, log),
+            'export': step_mh_export,
             'joints': skip('MakeHuman 骨架（mh33.py 已擬合關節）'),
             'rig': skip('MakeHuman Mixamo 骨架與權重（52 根骨頭，含手指）'),
         })

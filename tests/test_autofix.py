@@ -104,3 +104,12 @@ def test_ai_code_request_waits_for_photos_and_takes_the_earliest_stage(tmp_path)
     r = ai_request.make_code(str(tmp_path / 'b'), dz.fix_order([late, prog]), 'photos')
     text = (tmp_path / 'b' / 'ai_code_request' / 'AI改code單.md').read_text(encoding='utf-8')
     assert r and '階段 2' in text and 'headreg' in text and 'GLB' not in text and '21.4' in text and '開 PR' in text
+
+
+def test_mesh_floor_check(tmp_path):
+    """pre-bake item: a mesh whose feet go 5.2 cm under the floor FAILs, one standing on it PASSes"""
+    import numpy as np
+    import check_turnaround as ct
+    for y0, failed in ((-0.052, True), (0.009, False), (0.0, False)):
+        np.savez(tmp_path / 'uvmesh.npz', pos=np.array([[0, y0, 0], [0, 1.65, 0]], float))
+        assert ct.report_mesh_floor(tmp_path) is failed

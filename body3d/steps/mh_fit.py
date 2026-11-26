@@ -54,6 +54,7 @@ face = (X0[:, 1] > top - 0.25) & (X0[:, 1] < top - 0.06) & (X0[:, 2] > (hb[:, 2]
 PARTS = {'face': face, 'hand_l': (reg == 1) & (X0[:, 0] > 0), 'hand_r': (reg == 1) & (X0[:, 0] < 0),
          'foot_l': (reg == 2) & (X0[:, 0] > 0), 'foot_r': (reg == 2) & (X0[:, 0] < 0)}
 BLEND = 0.04
+FLOOR = float(H[:, 1].min())                       # the hull's floor (the photos' feet)
 FACE_SCALE = (0.95, 1.05)
 # the hull's 3D opening (round33) shaves off the nose and lips, so only the cheeks / temples place the face
 FACE_DATA = face & (np.abs(X0[:, 0]) > 0.035)
@@ -79,7 +80,11 @@ def rigid_parts(D, cp, w_data):
             else:
                 Dp = np.broadcast_to(D[m].mean(0), D.shape)
         else:
-            Dp = np.broadcast_to(D[m].mean(0), D.shape)
+            Dp = np.broadcast_to(D[m].mean(0), D.shape).copy()
+            if k.startswith('foot'):
+                # the feet stand on the floor: the leg field alone let a thin hull pull them 5 cm under it (R17;
+                # pre-bake check 'mesh on the floor')
+                Dp[:, 1] += FLOOR - (X0[m, 1] + Dp[m, 1]).min()
         b = part_w[k][:, None]
         out = (1 - b) * out + b * Dp
     return out
