@@ -81,7 +81,7 @@ def pack(out, name, stage, files, gates, failures=(), missing=(), extra=None, st
     return dst, ok
 
 
-def stage1(img, out, name, summary, checker_version, report=None, failures=(), autofix=None):
+def stage1(img, out, name, summary, checker_version, report=None, failures=(), autofix=None, diagnosis=None):
     """the 33 photos (+ check report). summary = (FAIL, WARN, PASS) of the photo check"""
     missing = [p for p in PHOTOS if not os.path.exists(os.path.join(img, p))]
     files = {f'photos/{p}': os.path.join(img, p) for p in PHOTOS}
@@ -90,6 +90,8 @@ def stage1(img, out, name, summary, checker_version, report=None, failures=(), a
     if autofix:                                        # photos corrected automatically: what changed, and from what
         files['autofix.json'] = autofix
         extra['autofix'] = json.load(open(autofix))['fixes']
+    if diagnosis:
+        extra['diagnosis'] = diagnosis
     return pack(out, name, 1, files, {'1 照片檢查': tuple(summary)}, failures, missing, extra)
 
 

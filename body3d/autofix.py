@@ -9,8 +9,11 @@
 全部都能高信心修好時：在新的資料夾放修正後的照片（原檔不動），每一張改了什麼記在 autofix.json，
 再跑一次照片檢查。
 
-目前可以自動修的項目：
-    第 11c 項 特寫臉部位置  把 45° / 315° 特寫平移，讓臉回到同角度全身圖的位置（以 0° 為準）
+一個修正要「證明有用」才啟用（PROVEN）：在對照實驗（同一組照片，只差這幾張）裡，它要讓後面的關卡（不只是照片檢查
+自己）變好。目前沒有經過證明的修正，所以未通過一律停下、交給 AI 重畫：
+    第 11c 項 特寫臉部位置  平移特寫可以讓照片檢查通過，但 R14 對照實驗顯示烘焙前檢查的上下偏移只改善 5–6 px：
+                            特寫環的上下對準是共用的，平移一張會被整個環吸收一部分（docs/Diagnosis-Tree.md）。
+                            修正程式留著（kind='facepos'），沒有啟用。
 
 用法:
     python autofix.py PHOTOS OUT_DIR       # 依照片檢查結果修正，寫 OUT_DIR/photos_fixed 與 autofix.json
@@ -28,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import check_turnaround as ct          # noqa: E402
 
+PROVEN = set()                         # fixes shown to improve the downstream gate in a controlled run; none yet
 MAX_SHIFT_MM = 25.0                    # larger than this is not a framing slip: redraw the close-up
 FULL = {0: '01_000deg_front', 45: '02_045deg_front_left', 315: '08_315deg_front_right'}
 
@@ -36,7 +40,7 @@ def classify(line):
     """(kind, angle) for a FAIL line the code can fix, else (None, label)"""
     label = line.split(':', 1)[0].strip()
     m = re.match(r'head (\d+)° 臉部位置$', label)
-    if m and int(m.group(1)) in (45, 315):
+    if m and int(m.group(1)) in (45, 315) and 'facepos' in PROVEN:
         return 'facepos', int(m.group(1))
     return None, label
 

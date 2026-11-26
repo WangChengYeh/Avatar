@@ -216,7 +216,7 @@ def progress_html(prog, gates_seen):
         at = prog.get('stopped_at', '')
         gate = {'check': '1', 'bake': '2', 'verify': '3', 'fit': '4'}.get(at)
         nf = sum(v['FAIL'] for k, v in gates_seen.items() if gate and k.startswith(gate))
-        fix = {'check': '要先重畫照片（見下方階段 1 的未通過清單）', 'bake': '多半是照片的頭部特寫角度或五官位置，見階段 2 清單',
+        fix = {'check': '見下方「要修的項目」的診斷', 'bake': '見下方「要修的項目」的診斷：每一項是照片或程式',
                'verify': '模型檔有問題，由工程師修正', 'fit': '模型和原圖對不上，見階段 4 的對照圖與清單'}.get(at, '')
         why = (f'停在「{STEP_ZH.get(at, at)}」：' + (f'{nf} 項未通過，{fix}' if nf else '程式執行出錯，請工程師查看紀錄')
                + '。停下前做出來的東西都已打包，見下方各階段的成果')
@@ -278,10 +278,20 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
         word = '可以交付' if ok else '不能交付（有未通過；做出來的東西都已打包，標 _FAIL）'
         body.append(f'<p class="status {"ok" if ok else "bad"}">{e(word)}</p>')
     todo = [(k, t) for k, lst in issues.items() for l, t in lst if l == 'FAIL']
+    dpath = os.path.join(a.out, 'diagnosis.json')
+    leaves = json.load(open(dpath)) if os.path.exists(dpath) else []
     if todo:                                           # what has to be fixed, before anything else
-        body.append('<div class="todo"><b>要修的項目（' + str(len(todo)) + ' 項未通過）</b><ol>'
+        diag = ''
+        if leaves:                                     # the diagnosis tree's answer: who fixes what, and why
+            diag = ('<p><b>診斷（每一項的原因與誰要修）</b></p><ol class="diag">' + ''.join(
+                f"<li><span class='own {'p' if d['owner'] == '照片' else 'c'}'>{e(d['owner'])}</span>"
+                f"<span class='conf'>信心{e(d['confidence'])}</span> <b>{e(d['item'])}</b>：{e(d['cause'])}"
+                f"<br>怎麼修：{e(d['action'])}<br><span class='g'>路徑：{e(' → '.join(d['path']))}</span></li>"
+                for d in leaves) + '</ol>')
+        body.append('<div class="todo"><b>要修的項目（' + str(len(todo)) + ' 項未通過）</b>' + diag
+                    + '<details><summary>未通過項目原文</summary><ol>'
                     + ''.join(f'<li><span class="g">{e(GATE_ZH.get(k, k))}</span>　{e(t)}</li>' for k, t in todo)
-                    + '</ol></div>')
+                    + '</ol></details></div>')
     if g:
         rows = ''.join(f'<tr><td>{e(GATE_ZH.get(k, k))}</td><td class="{"f" if v["FAIL"] else ""}">{v["FAIL"]}</td>'
                        f'<td>{v["WARN"]}</td><td>{v["PASS"]}</td><td>{v["TOTAL"]}</td></tr>' for k, v in g.items())
@@ -332,7 +342,9 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
            'tr.running td{background:#fff4d6}tr.failed td{background:#fde7e5}tr.pending td{color:#aaa}'
            '.deliver{background:#e3f4e8;padding:6px 10px;border-radius:6px}.deliver.no{background:#f4f4f4;color:#777}.deliver.bad{background:#fde7e5;color:#b3261e}.deliver.fixed{background:#eef4ff;color:#1a3d7c}'
            '.todo{border:2px solid #b3261e;background:#fff5f4;border-radius:8px;padding:8px 14px;margin:10px 0}'
-           '.todo b{color:#b3261e}.todo .g{color:#777;font-size:13px}.todo li{font-size:15px}'
+           '.todo b{color:#b3261e}.todo .g{color:#777;font-size:13px}.todo li{font-size:15px;margin:6px 0}'
+           '.own{color:#fff;border-radius:4px;padding:1px 6px;margin-right:6px;font-size:13px}.own.p{background:#a66300}.own.c{background:#1a3d7c}'
+           '.conf{color:#555;font-size:13px;margin-right:6px}'
            'li.fail b{color:#b3261e}li.warn b{color:#a66300}li{margin:3px 0;font-size:14px}summary{cursor:pointer;margin:6px 0}')
     refresh = '<meta http-equiv="refresh" content="20">' if running else ''
     if running:                                        # elapsed time ticks between the 20 s reloads

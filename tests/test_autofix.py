@@ -16,7 +16,9 @@ def broken(synth_set, tmp_path):
     return d
 
 
-def test_classify():
+def test_classify(monkeypatch):
+    assert autofix.classify('head 45° 臉部位置: 特寫的臉 8.9 mm')[0] is None        # not proven downstream: regenerate
+    monkeypatch.setattr(autofix, 'PROVEN', {'facepos'})
     assert autofix.classify('head 45° 臉部位置: 特寫的臉 8.9 mm') == ('facepos', 45)
     assert autofix.classify('head 315° 臉部位置: 7.8 mm') == ('facepos', 315)
     assert autofix.classify('head 45° 頭部朝向: 臉的轉向約 28°')[0] is None
@@ -28,8 +30,9 @@ def test_needs_regeneration_stops(tmp_path):
     assert not p['ok'] and not p['items'] and '要重新生成' in p['reasons'][0]
 
 
-def test_shifted_closeup_is_fixed_back(broken, tmp_path):
-    """the perfect 45° close-up drawn 40 px lower fails 11c; autofix moves it back up and the face is within 3 mm"""
+def test_shifted_closeup_is_fixed_back(broken, tmp_path, monkeypatch):
+    """(fixer kept, not enabled) the perfect 45° close-up drawn 40 px lower fails 11c; the fix moves it back up"""
+    monkeypatch.setattr(autofix, 'PROVEN', {'facepos'})
     f = broken / 'head_045deg.jpg'
     im = cv2.imread(str(f)); h, w = im.shape[:2]
     cv2.imwrite(str(f), cv2.warpAffine(im, np.float32([[1, 0, 0], [0, 1, 40]]), (w, h), borderValue=(255, 255, 255)),
@@ -40,3 +43,11 @@ def test_shifted_closeup_is_fixed_back(broken, tmp_path):
     assert it['photo'] == 'head_045deg.jpg' and it['dy_px'] < -25 and it['after_mm'] <= 3.0
     rec = autofix.apply(str(broken), str(tmp_path / 'fixed'), p, 1)
     assert rec[0]['round'] == 1 and 'image' not in rec[0] and len(list((tmp_path / 'fixed').glob('*.jpg'))) == 33
+
+
+def test_diagnosis_rules():
+    import diagnose
+    d = diagnose.diagnose_photo_fails(['head 45° 頭部朝向: 臉的轉向約 28°', 'head 315° 臉部位置: 7.8 mm', '新項目: x'])
+    assert [x['owner'] for x in d] == ['照片', '照片', '照片']
+    assert d[0]['confidence'] == '高' and '正前方' in d[0]['action']
+    assert d[2]['confidence'] == '低'

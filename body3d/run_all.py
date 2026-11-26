@@ -121,6 +121,21 @@ def main(argv=None):
     fails = {}                     # gate -> its [FAIL] lines
     go_on = a.force
     packed = set()                 # stages whose result is zipped already
+    diagnosis = []                 # leaves of the diagnosis tree for the FAILs (diagnose.py, docs/Diagnosis-Tree.md)
+
+    def diagnose(gate):
+        """walk the diagnosis tree for this gate's FAILs; print the leaves and keep them for the zip and the page"""
+        try:
+            import diagnose as dz
+            leaves = (dz.diagnose_photo_fails(fails.get('1 照片檢查', [])) if gate == 1
+                      else dz.diagnose_prebake(img, work))
+        except Exception as error:                     # the diagnosis must never hide the gate's own result
+            print(f'     診斷樹失敗：{error}')
+            return
+        diagnosis[:] = [d for d in diagnosis if d['gate'] != gate] + [dict(d, gate=gate) for d in leaves]
+        for d in leaves:
+            print(f"     診斷［{d['owner']}｜信心{d['confidence']}］{d['item']}：{d['cause']} → {d['action']}")
+        json.dump(diagnosis, open(os.path.join(out, 'diagnosis.json'), 'w'), ensure_ascii=False, indent=1)
 
     def stage_files(stage):
         """what a stage produces (whatever of it exists when it is packed)"""
@@ -142,7 +157,9 @@ def main(argv=None):
         stopped = (step, reason) when the run stopped inside this stage: whatever exists is packed, as _FAIL"""
         import deliver
         g = {k: v for k, v in gates.items() if int(k[0]) <= stage}
+        dg = [d for d in diagnosis if d['gate'] <= stage]
         z, ok = deliver.pack(out, a.name, stage, stage_files(stage), g, [l for k in g for l in fails.get(k, [])],
+                             extra=dict(diagnosis=dg) if dg else None,
                              stopped=stopped)
         packed.add(stage)
         print(f'     階段 {stage} 成果' + ('（好，可交付）：' if ok else '（不好，標 _FAIL）：') + z)
@@ -204,7 +221,7 @@ def main(argv=None):
         nonlocal img
         status_path = os.path.join(work, 'check_status.json')
         record_path = os.path.join(out, 'autofix.json')
-        for f in (status_path, record_path):
+        for f in (status_path, record_path, os.path.join(out, 'diagnosis.json')):
             if os.path.exists(f):
                 os.remove(f)
         rc = photo_check()
@@ -240,6 +257,8 @@ def main(argv=None):
                       open(record_path, 'w'), ensure_ascii=False, indent=1)
         with open(status_path, 'w') as f:
             json.dump(dict(passed=rc == 0), f)
+        if rc == 1:
+            diagnose(1)
         if '1 照片檢查' not in gates:
             print('     照片檢查沒有印出總結，不打包階段 1 的照片')
         else:                                        # stage 1: the 33 photos, zipped even when the check fails
@@ -248,7 +267,8 @@ def main(argv=None):
             v = re.search(r'check_turnaround 版本 (\S+?)（', txt)
             z, ok = deliver.stage1(img, out, a.name, gates['1 照片檢查'], v.group(1) if v else '?',
                                    os.path.join(out, 'turnaround_report.png'), deliver.fail_lines(txt),
-                                   autofix=record_path if record else None)
+                                   autofix=record_path if record else None,
+                                   diagnosis=[d for d in diagnosis if d['gate'] == 1])
             print('     階段 1 成果' + ('（好，可交付）：' if ok else '（有未通過，標 _FAIL）：') + z)
         if rc == 1 and not go_on:
             raise RuntimeError('照片檢查有 FAIL（見 run_all.log / turnaround_report.png）。修正照片，或加 --force 繼續做完供診斷')
@@ -272,6 +292,8 @@ def main(argv=None):
                   '--view-overlay-dir', os.path.join(out, 'view_overlays')],
                  work, log, ok_codes=(0, 1), show_output=True)
         tally('2 烘焙前檢查')
+        if rc:
+            diagnose(2)
         stage_zip(2)
         if rc and not go_on:
             raise RuntimeError('烘焙前頭部檢查有 FAIL（見 run_all.log）。修正照片，或加 --force 繼續做完供診斷')
