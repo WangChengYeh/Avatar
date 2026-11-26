@@ -518,3 +518,20 @@ def test_head_samples_do_not_depend_on_mesh_density():
     coarse = ct.head_surface_samples(*plane(4))[0]
     fine = ct.head_surface_samples(*plane(60))[0]
     assert abs(len(coarse) - len(fine)) < 0.1 * len(fine) and len(fine) > 2000
+
+
+def test_tilted_arms_drawn_off(broken):
+    """10i arms: a diagonal tilted view whose arms are drawn 6 cm higher than the level ring's (R33-R41: a few
+    diagonal views, every other check WARN at most) FAILs as 斜角照手臂 for that view only; its body still passes"""
+    rc, out = check(broken)
+    assert not [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if '斜角照手臂' in l]
+    f = broken / 'el30_315deg.jpg'
+    im = cv2.imread(str(f)); h, w = im.shape[:2]
+    band = int(0.25 * w / 1.95)                           # 25 cm either side of the axis: the body stays put
+    up = np.float32([[1, 0, 0], [0, 1, -int(0.06 * w / 1.95)]])
+    moved = cv2.warpAffine(im, up, (w, h), borderValue=(255, 255, 255))
+    out_im = moved.copy(); out_im[:, w // 2 - band:w // 2 + band] = im[:, w // 2 - band:w // 2 + band]
+    cv2.imwrite(str(f), out_im, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    arms = [l for l in lines(out, 'FAIL') if '斜角照手臂' in l]
+    assert [l.split()[1] for l in arms] == ['el30_315deg'], arms
