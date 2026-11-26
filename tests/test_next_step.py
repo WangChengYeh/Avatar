@@ -7,11 +7,12 @@ import next_step as ns
 def setup_module():
     import os
     os.environ['NEXT_STEP_OFFLINE'] = '1'          # these tests do not ask GitHub
+    ns.code_changed_since = lambda commit: False   # the outputs here were made by this code
 
 
 def out(ws, n, gates, fails=(), deliverable=False):
     d = ws / f'out_v{n}'; d.mkdir()
-    json.dump(dict(gates=gates, deliverable=deliverable), open(d / 'gates.json', 'w'))
+    json.dump(dict(gates=gates, deliverable=deliverable, code=dict(commit='abc1234')), open(d / 'gates.json', 'w'))
     (d / 'run_all.log').write_text(''.join(f'  [FAIL] {f}: x\n' for f in fails), encoding='utf-8')
     return d
 
@@ -47,3 +48,12 @@ def test_update_when_main_is_newer(tmp_path, monkeypatch):
     monkeypatch.setattr(ns, 'behind_main', lambda: (None, 'no network'))
     st = {}
     assert ns.decide(str(ws), 'A', 'Gemini', 'body', 'hull', st)['state'] == 'DONE' and '查不到' in st['update_check']
+
+
+def test_rerun_when_code_changed(tmp_path, monkeypatch):
+    """an output made by older code is rerun with the same photos, however the update arrived"""
+    monkeypatch.setattr(ns, 'code_changed_since', lambda commit: commit == 'abc1234')
+    ws = tmp_path / 'ws'; ws.mkdir(); (ws / 'photos_v1').mkdir()
+    out(ws, 1, {'1 照片檢查': dict(FAIL=0, WARN=0, PASS=9)}, deliverable=True)
+    r = ns.decide(str(ws), 'A', 'ChatGPT', 'body', 'hull', {})
+    assert r['state'] == 'RUN' and '舊的程式' in r['why'] and 'photos_v1' in r['steps'][0] and 'out_v2' in r['steps'][0]

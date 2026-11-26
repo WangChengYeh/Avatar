@@ -8,7 +8,7 @@ next_step 找最新的 out_vN，讀它的驗收結果、診斷、工作單與過
 
     UPDATE    GitHub 上的 main 有新的 SOP／程式（Claude 合併了）：git pull，用目前的照片從頭重跑
     START     還沒跑過：跑 run_all.py
-    RUN       照片有了、還沒跑（或剛 pull 了新的 SOP）：跑 run_all.py
+    RUN       照片有了、還沒跑；或最新的結果是舊的程式跑的（body3d/ 之後改過）：跑 run_all.py
     RETOUCH   照片的問題：照 AI 修圖單重畫 → 放進 photos_v(N+1) → 跑 run_all.py
     CODE      程式的問題：照 AI 改 code 單改程式 → 開 PR 給 Claude → 等合併
     ESCALATE  處理不掉：發 GitHub issue 給 Claude（內文已寫好）→ 等
@@ -83,6 +83,19 @@ def behind_main():
         return None, str(error)
 
 
+def code_changed_since(commit):
+    """True when body3d/ differs between the commit that made an output and this checkout (code updated since);
+    None when that cannot be told (no commit recorded, commit unknown here)"""
+    if not commit:
+        return None
+    try:
+        r = subprocess.run(['git', '-C', REPO, 'diff', '--quiet', commit, '--', 'body3d'], capture_output=True,
+                           timeout=60)
+        return {0: False, 1: True}.get(r.returncode)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def run_cmd(ws, photos, n, name, template):
     out = os.path.join(ws, f'out_v{n}')
     t = f' --template {template}' if template != 'hull' else ''
@@ -134,6 +147,14 @@ def decide(ws, avatar, agent, name, template, state):
     diagnosis = load(os.path.join(out, 'diagnosis.json'), []) or []
     if progress.get('state') == 'running':
         return dict(state='WAITING', why=f'{out} 還在跑', steps=[f'等它跑完，再跑：{me}'])
+    # results made by older code are not results: rerun the same photos with the code of this checkout
+    made_by = (gates.get('code') or progress.get('code') or {})
+    changed = code_changed_since(made_by.get('commit'))
+    if changed or not made_by.get('commit'):
+        why = (f'{os.path.basename(out)} 是舊的程式跑的（commit {str(made_by.get("commit"))[:7]}，之後 body3d/ 改過）'
+               if changed else f'{os.path.basename(out)} 沒有記錄是哪一版程式跑的')
+        return dict(state='RUN', why=why + '：用目前的程式、同一組照片重跑', steps=[
+            run_cmd(ws, photos, on + 1, name, template), me])
     if gates.get('deliverable'):
         return dict(state='DONE', why=f'{out}：四道關卡全部 0 FAIL，四包都是好的', steps=[
             '照 docs/SOP.md#可以交付了嗎 做交付檢查：逐項看需複核（WARN）記在 Issue；在 Yoga2 匯入 GLB 截圖（站姿、抬手）',

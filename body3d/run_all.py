@@ -84,6 +84,18 @@ def run(cmd, cwd, log, ok_codes=(0,), show_output=False):
     return rc
 
 
+def code_version():
+    """the git commit of this checkout (and whether body3d/ has uncommitted changes): which code made an output"""
+    def git(*a):
+        try:
+            r = subprocess.run(['git', '-C', HERE, *a], capture_output=True, text=True, timeout=30)
+            return r.stdout.strip() if r.returncode == 0 else ''
+        except (OSError, subprocess.SubprocessError):
+            return ''
+    commit = git('rev-parse', 'HEAD')
+    return dict(commit=commit or None, dirty=bool(git('status', '--porcelain', '--', HERE)), body3d=__version__)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=f'body3d run_all {__version__}')
     ap.add_argument('img_dir'); ap.add_argument('out_dir')
@@ -201,7 +213,7 @@ def main(argv=None):
         print(f'  可交付: {"是" if deliverable else "否"}' + ('' if deliverable else
               '（有 FAIL）' if any(f for f, _, _ in gates.values()) else '（沒有從頭跑完四道關卡）'))
         json.dump(dict(gates={g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
-                       deliverable=deliverable),
+                       deliverable=deliverable, code=code),
                   open(os.path.join(out, 'gates.json'), 'w'), ensure_ascii=False, indent=1)
 
     def client_report(quick=False):
@@ -394,7 +406,8 @@ def main(argv=None):
     todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
     print(f'body3d {__version__}  照片: {img}  輸出: {out}  Blender: {blender or "(找不到)"}')
     t0 = time.time()
-    progress.update(started=t0, state='running',
+    code = code_version()                            # next_step reruns an output made by older code
+    progress.update(started=t0, state='running', code=code,
                     steps=[dict(name=s, status='pending', seconds=None) for s in todo])
     try:
         for i, s in enumerate(todo):
