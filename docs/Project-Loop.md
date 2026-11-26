@@ -13,8 +13,8 @@
 | 誰 | 用 GitHub 做什麼 | 用雲端硬碟做什麼 | 什麼時候停 |
 | --- | --- | --- | --- |
 | **ChatGPT／Gemini**（執行者） | `git pull` main（next_step 自動檢查）；處理不掉時**自己發 issue**；程式改動開 PR；在 issue 回報重跑結果 | 每一版跑完，把結果包、`gates.json`、`next_step.md` 放到 `avatar/<自己>/<avatar_NNN>/vNNN/`（`next_step.md` 最後一段列出來） | 只有 DONE 和 WAITING |
-| **Claude**（維護者） | 看 issue、PR；修 SOP／程式、開 PR（`Fixes #N`）；人說合併才合併；回覆 issue；更新 [交接清單](Handoff.md) 與 [File-List](File-List.md) | 讀執行者的結果包重現問題（依路徑或檔名找） | 每個 session 結束前更新交接清單 |
-| **人** | 看 issue、PR；說「合併」 | 看 `next_step.md`、客戶頁；準備 `avatar/` 資料夾與連結器權限 | — |
+| **Claude**（維護者） | 看 issue、PR；修 SOP／程式、開 PR（`Fixes #N`）；新功能的 PR 人說合併才合併，只改文件或測試的自己合併；回覆 issue；更新 [交接清單](Handoff.md) 與 [File-List](File-List.md) | 讀執行者的結果包重現問題（依路徑或檔名找） | 每個 session 結束前更新交接清單 |
+| **人** | 看 issue；看新功能的 PR，說「合併」 | 看 `next_step.md`、客戶頁；準備 `avatar/` 資料夾與連結器權限 | — |
 
 ### 誰做的
 
@@ -42,7 +42,7 @@ next_step 產生的 issue 已經帶好標題前綴、label 與第一行。人在
 **Claude 的實際操作**
 
 1. 開工讀 [交接清單](Handoff.md)，`gh issue list`／`gh pr list` 看有沒有新的。
-2. 有 issue：用 Drive 連結器拿 issue 寫的路徑裡的結果包，照[診斷 SOP](Diagnosis-Tree.md#診斷-sop) 找原因、補檢查或修程式，開 PR 寫 `Fixes #N`，等人說合併。
+2. 有 issue：用 Drive 連結器拿 issue 寫的路徑裡的結果包，照[診斷 SOP](Diagnosis-Tree.md#診斷-sop) 找原因、補檢查或修程式，開 PR 寫 `Fixes #N`；改程式行為的等人說合併，只改文件或測試的自己合併（CLAUDE.md）。
 3. 合併後在 issue 回覆：改了什麼、最低版本、執行者怎麼繼續；執行者回報解決才關閉。
 4. 結束前更新交接清單與 File-List 的狀態，開 PR。
 

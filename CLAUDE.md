@@ -10,5 +10,8 @@
 - 執行者卡在「問人要不要繼續」：那是 SOP 的缺口，修 `body3d/next_step.py` 或 [docs/Agent-Runbook.md](docs/Agent-Runbook.md)，讓下一步更明確。
 - 各 avatar 目前的狀態在 [docs/File-List.md](docs/File-List.md) 第 4 節；處理完 issue／PR 或看過新的結果就更新。
 - 照片與結果包在雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`，用 Google Drive 連結器讀（連結器在 session 開始時載入）。GitHub repo 是公開的：照片、雲端硬碟連結不放進 repo 或 issue，寫路徑。
-- 合併 PR 只在人明確說要合併時做。
+- 合併 PR 分兩類（人在 2026-11-27 定的）：
+  - **新功能、會改變程式行為的**（`body3d/` 的檢查、門檻、步驟、next_step 規則、重建／烘焙、AI 工作單的內容）：開 PR，**等人說合併**才合併。
+  - **其它**（只改文件：交接清單、File-List 狀態、SOP 文字、CHANGELOG；只改測試、不動程式行為）：相關測試通過後自己合併，事後告訴人。
+  - 分不清是哪一類時，當作新功能，等人說。
 - 標明是你做的（[docs/Project-Loop.md#誰做的](docs/Project-Loop.md#誰做的)）：PR／issue 標題開頭 `[Claude]`、加 label `agent:claude`，issue 留言第一行「> 由 **Claude** 回覆」，分支 `claude/…`。
