@@ -4,6 +4,12 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 交接清單獨立成 docs/Handoff.md，寫進 CLAUDE.md
+
+- 交接清單從 `docs/File-List.md` 第 5 節拆出來，獨立成 `docs/Handoff.md`：還沒做完的事、下一步、在哪裡，加上維護規則（做完就刪、做到一半寫到哪裡、新發現加進來、session 結束前更新「最後更新」），以及怎麼拿到東西。新增一項：GitHub 上 56 個已合併的舊分支。
+- CLAUDE.md：開工先讀 Handoff；做完一項就刪；session 結束前（或要換 session 時）更新並開 PR。各 avatar 的狀態仍在 File-List 第 4 節。
+- README、File-List 加上連結。
+
 ## 文件更新：過時的資訊改成現況
 
 - **SOP**：
