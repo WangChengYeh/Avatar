@@ -24,7 +24,7 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 │       ├── next_step.md          ← 下一步（人只要看這個）
 │       └── issue.md              ← 要發給 Claude 的 issue 內文（需要時才有）
 └── gemini/
-    └── avatar_002/ …
+    └── avatar_001/ …        ← 每個執行者的 avatar 各自從 001 編號
 ```
 
 1. 跑上面這行（第一次給一個新的 avatar 資料夾，例如 `avatar/chatgpt/avatar_001`）。
