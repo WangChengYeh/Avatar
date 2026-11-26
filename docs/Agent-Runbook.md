@@ -39,7 +39,7 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 | RETOUCH | 把 AI 修圖單交給生圖（你自己的生圖工具），重畫指定的照片；開下一個版本 `v(N+1)/photos`，複製整組再覆蓋重畫的，跑 `run_all.py` | 不行 |
 | CODE | 照 AI 改 code 單改程式、開 PR 給 Claude，用 `--waiting-pr N` 登記 | 不行，登記後回第 1 步 |
 | ESCALATE | 用它寫好的內文 `gh issue create`，附上 `_FAIL.zip`，用 `--waiting-issue N` 登記 | 不行，登記後回第 1 步 |
-| WAITING | 等 Claude 處理 issue／PR；之後再跑第 1 步，解決了它會叫你 pull、重跑 | **可以** |
+| WAITING | 等 Claude 處理 issue／PR；之後再跑第 1 步。Claude 合併了修正（pull 之後程式變了）就不再等，即使 issue 還開著：照新的 SOP 繼續，這一輪跑完照 next_step.md 的「回報」回覆到 issue | **可以** |
 | DONE | 做交付檢查（看 WARN 記在 Issue、Yoga2 匯入截圖），交付 | **可以** |
 
 ## 規則
