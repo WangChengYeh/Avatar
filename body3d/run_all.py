@@ -93,7 +93,22 @@ def code_version():
         except (OSError, subprocess.SubprocessError):
             return ''
     commit = git('rev-parse', 'HEAD')
-    return dict(commit=commit or None, dirty=bool(git('status', '--porcelain', '--', HERE)), body3d=__version__)
+    return dict(commit=commit or None, dirty=bool(git('status', '--porcelain', '--', HERE)), body3d=__version__,
+                hash=code_hash())
+
+
+def code_hash(root=HERE):
+    """fingerprint of the code itself (every .py / .json under body3d/, committed or not): next_step reruns an output
+    whose code_hash differs from the code now, and only then (uncommitted edits while fixing code are the same code)"""
+    import hashlib
+    h = hashlib.sha256()
+    for d, dirs, files in sorted(os.walk(root)):
+        dirs[:] = sorted(x for x in dirs if x != '__pycache__')
+        for f in sorted(files):
+            if f.endswith(('.py', '.json')):
+                p = os.path.join(d, f)
+                h.update(os.path.relpath(p, root).encode()); h.update(open(p, 'rb').read())
+    return h.hexdigest()[:16]
 
 
 def main(argv=None):

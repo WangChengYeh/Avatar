@@ -10,7 +10,7 @@
 
 | 誰 | 做什麼 |
 | --- | --- |
-| **人** | 1. **準備輸入**：人物的參考圖或設定（給 AI 生圖用），新的照片資料夾與輸出資料夾。<br>2. **提供 token**：AI 生圖、AI 寫程式所需的 API key 與額度。<br>其他都不用動手：不改圖、不改程式、不手動修中間檔。 |
+| **人** | 1. **準備輸入**：人物的參考圖或設定（給 AI 生圖用），以及 Google Drive 的 `avatar/` 資料夾（每個執行者、每個 avatar 一個資料夾，見[專案迴圈](Project-Loop.md#avatar-放在哪裡)）。<br>2. **提供 token**：AI 生圖、AI 寫程式所需的 API key 與額度。<br>其他都不用動手：不改圖、不改程式、不手動修中間檔。 |
 | **AI 生圖** | 依[生圖規格](Workflow-and-Validation.md#生圖規格)生 33 張照片；收到 **AI 修圖單**（`ai_fix_request/`）就照單重畫那幾張。 |
 | **AI 寫程式**（Claude Code、Codex 等） | 跑 `run_all.py`、讀客戶頁與診斷；照片有問題就把 AI 修圖單交給 AI 生圖；程式有問題就照 **AI 改 code 單**（`ai_code_request/`）補檢查、改程式、驗收、開 PR；逐項看需複核（WARN）並記在 Issue；在 Yoga2 做匯入驗收。 |
 

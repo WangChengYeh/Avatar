@@ -4,6 +4,15 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## avatar 放在 Google Drive：avatar/<chatgpt|gemini>/avatar_NNN/vNNN
+
+- 工作區改成 `<Google Drive>/avatar/<chatgpt|gemini>/<avatar_NNN>/`，每一輪一個版本 `vNNN/photos`（33 張）、`vNNN/output`（run_all 輸出）。重畫或重跑都開下一個版本、複製上一版的照片，不覆蓋舊的（Drive 上用複製、不用連結）。`next_step.py --workspace <avatar 資料夾>`：agent 與 avatar 名稱從路徑來。
+- 產生的指令把路徑加引號（Drive 路徑有空格，例如 `My Drive`），Python 用跑 next_step 的那一個（有裝好套件）。issue 內文寫出版本在 Drive 的位置。
+- 修正：「舊程式跑的結果要重跑」改用程式內容的指紋（`body3d/` 下 .py／.json 的 hash），不再只比 git commit：本機有未提交的改動（執行者正在改程式）時，原本每一輪都被當成舊程式而一直重跑。
+- 診斷：照片資料夾、缺照片、檔名不對的項目歸到照片（補齊 33 張），信心高；原本是「未分類」。
+- 實測（路徑有空格 `drive space/My Drive/avatar/gemini/avatar_002`，照 next_step 記錄的步驟原樣執行）：v001 RUN → RETOUCH（開 v002、複製 33 張）→ 跑 v002 → 同樣的 FAIL 連續 2 輪 → ESCALATE，issue 內文寫好、位置 `avatar/gemini/avatar_002/v002`、執行者 Gemini（從路徑來）。
+- runbook、啟動提示詞、AGENTS.md／GEMINI.md、專案迴圈、SOP 都改成這個位置。
+
 ## next_step：GitHub 上有新的 SOP 就自動更新（UPDATE）
 
 執行者原本只有在等自己的 issue／PR 被解決時才會 `git pull`；Claude 合併其他修正（例如為另一個 avatar 補的檢查）時，執行者不知道，繼續用舊的 SOP。
