@@ -271,6 +271,11 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
         ok = gates.get('deliverable')
         word = '可以交付' if ok else '不能交付（有未通過；做出來的東西都已打包，標 _FAIL）'
         body.append(f'<p class="status {"ok" if ok else "bad"}">{e(word)}</p>')
+    todo = [(k, t) for k, lst in issues.items() for l, t in lst if l == 'FAIL']
+    if todo:                                           # what has to be fixed, before anything else
+        body.append('<div class="todo"><b>要修的項目（' + str(len(todo)) + ' 項未通過）</b><ol>'
+                    + ''.join(f'<li><span class="g">{e(GATE_ZH.get(k, k))}</span>　{e(t)}</li>' for k, t in todo)
+                    + '</ol></div>')
     if g:
         rows = ''.join(f'<tr><td>{e(GATE_ZH.get(k, k))}</td><td class="{"f" if v["FAIL"] else ""}">{v["FAIL"]}</td>'
                        f'<td>{v["WARN"]}</td><td>{v["PASS"]}</td><td>{v["TOTAL"]}</td></tr>' for k, v in g.items())
@@ -298,7 +303,8 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
             nf = sum(l == 'FAIL' for l, _ in lst); nw = len(lst) - nf
             body.append(f'<details{" open" if nf else ""}><summary>{e(GATE_ZH.get(k, k))}：{nf} 項未通過、{nw} 項需複核'
                         '</summary><ul>' + ''.join(f'<li class="{l.lower()}"><b>{LEVEL_ZH[l]}</b> {e(t)}</li>'
-                                                    for l, t in lst) + '</ul></details>')
+                                                    for l, t in sorted(lst, key=lambda x: x[0] != 'FAIL'))
+                        + '</ul></details>')
     css = ('body{font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;max-width:1400px;margin:24px auto;'
            'padding:0 16px;color:#222}img{max-width:100%;border:1px solid #ddd;margin:6px 0}.meta{color:#777;font-size:13px}'
            '.status{color:#fff;display:inline-block;padding:6px 14px;border-radius:6px;font-weight:600}'
@@ -312,6 +318,8 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
            '.steps td:nth-child(2),.steps td:nth-child(3),.steps td:nth-child(4){text-align:left}'
            'tr.running td{background:#fff4d6}tr.failed td{background:#fde7e5}tr.pending td{color:#aaa}'
            '.deliver{background:#e3f4e8;padding:6px 10px;border-radius:6px}.deliver.no{background:#f4f4f4;color:#777}.deliver.bad{background:#fde7e5;color:#b3261e}'
+           '.todo{border:2px solid #b3261e;background:#fff5f4;border-radius:8px;padding:8px 14px;margin:10px 0}'
+           '.todo b{color:#b3261e}.todo .g{color:#777;font-size:13px}.todo li{font-size:15px}'
            'li.fail b{color:#b3261e}li.warn b{color:#a66300}li{margin:3px 0;font-size:14px}summary{cursor:pointer;margin:6px 0}')
     refresh = '<meta http-equiv="refresh" content="20">' if running else ''
     if running:                                        # elapsed time ticks between the 20 s reloads
