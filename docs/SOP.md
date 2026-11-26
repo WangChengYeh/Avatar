@@ -10,9 +10,40 @@
 
 | 誰 | 做什麼 |
 | --- | --- |
-| **人** | 1. **準備輸入**：人物的參考圖或設定（給 AI 生圖用），以及 Google Drive 的 `avatar/` 資料夾（每個執行者、每個 avatar 一個資料夾，見[專案迴圈](Project-Loop.md#avatar-放在哪裡)）。<br>2. **提供 token**：AI 生圖、AI 寫程式所需的 API key 與額度。<br>其他都不用動手：不改圖、不改程式、不手動修中間檔。 |
+| **人** | 1. **準備輸入**：人物的參考圖或設定（給 AI 生圖用），以及資料 repo `WangChengYeh/avatar_data`（見[專案迴圈](Project-Loop.md#avatar-放在哪裡)）。<br>2. **提供 token**：AI 生圖、AI 寫程式所需的 API key 與額度；GitHub token（`gh auth login`）要能在 `WangChengYeh/Avatar` 開 issue／PR、在 `WangChengYeh/avatar_data` 建 Release。<br>其他都不用動手：不改圖、不改程式、不手動修中間檔。 |
 | **AI 生圖** | 依[生圖規格](Workflow-and-Validation.md#生圖規格)生 33 張照片；收到 **AI 修圖單**（`ai_fix_request/`）就照單重畫那幾張。 |
-| **AI 寫程式**（Claude Code、Codex 等） | 跑 `run_all.py`、讀客戶頁與診斷；照片有問題就把 AI 修圖單交給 AI 生圖；程式有問題就照 **AI 改 code 單**（`ai_code_request/`）補檢查、改程式、驗收、開 PR；逐項看需複核（WARN）並記在 Issue；在 Yoga2 做匯入驗收。 |
+| **AI 寫程式**（Claude Code、Codex 等） | 照[執行者 runbook](Agent-Runbook.md) 反覆跑 `next_step.py`（它會跑 `run_all.py`、自動上傳到資料 repo、自動抓新的 SOP）、讀客戶頁與診斷；照片有問題就把 AI 修圖單交給 AI 生圖；程式有問題就照 **AI 改 code 單**（`ai_code_request/`）補檢查、改程式、驗收、開 PR；逐項看需複核（WARN）並記在 Issue；在 Yoga2 做匯入驗收。 |
+
+## 東西放在哪裡、怎麼交換（GitHub）
+
+三個 agent（Claude、ChatGPT、Gemini）之間的所有交換都在 GitHub 上，不用 email、雲端硬碟或手動傳檔：
+
+| 東西 | 放在哪裡 | 誰放、什麼時候 | 誰拿、怎麼拿 |
+| --- | --- | --- | --- |
+| SOP、程式、檢查 | [`WangChengYeh/Avatar`](https://github.com/WangChengYeh/Avatar) 的 main | Claude 合併 PR | 執行者：`next_step.py` 每次自動 `git fetch`，main 有新的就叫你 `git pull`、重跑（UPDATE） |
+| 照片、結果包 | [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data) 的 **Release**（一個版本一個） | 執行者的 `next_step.py` 每個版本跑完**自動上傳** | 任何人：`python body3d/data_repo.py fetch <tag> DIR`；`data_repo.py list chatgpt/avatar_001` 列出版本 |
+| 處理不掉的問題 | `WangChengYeh/Avatar` 的 **Issue**（SOP 升級表單） | 執行者（next_step 走到 ESCALATE 時，內文已寫好、附 Release 連結） | Claude：下載 Release 重現、修好開 PR `Fixes #N` |
+| 程式改動 | `WangChengYeh/Avatar` 的 **PR** | 執行者（照 AI 改 code 單）或 Claude | Claude review、合併；執行者下次跑 next_step 自動更新 |
+
+**Release 的規則**
+
+- tag：`<agent>-<avatar>-v<NNN>`（例：`chatgpt-avatar_001-v003`），對應執行者機器上的 `~/avatar/<agent>/<avatar>/v<NNN>/`。
+- 附件：`photos.zip`（這一版的 33 張照片）、四個階段的結果包（好或 `_FAIL`）、`gates.json`、`diagnosis.json`、`next_step.md`。說明欄是驗收總表與程式版本。
+- 同一版本結果變了（例如重跑）會自動重傳、取代舊的附件；新的一輪一律是新的版本，不覆蓋舊的 Release。
+- 照片與 GLB 不 commit 進 git：每輪幾十 MB，放 Release 不會讓 repo 變大（單檔上限 2 GB）。
+- 不要手動改 Release 的附件；上傳失敗時 `next_step.md` 會寫原因，下次再試，一直失敗就照 ESCALATE 發 issue。
+- 資料 repo 放的是人物照片：設成**私人**，只給三個 agent 的 GitHub token 存取。
+
+**執行者機器上的工作區**
+
+```
+~/avatar/
+├── chatgpt/avatar_001/
+│   ├── v001/photos/  v001/output/      ← 上傳成 Release chatgpt-avatar_001-v001
+│   ├── v002/ …                         ← 重畫或重跑都開下一個版本
+│   └── avatar_state.json  next_step.md  issue.md
+└── gemini/avatar_002/ …
+```
 
 ## 流程（AI 跑，人看）
 
@@ -153,12 +184,12 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 全部打勾才交付：
 
 - [ ] 客戶頁顯示綠色「可以交付」，`gates.json` 的 `deliverable` 為 `true`。
-- [ ] `deliver/` 有四包，沒有任何 `_FAIL`。
+- [ ] `deliver/` 有四包，沒有任何 `_FAIL`；資料 repo 上這個版本的 Release 也是這四包（`next_step.md` 顯示「已上傳」）。
 - [ ] 這次是從頭在新的輸出資料夾跑的：沒有 `--force`，沒有 `--from`／`--only`；照片在新的資料夾、沒有改名或覆蓋；用最新版 main。
 - [ ] AI 逐項看過需複核（WARN），記在 Issue。
 - [ ] AI 在 Three.js／Yoga2 匯入 GLB，比對 0°／90°／180°（有疑點加 45°／315° 與特寫），並測站姿與抬手（README 的 Loop engineering 第 1 步）。
 
-交付內容：四個好的結果包、`client/` 整個資料夾、Yoga2 站姿／抬手截圖。在 Issue 貼上驗收總表、`gates.json`、四包的位置與前後對照圖，關閉 Issue。
+交付內容：資料 repo 上那個版本的 **Release**（四個好的結果包都在附件裡，連結就是交付物）、`client/` 整個資料夾、Yoga2 站姿／抬手截圖。在 Issue 貼上 Release 連結、驗收總表與前後對照圖，關閉 Issue。
 
 ---
 

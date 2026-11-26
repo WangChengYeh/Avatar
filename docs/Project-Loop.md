@@ -34,7 +34,7 @@ SOP 只有一份，在 main：`docs/SOP.md`、`docs/Diagnosis-Tree.md`、`docs/W
 
 ### 執行者（ChatGPT／Gemini）每一輪
 
-**實際做法很簡單：照 [執行者 runbook](Agent-Runbook.md) 反覆跑 `python body3d/next_step.py --workspace "<Google Drive>/avatar/<chatgpt|gemini>/<avatar_NNN>"`，照它說的做，只有 DONE 或 WAITING 才停。** 下面是 next_step 背後的規則。AGENTS.md（ChatGPT／Codex）、GEMINI.md（Gemini）會自動讀到這些指示。
+**實際做法很簡單：照 [執行者 runbook](Agent-Runbook.md) 反覆跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它說的做，只有 DONE 或 WAITING 才停。** 下面是 next_step 背後的規則。AGENTS.md（ChatGPT／Codex）、GEMINI.md（Gemini）會自動讀到這些指示。
 
 1. `git pull` main（next_step 每次都會自動檢查，main 比本機新就給 UPDATE：pull、從頭重跑），記下 SOP 版本：`python body3d/run_all.py --version` 與 `python body3d/check_turnaround.py --version`，以及 commit。
 2. 照 [SOP](SOP.md) 做：生圖 → `run_all.py`（新的輸出資料夾）→ 看客戶頁。
@@ -92,10 +92,14 @@ gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
 
 ## avatar 放在哪裡
 
-所有 avatar 都放在 Google Drive，每個執行者一個資料夾，每個 avatar 一個資料夾，每一輪一個版本：
+照片與結果放兩個地方：
+
+- **執行者自己的機器**：工作區，每個執行者一個資料夾、每個 avatar 一個資料夾、每一輪一個版本（下圖）。
+- **GitHub 資料 repo** [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data)：每個版本做完，next_step 自動上傳成一個 Release（tag `<agent>-<avatar>-vNNN`，附件 `photos.zip`、四個階段的結果包、`gates.json`、`diagnosis.json`、`next_step.md`）。這是三個 agent 之間交換照片與結果的地方；照片是人物照片，資料 repo 建議設成私人。
+
 
 ```
-<Google Drive>/avatar/
+~/avatar/
 ├── chatgpt/                      ← ChatGPT 負責的 avatar
 │   └── avatar_001/               ← 一個 avatar（工作區 WS）
 │       ├── v001/                 ← 一個版本（一輪）
@@ -109,10 +113,10 @@ gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
     └── avatar_002/ …
 ```
 
-issue 內文會寫出版本的位置（例如 `avatar/gemini/avatar_002/v002`），Claude 從 Drive 拿照片與結果重現。
+issue 內文附上那個版本的 Release 連結；Claude 用 `python body3d/data_repo.py fetch <tag> DIR` 下載照片與結果包重現（`data_repo.py list chatgpt/avatar_001` 列出版本）。
 
 ## 兩個 avatar 共用一份 SOP
 
 - 一個 avatar 引起的修正會影響另一個：Claude 合併後在兩邊的 open issue 或 PR 留言，另一個執行者 pull 後也要從頭重跑一次。
 - 門檻只依兩組完美照片校準，不依某一個 avatar 調；某個 avatar 的照片一直過不了，修的是照片（或補檢查），不是放寬門檻。
-- 每個 avatar 的照片與輸出都在 Google Drive；GitHub 上只放 SOP、程式、issue、PR。
+- 程式與 SOP 在 `WangChengYeh/Avatar`；照片與結果在 `WangChengYeh/avatar_data` 的 Release。

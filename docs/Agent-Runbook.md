@@ -7,13 +7,13 @@
 ## 唯一的迴圈
 
 ```sh
-python body3d/next_step.py --workspace "<Google Drive>/avatar/<chatgpt|gemini>/<avatar_NNN>"
+python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 ```
 
-所有 avatar 都放在 Google Drive（agent 與 avatar 名稱從路徑來，不用另外給）：
+工作區在你自己的機器上（agent 與 avatar 名稱從路徑來，不用另外給）；每個版本做完，next_step 會**自動上傳到 GitHub 的資料 repo** [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data)（一個版本一個 Release：照片、四個階段的結果包），issue 附上連結，Claude 從那裡下載重現：
 
 ```
-<Google Drive>/avatar/
+~/avatar/
 ├── chatgpt/                      ← ChatGPT 負責的 avatar
 │   └── avatar_001/               ← 一個 avatar（工作區 WS）
 │       ├── v001/                 ← 一個版本（一輪）
@@ -51,7 +51,7 @@ python body3d/next_step.py --workspace "<Google Drive>/avatar/<chatgpt|gemini>/<
 - 不要問人「要繼續嗎」「要不要修」「要不要發 issue」：next_step 已經決定了。要決定的事情（例如同一個 FAIL 修了 2 輪還在要不要升級）它都照[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)的規則判斷好了。
 - 不要改 SOP、門檻、檢查來讓自己過關；不要手動修中間檔（`cams33.json`、網格…）。覺得 SOP 或門檻錯，next_step 會走到 ESCALATE，或你自己發 issue。
 - 每一輪是一個新的版本（`vNNN/photos`、`vNNN/output`），不覆蓋舊的：next_step 靠它們判斷「同一個 FAIL 有沒有一直出現」。
-- 指令照 next_step 印的原樣執行：路徑已經加了引號（Google Drive 的路徑有空格，例如 `My Drive`），Python 也是跑 next_step 的那一個（有裝好套件）。
+- 指令照 next_step 印的原樣執行：路徑已經加了引號（路徑有空格也沒問題），Python 也是跑 next_step 的那一個（有裝好套件）。
 - 做不到 next_step 要求的事（例如沒有生圖工具、沒有 `gh` 權限）：這就是 ESCALATE 的理由，發 issue 說明，不要停在原地等人。
 - 每次回報給人時，附上 avatar 資料夾裡 `next_step.md` 的內容：人只需要看狀態。
 
@@ -62,7 +62,7 @@ ChatGPT／Gemini 用**聊天介面**時，每回覆一次就結束一輪，不�
 ```text
 你是這個 repo（https://github.com/WangChengYeh/Avatar）的執行者，負責開發 AVATAR，照 docs/Agent-Runbook.md 做。
 規則：
-1. 每做完一步就跑：python body3d/next_step.py --workspace "<Google Drive>/avatar/AGENT/AVATAR"（它每次都會先檢查 GitHub 上有沒有新的 SOP，有就叫你 git pull、重跑）
+1. 每做完一步就跑：python body3d/next_step.py --workspace ~/avatar/AGENT/AVATAR（它每次都會先檢查 GitHub 上有沒有新的 SOP，有就叫你 git pull、重跑）
 2. 照它印出的指令做，做完再跑一次。在同一個回覆裡一直做下去，不要做完一步就結束回覆。
 3. 只有狀態是 DONE 或 WAITING 才可以結束回覆。其他狀態（START、RUN、RETOUCH、CODE、ESCALATE）都不可以停，也不要問我要不要繼續。
 4. 每次結束回覆時，最後貼出 avatar 資料夾裡 next_step.md 的內容。
