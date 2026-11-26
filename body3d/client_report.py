@@ -224,8 +224,14 @@ def progress_html(prog, gates_seen):
     out = [f'<p class="prog"><b>{head}</b>　{done} / {len(steps)} 步　已用 {tick}'
            + (f'<br><span class="bad">{e(why)}</span>' if why else '') + '</p>']
     bar = []
+    stop_stage = prog.get('stopped_stage')
     for n, (title, gate, _) in STAGES.items():
         ss = [s for s in steps if STAGE_OF.get(s['name']) == n]
+        if stop_stage is not None and state == 'stopped':      # the stage the run stopped in (pre-bake: stage 2)
+            st = 'bad' if n == stop_stage else 'ok' if n < stop_stage else 'wait'
+            word = {'bad': '停止', 'ok': '完成', 'wait': '未開始'}[st]
+            bar.append(f'<div class="chip {st}"><div class="n">階段 {n}</div><div>{e(title)}</div><div class="w">{word}</div></div>')
+            continue
         if not ss:
             st = 'skip'
         elif any(s['status'] == 'failed' for s in ss):
@@ -286,6 +292,13 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
                     f'≥ 92% 通過，低於 90% 未通過）</p>')
     for n, (title, gate, desc) in STAGES.items():
         body.append(f'<h2>階段 {n}・{e(title)}</h2><p>{e(desc)}</p>')
+        af = os.path.join(a.out, 'autofix.json')
+        if n == 1 and os.path.exists(af):
+            fx = json.load(open(af))['fixes']
+            body.append('<div class="deliver fixed"><b>已自動修正 ' + str(len(fx)) + ' 張</b>（原檔沒動，修正後的照片另存；'
+                        '每一項都用同一項檢查驗證過）<ul>' + ''.join(
+                f"<li>第 {x['round']} 輪　{e(x['photo'])}　{e(x['kind'])}：平移 ({x['dx_px']:+.0f}, {x['dy_px']:+.0f}) px，"
+                f"{x['before_mm']} → {x['after_mm']} mm</li>" for x in fx) + '</ul></div>')
         import deliver
         good, bad = deliver.zip_paths(a.out, a.name, n)
         for z, word, cls in ((good, '成果（好，可交付）', 'deliver'), (bad, '成果（有未通過，不好，不能交付）', 'deliver bad')):
@@ -317,7 +330,7 @@ def write_html(cdir, a, made, gates, fit, issues, prog):
            'td:first-child,th:first-child{text-align:left}td.f{color:#b3261e;font-weight:700}'
            '.steps td:nth-child(2),.steps td:nth-child(3),.steps td:nth-child(4){text-align:left}'
            'tr.running td{background:#fff4d6}tr.failed td{background:#fde7e5}tr.pending td{color:#aaa}'
-           '.deliver{background:#e3f4e8;padding:6px 10px;border-radius:6px}.deliver.no{background:#f4f4f4;color:#777}.deliver.bad{background:#fde7e5;color:#b3261e}'
+           '.deliver{background:#e3f4e8;padding:6px 10px;border-radius:6px}.deliver.no{background:#f4f4f4;color:#777}.deliver.bad{background:#fde7e5;color:#b3261e}.deliver.fixed{background:#eef4ff;color:#1a3d7c}'
            '.todo{border:2px solid #b3261e;background:#fff5f4;border-radius:8px;padding:8px 14px;margin:10px 0}'
            '.todo b{color:#b3261e}.todo .g{color:#777;font-size:13px}.todo li{font-size:15px}'
            'li.fail b{color:#b3261e}li.warn b{color:#a66300}li{margin:3px 0;font-size:14px}summary{cursor:pointer;margin:6px 0}')
