@@ -77,7 +77,7 @@ gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
    - 診斷樹 → 補分支或規則，讓下次信心高。
    - SOP → 改文件，消除矛盾、補缺的步驟。
 4. **交付**：開 PR，內文寫 `Fixes #<issue>`、原因、補的檢查（前後數字）、驗收結果；更新 CHANGELOG。合併到 main。
-5. **合併後執行者自動更新**：兩個執行者下一次跑 next_step 時都會拿到 UPDATE（`git pull`、用目前的照片從頭重跑），不用另外通知；等 issue 的那一位，issue 關閉後也會走同一個 UPDATE。
+5. **合併後執行者自動更新**：兩個執行者下一次跑 next_step 時都會拿到 UPDATE（`git pull`、用目前的照片從頭重跑），不用另外通知。等 issue 的那一位也一樣：**issue 不用先關閉**，pull 之後程式變了，next_step 就不再等（登記等待時記下程式指紋；R33 因為 issue 開著、gh 沒登入而一直停在 WAITING），照新的 SOP 繼續，跑完把結果回覆到 issue（next_step.md 的「回報」）。issue 等執行者回報解決才關閉。
 6. **回覆 issue**：改了什麼、需要的最低版本（`run_all.py --version`／`check_turnaround.py --version`）、執行者要怎麼繼續（例：「pull main ≥ 1.41.1，新的輸出資料夾從頭跑；el30_090 等 7 張照 AI 修圖單重畫」）。等執行者回報解決再關閉。
 
 ### 執行者的程式 PR（Claude review）

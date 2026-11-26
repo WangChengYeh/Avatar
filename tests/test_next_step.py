@@ -107,3 +107,23 @@ def test_issue_links_the_release(tmp_path):
 def test_release_tag_from_the_path(tmp_path):
     import data_repo
     assert data_repo.tag_of(str(tmp_path / 'avatar' / 'Gemini' / 'avatar_002'), 7) == 'gemini-avatar_002-v007'
+
+
+def test_wait_ends_when_the_fix_arrives(tmp_path, monkeypatch):
+    """R33: Claude answers issue #65 with a merged fix and keeps the issue open until the executor reports; the
+    executor's gh is not logged in. The wait ends once the code differs from the code it was registered under."""
+    monkeypatch.setattr(ns, 'gh', lambda *a: None)                  # gh not logged in
+    monkeypatch.setattr(ns, 'current_code', lambda: 'new')
+    ws = avatar(tmp_path)
+    version(ws, 1, G1, ['el30_000deg 斜角照是外殼形狀'])
+    state = dict(waiting=dict(kind='issue', number=65, code='new'))
+    assert ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)['state'] == 'WAITING'
+    state = dict(waiting=dict(kind='issue', number=65, code='old'))
+    r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+    assert r['state'] != 'WAITING' and state['waiting'] is None and state['report_to']['number'] == 65
+    # a wait registered before the fingerprint: the code of the last run before the wait decides
+    v = ws / 'v001' / 'output'
+    g = json.load(open(v / 'gates.json')); g['code']['hash'] = 'old'; json.dump(g, open(v / 'gates.json', 'w'))
+    state = dict(waiting=dict(kind='issue', number=65), runs=[dict(out=str(v), fail=[])])
+    r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+    assert r['state'] != 'WAITING' and state['report_to']['number'] == 65

@@ -14,7 +14,7 @@ next_step 看最新的版本，讀它的驗收結果、診斷、工作單與過�
     RETOUCH   照片的問題：照 AI 修圖單重畫 → 下一個版本 v(N+1)/photos → 跑 run_all.py
     CODE      程式的問題：照 AI 改 code 單改程式 → 開 PR 給 Claude → 等合併
     ESCALATE  處理不掉：發 GitHub issue 給 Claude（內文已寫好）→ 等
-    WAITING   issue 或 PR 還沒解決：等；解決了就 pull、跑 run_all.py
+    WAITING   issue 或 PR 還沒解決：等；Claude 合併了修正（程式變了）或 issue／PR 關閉，就繼續（issue 開著也一樣，跑完回報到 issue）
     DONE      四包都是好的：做交付檢查
 
 每個有結果的版本會自動上傳到資料 repo（GitHub Release，data_repo.py），issue 內文附上連結。
@@ -150,6 +150,23 @@ def auto_publish(ws, state):
         state['publish_error'] = f'{key} 沒有上傳到資料 repo：{error}'
 
 
+def current_code():
+    sys.path.insert(0, HERE)
+    import run_all
+    return run_all.code_hash()
+
+
+def wait_answered(w, state):
+    """Claude answers an escalation by merging a fix; the issue itself stays open until the executor reports the
+    rerun (docs/Project-Loop.md). So a wait is over once the code here differs from the code it was registered
+    under, whatever GitHub says (R33: issue #65 open by design, gh not logged in -> WAITING forever).
+    Waits registered before this rule carry no fingerprint: use the code of the last run before the wait."""
+    since = w.get('code')
+    if not since and state.get('runs'):
+        since = (load(os.path.join(state['runs'][-1]['out'], 'gates.json'), {}) or {}).get('code', {}).get('hash')
+    return bool(since) and since != current_code()
+
+
 def decide(ws, avatar, agent, name, template, state):
     vs = versions(ws)
     cn, cur = vs[-1] if vs else (0, None)
@@ -184,6 +201,11 @@ def decide(ws, avatar, agent, name, template, state):
     if w:
         kind, num = w['kind'], w['number']
         st = gh(kind, 'view', str(num), '--json', 'state', '--jq', '.state')
+        if st not in ('CLOSED', 'MERGED') and wait_answered(w, state):
+            state['waiting'] = None                    # the fix is here: go on under it, report on the issue
+            state['report_to'] = dict(kind=kind, number=num)
+            w = None
+    if w:
         if st in ('CLOSED', 'MERGED'):
             state['waiting'] = None
             return dict(state='RUN', why=f'{kind} #{num} 已解決（{st}）：拿新的 SOP／程式從頭重跑', steps=[
@@ -283,14 +305,24 @@ def main(argv=None):
     sp = os.path.join(ws, 'avatar_state.json')
     state = load(sp, {}) or {}
     if a.waiting_issue or a.waiting_pr:
-        state['waiting'] = dict(kind='issue' if a.waiting_issue else 'pr', number=a.waiting_issue or a.waiting_pr)
+        state['waiting'] = dict(kind='issue' if a.waiting_issue else 'pr', number=a.waiting_issue or a.waiting_pr,
+                                code=current_code())   # the wait is over once the code changes (wait_answered)
+        state.pop('report_to', None)
     auto_publish(ws, state)
     r = decide(ws, a.avatar, a.agent, a.name, a.template, state)
     state['last'] = dict(r, at=datetime.datetime.now().astimezone().isoformat(timespec='seconds'))
+    rt = state.get('report_to')                         # still shown on DONE (the last report), then cleared
+    if rt and r['state'] == 'DONE':
+        state.pop('report_to', None)
     json.dump(state, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     stop = r['state'] in ('DONE', 'WAITING')
     text = [f'# 下一步：{r["state"]}', '', f'原因：{r["why"]}', ''] + [f'{i}. `{s}`' if s.startswith(('python', 'gh ', 'mkdir', 'cd ', '/', "'"))
                                                                    else f'{i}. {s}' for i, s in enumerate(r['steps'], 1)]
+    if rt:
+        text += ['', f'**回報**：Claude 已經針對 {rt["kind"]} #{rt["number"]} 更新了 SOP／程式（issue 可能還開著，'
+                     f'等你回報）。照上面繼續；這一輪跑完，把結果和 Claude 在 issue 留言要的數字回覆到 #{rt["number"]}：'
+                     f'`gh issue comment {rt["number"]} --repo WangChengYeh/Avatar --body-file <檔案>`。'
+                     '沒有 gh 時，把要回覆的內容寫進 issue_reply.md，交給人貼上。']
     pub = state.get('published', {})
     if pub:
         last = sorted(pub)[-1]

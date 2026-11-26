@@ -4,6 +4,14 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## next_step：Claude 合併了修正就不再等，issue 開著也一樣（R33）
+
+R33 的 `next_step.md` 停在 WAITING：「等 Claude 處理 issue #65（查不到狀態：檢查 gh 是否登入）」。Claude 已經合併修正（#66），並在 #65 留言請執行者重畫、重跑後回報；照專案迴圈，issue 要等執行者回報才關閉。next_step 卻只在 issue 關閉時才繼續，執行者那邊的 gh 又沒登入，兩邊互等。
+- 登記等待（`--waiting-issue／--waiting-pr`）時記下程式指紋（`body3d/` 的內容 hash）。之後程式變了（pull 了 Claude 的修正），就不再等，照一般流程繼續（舊程式的結果 → RUN；照片問題 → RETOUCH……），不需要 gh。舊的等待沒有指紋時，用等待前最後一輪結果的程式指紋比較。
+- 不再等之後，`next_step.md` 加一段「回報」：這一輪跑完，把結果和 Claude 在 issue 留言要的數字回覆到 issue；沒有 gh 時寫進 `issue_reply.md` 交給人貼上。DONE 之後清掉。
+- 專案迴圈、runbook 改成：issue 不用先關閉；Claude 合併修正後執行者就繼續，跑完回報。
+- 測試：gh 沒登入、issue 開著：程式沒變 → WAITING；程式變了 → 不再等、要回報；沒有指紋的舊等待也一樣。
+
 ## 照片檢查 1.42.0：斜角照不能是外殼的形狀（R31）
 
 R31 前三關 0 FAIL，第 4 關成品驗收 18.8%（應 ≤ 8%，> 10% FAIL）。原因在階段 1，而且有一部分是 SOP 自己造成的：
