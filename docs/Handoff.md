@@ -18,9 +18,7 @@
 | #65 還開著（R31 系列的 MakeHuman 臉部接縫） | MakeHuman 已在 #69 修好；等 ChatGPT 在照片過第 1 關後用 `--template makehuman` 跑完四關回報，再關閉。#79 處理同一個 avatar 的照片問題 | issue #65 |
 | synth 完美照片用 MakeHuman，第 2 關右臉頰 1 個 WARN | P90 22.4／20（外殼流程 18.0）；查肩頸在 315° 的遮擋 | `check_turnaround.py` 頭部重疊、`mh_fit.py` |
 | 中間角度與擺姿勢後的貼圖沒有直接的自動檢查 | 目前靠臉頰亮度、五官投影間接抓（R31 的臉部接縫就是在 App 裡才看到） | 第 3／4 關 |
-| `test_camera_benchmark_perspective` 在 main 上失敗 | 用故意壞掉的透視照片跑基準，現在被照片檢查擋下回傳非零；基準應該用 `--force` 或接受非零 | `tests/test_run_all.py`、`body3d/camera_benchmark.py` |
 | 肩帶附近貼圖色塊、兩腿內側暗線 | 兩種模板都有，照片與烘焙的問題 | `bake33.py` |
-| GitHub 上已合併的舊分支（56 個以上，含這幾天的 claude/… 分支） | 人同意後刪掉（7 個沒合併的先逐一確認是否已被其他 PR 取代） | `git branch -r --merged origin/main` |
 | 雲端硬碟上兩份不再使用的 `file_list.md` | 連結器對這些檔沒有編輯權限，由人刪掉 `avatar/chatgpt/file_list.md`、`avatar/gemini/file_list.md` | 雲端硬碟 |
 
 ## 怎麼拿到東西
