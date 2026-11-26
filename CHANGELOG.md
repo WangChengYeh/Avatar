@@ -12,6 +12,7 @@ Google Drive 先不用：三個 agent 之間的照片與結果改用 GitHub 交�
 - `next_step.py` 每次自動上傳最新有結果的版本（結果變了才重傳），Release 連結記在 `avatar_state.json`、顯示在 `next_step.md`；issue 內文附連結與 `fetch` 指令。上傳失敗不擋下一步，原因寫在 `next_step.md`。
 - 工作區在執行者自己的機器（例：`~/avatar/<agent>/<avatar_NNN>/vNNN/{photos,output}`）。SOP：人提供的 GitHub token 要能在 avatar_data 建 Release。
 - 實測：Luna 完美照片（CC0 模型的渲染）上傳成 `chatgpt-avatar_001-v001`（photos.zip 9.4 MB、四個結果包，最大 28.8 MB），再下載回來：33 張照片與四個結果包都還原。next_step 自動上傳並顯示連結。
+- SOP 新增「東西放在哪裡、怎麼交換（GitHub）」：SOP／程式、照片與結果包、問題、程式改動各放在哪裡、誰放、誰拿；Release 的規則；執行者的工作區。交付條件與交付內容改成以資料 repo 的 Release 為準。
 - 注意：avatar_data 目前是公開 repo；照片是人物照片，建議改成私人。
 
 ## avatar 放在 Google Drive：avatar/<chatgpt|gemini>/avatar_NNN/vNNN
