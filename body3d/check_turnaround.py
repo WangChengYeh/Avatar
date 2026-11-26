@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.41.0（2026-11-26）
+版本 1.41.1（2026-11-26）
 
 版本紀錄:
+  1.41.1 烘焙前檢查新增「網格落地」：重建網格最低點 ±1.5 cm 內通過、超過 ±3 cm FAIL（R17 MakeHuman −5.2 cm）。
   1.41.0 新增第 10i 項全視角外殼覆蓋：24 張全身圖用規格相機一起雕出外殼，量它蓋住每張水平全身圖的比例（≥ 96% 通過、
          < 93% FAIL；完美照片 ≥ 97.2%）。R17 各項都只到 WARN，一起雕卻把身體切瘦（側面 73%，成品比照片小 25–32%）。
   1.40.0 烘焙前檢查新增「頭部特寫環對準點」：重建的特寫相機對準點離旋轉軸 ≤ 3 mm 通過、> 5 mm FAIL（完美照片 ≤ 1 mm；
@@ -282,7 +283,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.41.0'
+__version__ = '1.41.1'
 import numpy as np
 import cv2
 
@@ -2124,6 +2125,29 @@ def report_head_ring_aim(cameras):
     return status == FAIL
 
 
+# mesh on the floor (pre-bake, stage 2): the reconstructed body stands on y = 0 (the photos' feet). The MakeHuman fit
+# moves the feet rigidly with the leg field; R17's thin hull pulled the legs 5 cm down and the feet went 5.2 cm
+# under the floor (the GLB check only warns). Hull meshes 0.0 cm; MakeHuman on perfect / polished photos +0.9-1.0 cm.
+FLOOR_PASS, FLOOR_FAIL = 0.015, 0.03             # |lowest point| in metres
+
+
+def report_mesh_floor(work):
+    try:
+        with np.load(Path(work) / 'uvmesh.npz') as mesh:
+            y0 = float(mesh['pos'][:, 1].min())
+    except (OSError, KeyError, ValueError) as error:
+        print(f'[WARN] 網格落地：讀不到網格（{error}）')
+        return False
+    d = abs(y0)
+    status = PASS if d <= FLOOR_PASS else WARN if d <= FLOOR_FAIL else FAIL
+    msg = (f'[{status}] 網格落地：最低點 y = {100 * y0:+.1f} cm（應在 ±{100 * FLOOR_PASS:g} cm 內，'
+           f'超過 ±{100 * FLOOR_FAIL:g} cm 判 FAIL；外殼網格 0.0、MakeHuman +0.9–1.0 cm）')
+    if status != PASS:
+        msg += ' → 重建的身體沒有站在地面上（腳陷進地板或浮起來）：程式（MakeHuman 擬合 mh_fit 的腳）'
+    print(msg)
+    return status == FAIL
+
+
 def report_head_yaws(cameras):
     failed = False
     for angle in range(0, 360, 45):
@@ -2297,6 +2321,7 @@ def report_head_overlap(folder, work, overlay_kpis=None, overlay_dir=None):
         return 0
     failed = report_head_yaws(cameras)
     failed |= report_head_ring_aim(cameras)
+    failed |= report_mesh_floor(work)
     failed |= report_body_head_pairs(folder, work, cameras, overlay_dir)
     try:
         landmarks = np.load(work / 'face_lm33.npy')
