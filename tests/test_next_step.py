@@ -26,7 +26,7 @@ def test_same_fail_twice_escalates(tmp_path):
     g = {'1 照片檢查': dict(FAIL=1, WARN=0, PASS=9)}
     (ws / 'photos_v1').mkdir(); out(ws, 1, g, ['head 45° 臉部位置'])
     r1 = ns.decide(str(ws), 'A', 'ChatGPT', 'body', 'hull', state)
-    assert r1['state'] == 'ESCALATE' or r1['state'] != 'ESCALATE'          # round 1: no history yet (no work order here)
+    assert r1['state'] == 'ESCALATE' and '診斷' in r1['why']                # round 1: a FAIL with no diagnosis
     (ws / 'photos_v2').mkdir(); out(ws, 2, g, ['head 45° 臉部位置'])
     r2 = ns.decide(str(ws), 'A', 'ChatGPT', 'body', 'hull', state)
     assert r2['state'] == 'ESCALATE' and '2 輪' in r2['why'] and (ws / 'issue.md').exists()
