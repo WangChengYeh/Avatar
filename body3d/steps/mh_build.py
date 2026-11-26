@@ -17,9 +17,13 @@ rig = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
 bpy.context.view_layer.objects.active = rig
 RigService.apply_pose_as_rest_pose(rig)          # the T-pose becomes the rest pose (bone rolls stay MakeHuman's)
 # the fitted T-pose body, helpers included (they define the joints), straight onto the mesh
-posed = np.load(os.path.join(D, 'mh_fit.npz'))['posed']
+fitz = np.load(os.path.join(D, 'mh_fit.npz'))
+posed = fitz['posed']
 assert len(posed) == len(h.data.vertices)
 h.data.vertices.foreach_set('co', posed.ravel()); h.data.update()
+drop = fitz['drop'] if 'drop' in fitz.files else np.zeros(0, int)
+if len(drop):
+    h.vertex_groups.new(name='mh_drop').add([int(i) for i in drop], 1.0, 'REPLACE')
 # joints from the moved helpers, as MPFB defines them (CUBE: centre of a joint cube, MEAN: mean of vertices);
 # each bone keeps its roll (z axis) so animation retargeting sees MakeHuman's bone frames
 rigdef = json.load(open(os.path.join(os.path.dirname(importlib.import_module(pkg).__file__),
@@ -50,6 +54,17 @@ for name, spec in rigdef.items():
     eb.align_roll(z)
 bpy.ops.object.mode_set(mode='OBJECT')
 ExportService.bake_modifiers_remove_helpers(h, bake_masks=True, remove_helpers=True)
+if len(drop):
+    # the mouth cavity behind the fitted face (mh_fit): removed, so no viewing ray lands in it. Marked by a vertex
+    # group before the helpers go (their removal renumbers the vertices).
+    import bmesh
+    g = h.vertex_groups.get('mh_drop')
+    gi = g.index if g else None
+    bm = bmesh.new(); bm.from_mesh(h.data)
+    dl = bm.verts.layers.deform.active
+    kill = [v for v in bm.verts if dl is not None and gi is not None and gi in v[dl]]
+    bmesh.ops.delete(bm, geom=kill, context='VERTS'); bm.to_mesh(h.data); bm.free(); h.data.update()
+    print('mh_build: removed %d mouth-cavity vertices' % len(kill))
 for b in rig.data.bones:
     b.name = b.name.replace('mixamorig:', '')
 h.name, rig.name = 'Body', 'Armature'

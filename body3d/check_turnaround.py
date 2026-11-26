@@ -1764,6 +1764,28 @@ def read_view(folder, work, stem):
     return image, mask
 
 
+def head_surface_samples(vertices, normals, triangles, spacing=0.002, top=1.40):
+    """points spread evenly over the head surface (about one per `spacing` squared), normals interpolated: the
+    cheek comparison must not depend on how dense the mesh is (the MakeHuman template has a few vertices per cm²
+    on the cheek, the hull mesh many, so the same cheek gave 2-43 samples instead of hundreds)"""
+    T = triangles[(vertices[triangles][:, :, 1] >= top).any(1)]
+    a, b, c = (vertices[T[:, k]] for k in range(3))
+    area = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    n = np.maximum(1, np.round(area / spacing ** 2).astype(int))
+    idx = np.repeat(np.arange(len(T)), n)
+    rng = np.random.default_rng(0)
+    u, v = rng.random(len(idx)), rng.random(len(idx))
+    flip = u + v > 1
+    u[flip], v[flip] = 1 - u[flip], 1 - v[flip]
+    w = 1 - u - v
+    Ti = T[idx]
+    P = w[:, None] * vertices[Ti[:, 0]] + u[:, None] * vertices[Ti[:, 1]] + v[:, None] * vertices[Ti[:, 2]]
+    N = w[:, None] * normals[Ti[:, 0]] + u[:, None] * normals[Ti[:, 1]] + v[:, None] * normals[Ti[:, 2]]
+    N /= np.linalg.norm(N, axis=1, keepdims=True) + 1e-12
+    keep = P[:, 1] >= top
+    return P[keep], N[keep]
+
+
 def cheek_band(landmarks, shape, col, row):
     """Locate the transition around the eroded landmark outline used for the frontal bake."""
     face = np.zeros(shape, np.uint8)
@@ -2339,8 +2361,7 @@ def report_head_overlap(folder, work, overlay_kpis=None, overlay_dir=None):
         landmarks = landmarks[:, :2]
         with np.load(work / 'uvmesh.npz') as mesh:
             vertices = mesh['pos']
-            head = vertices[:, 1] >= 1.40
-            points, normals = vertices[head], mesh['nrm'][head]
+            points, normals = head_surface_samples(vertices, mesh['nrm'], mesh['tri'])
         frontal_image, frontal_mask = read_view(folder, work, FRONT)
         col, row, frontal_luma, frontal_valid = projected_samples(
             points, normals, cameras[FRONT], frontal_image, frontal_mask)

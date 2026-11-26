@@ -209,9 +209,18 @@ def main(argv=None):
             return
         txt = open(log, errors='replace').read().split('\n$ ')[-1]
         m = re.findall(r'總結: (\d+) 個 FAIL, (\d+) 個 WARN, (\d+) 個 PASS', txt)
-        if m:
+        import deliver
+        crashed = 'Traceback (most recent call last)' in txt or not m
+        if crashed:
+            # a checker that crashed has not checked: its exit code 1 looks like 'has a FAIL' and the counts of the
+            # items it got through looked like a pass (MakeHuman run: pre-bake 0 FAIL after a crash). Always a FAIL.
+            err = [l for l in txt.splitlines() if l.strip()][-1:] or ['（沒有輸出）']
+            f, w, p_ = (tuple(int(x) for x in m[-1]) if m else (0, 0, 0))
+            gates[gate] = (f + 1, w, p_)
+            fails[gate] = deliver.fail_lines(txt) + [f'檢查程式出錯: {gate} 沒有檢查完（{err[0].strip()[:200]}）']
+            print(f'     {gate}：檢查程式出錯，記為 FAIL（{err[0].strip()[:120]}）')
+        else:
             gates[gate] = tuple(int(x) for x in m[-1])
-            import deliver
             fails[gate] = deliver.fail_lines(txt)
 
     def gate_table():
