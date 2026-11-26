@@ -56,6 +56,8 @@ def fix_order(leaves):
 
 # ---- gate 1: rule-based leaves (what each photo-check item measures says who fixes it)
 PHOTO_RULES = [
+    (r'全視角外殼覆蓋|外殼切割', '俯角／仰角的照片和水平環對不上，一起雕會把身體切瘦（成品會比照片小）',
+     '重畫切最多的那幾張俯角／仰角照片：和水平環同一個相機距離與構圖、身體中心在畫面正中央、正交投影、俯角 30°／仰角 20°'),
     (r'臉部位置', '特寫的臉和同角度全身圖的位置不同', '重畫這張特寫：同角度全身圖頭部的 4 倍放大，五官位置一致（自動平移只修得了一部分，見文件）'),
     (r'頭部朝向|朝向', '臉的轉向和檔名角度不同', '重畫：頭朝正前方、只有相機繞著轉'),
     (r'^\s*\d+°|角度', '雙手展開寬度推算的角度不對', '重畫這個角度：相機角度要和檔名相同'),
@@ -70,13 +72,23 @@ PHOTO_RULES = [
 
 
 def diagnose_photo_fails(fail_lines):
-    out = []
+    out, seen = [], {}
     for line in fail_lines:
         label = line.split(':', 1)[0].strip()
         for pat, cause, action in PHOTO_RULES:
             if re.search(pat, label):
-                out.append(leaf(label, ['關卡 1 照片檢查', f'項目：{label}'], cause, '照片', action, '高',
-                                {'line': line}))
+                names = re.findall(r'(?:el30|low20)_\d{3}deg', line)          # photos the check names (10i culprits)
+                if names:
+                    action += '：' + '、'.join(dict.fromkeys(names))
+                if (cause, action) in seen:                                   # the same finding at several angles
+                    d = seen[(cause, action)]
+                    d['item'] = re.sub(r'（\d+ 個角度）$', '', d['item']) + f'（{d["evidence"]["count"] + 1} 個角度）'
+                    d['evidence']['count'] += 1
+                    break
+                d = leaf(label, ['關卡 1 照片檢查', f'項目：{label}'], cause, '照片', action, '高',
+                         {'line': line, 'count': 1})
+                seen[(cause, action)] = d
+                out.append(d)
                 break
         else:
             out.append(leaf(label, ['關卡 1 照片檢查', f'項目：{label}', '沒有對應的規則'], '未分類', '照片',
