@@ -149,3 +149,33 @@ def test_escalate_without_gh_uses_the_github_connector(tmp_path, monkeypatch):
     # who did it: title prefix, label and a first line in the body
     assert (ws / 'issue_title.txt').read_text(encoding='utf-8').startswith('[ChatGPT]')
     assert any('agent:chatgpt' in s for s in r['steps']) and (ws / 'issue.md').read_text(encoding='utf-8').startswith('> 由 **ChatGPT**')
+
+
+def test_repeat_counts_only_runs_of_the_same_code(tmp_path):
+    """R48: the same FAIL as R47, but R48 ran on new code (with a new arm reference in the retouch request).
+    Rounds of older code do not count toward 'the same FAIL 2 rounds': the new SOP gets its own tries."""
+    import json as _json
+    ws = avatar(tmp_path); state = {}
+    def ver(n, h):
+        v = version(ws, n, G1, ['el30_315deg 斜角照手臂'])
+        g = _json.load(open(v / 'output' / 'gates.json')); g['code']['hash'] = h
+        _json.dump(g, open(v / 'output' / 'gates.json', 'w'))
+    import next_step as _ns
+    old = _ns.code_changed_since
+    try:
+        ver(1, 'old')
+        _ns.code_changed_since = lambda c: False
+        state['runs'] = [dict(out=str(ws / 'v001' / 'output'), fail=['el30_315deg 斜角照手臂'], code='old')]
+        ver(2, 'new')
+        import run_all
+        orig = run_all.code_hash; run_all.code_hash = lambda *a: 'new'
+        try:
+            r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+            assert r['state'] != 'ESCALATE' or '2 輪' not in r['why'], r
+            ver(3, 'new')
+            r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+            assert r['state'] == 'ESCALATE' and '2 輪' in r['why'], r
+        finally:
+            run_all.code_hash = orig
+    finally:
+        _ns.code_changed_since = old
