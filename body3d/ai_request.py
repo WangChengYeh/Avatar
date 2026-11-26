@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""ai_request.py — AI 修圖單：診斷樹判定是照片的問題時，交給 AI 生圖／修圖的清單
+"""ai_request.py — 交給 AI 的工作單（docs/SOP.md：人只準備輸入與 token，修圖、改程式都由 AI 做）
+
+AI 修圖單（照片的問題，交給 AI 生圖／修圖）：
 
     OUT/ai_fix_request/
         AI修圖單.md                 每一張要修的照片：問題、怎麼修、量到的數字
         photos/                     要修的原圖
         reference/                  參考圖（特寫：同角度全身圖的頭部，依規格裁切放大 4 倍，臉應該在的位置）
 
-run_all.py 在診斷有「照片」葉子時自動產生，並放進該階段的結果包；也可以單獨執行：
+AI 改 code 單（程式的問題，交給 AI 寫程式）：
+    OUT/ai_code_request/
+        AI改code單.md               每一項：原因所在的階段、原因、路徑與數字、要改的檔、要補的檢查、驗收方式
+        diagnosis.json / gates.json / run_all.log   重現與驗證用
+
+一次只出一個階段的單（診斷 SOP：前面階段先修）：照片有問題時只出 AI 修圖單，程式的單等照片修好、重跑後再出。
+run_all.py 在關卡未通過時自動產生，並放進該階段的結果包；也可以單獨執行：
     python ai_request.py PHOTOS OUT_DIR          # 讀 OUT_DIR/diagnosis.json
 """
 import json
@@ -100,13 +108,69 @@ def make(photos, out, leaves):
     return dst
 
 
+# which files hold a stage's check and its program (for the AI that changes the code)
+STAGE_FILES = {
+    1: ('body3d/check_turnaround.py（照片檢查）', 'AI 生圖規格（docs/Workflow-and-Validation.md#生圖規格）'),
+    2: ('body3d/check_turnaround.py 的烘焙前檢查（--head-overlap-work：report_head_overlap 起）、body3d/diagnose.py',
+        'body3d/steps/cams33.py、refine33.py、arms33.py、round33.py、legs33.py、mesh33s.py、headreg33.py、'
+        'face_landmarks.py、face33.py、bl_uv33s.py、camera.py'),
+    3: ('body3d/verify_glb.py', 'body3d/steps/bake33.py、bl_export.py、joints.py、rig.py、glb_unlit.py'),
+    4: ('body3d/fit_report.py', '最早出錯的那一步（依 README 的 Loop engineering 第 2 步往前找）'),
+}
+
+
+def make_code(out, leaves, photos=None):
+    """write OUT/ai_code_request for the program leaves of the earliest stage in the fix order; returns its path or
+    None (no program leaf, or photos come first)"""
+    todo = [d for d in leaves if d.get('owner') != '照片']
+    if not todo or any(d.get('owner') == '照片' for d in leaves):
+        return None
+    first = min(d.get('stage', 2) for d in todo)
+    todo = sorted([d for d in todo if d.get('stage', 2) == first], key=lambda d: d.get('order', 99))
+    dst = os.path.join(out, 'ai_code_request')
+    if os.path.isdir(dst):
+        shutil.rmtree(dst)
+    os.makedirs(dst)
+    for f in ('diagnosis.json', 'gates.json', 'run_all.log', 'autofix.json'):
+        if os.path.exists(os.path.join(out, f)):
+            shutil.copy2(os.path.join(out, f), os.path.join(dst, f))
+    check_file, code_files = STAGE_FILES.get(first, STAGE_FILES[4])
+    L = ['# AI 改 code 單', '',
+         f'診斷樹判定下面 {len(todo)} 項是**程式**的問題，原因在**階段 {first}**。照診斷 SOP（docs/Diagnosis-Tree.md#診斷-sop）'
+         '在這個階段裡修，完成後開 PR。', '',
+         '## 重現', '',
+         '```sh', f'python body3d/run_all.py {photos or "PHOTOS"} OUTPUT-新目錄 --name body', '```', '',
+         '同一個資料夾裡有 `diagnosis.json`（診斷葉子與數字）、`gates.json`（各關卡數字）、`run_all.log`。', '',
+         '## 要修的項目（照順序）', '']
+    for k, d in enumerate(todo, 1):
+        L += [f'### {k}. {d["item"]}（信心{d["confidence"]}）', '',
+              f'- **原因**：{d["cause"]}', f'- **方向**：{d["action"]}',
+              f'- **診斷路徑**：{" → ".join(d["path"])}',
+              '- **數字**：`' + json.dumps(d.get('evidence', {}), ensure_ascii=False) + '`', '']
+    L += ['## 怎麼做（照順序）', '',
+          f'1. **補檢查**：在這個階段的檢查（{check_file}）加一項或改一項，讓它抓得到上面的問題：用這組照片會 FAIL，'
+          '用兩組完美照片（`tests/data/luna-v1.glb` 與舊測試模型，用 `tests/render_synth.py` 渲染）仍是 0 FAIL／0 WARN。'
+          '把新項目的門檻與兩組完美照片的數字寫在程式註解裡。',
+          f'2. **修程式**：在這個階段的程式（{code_files}）裡修，不在後面的步驟補。',
+          '3. **驗收**：',
+          '   - 這組照片：第 1 步的檢查從 FAIL 變 PASS；如果照片本身也有問題，診斷會改出 AI 修圖單，那是下一輪。',
+          '   - 兩組完美照片從頭跑 `run_all.py`：四道關卡全部 0 FAIL／0 WARN、可交付。',
+          '   - `pytest -q` 相關測試通過；新檢查加一個測試（壞的情況 FAIL、完美照片 PASS）。',
+          '4. **開 PR**：寫清楚診斷葉子、補的檢查（前後數字）、改了什麼、驗收結果；更新 CHANGELOG 與 docs/Diagnosis-Tree.md。',
+          '5. 這一階段的單做完，用新的輸出資料夾從頭重跑，看新的診斷。', '',
+          '不能用手動修正（例如改 cams33.json、改中間檔）代替改程式：那樣的結果無法重現，也不能交付。']
+    open(os.path.join(dst, 'AI改code單.md'), 'w', encoding='utf-8').write('\n'.join(L))
+    return dst
+
+
 def main(argv=None):
     a = argv or sys.argv[1:]
     if len(a) != 2:
         print(__doc__); return 2
     leaves = json.load(open(os.path.join(a[1], 'diagnosis.json')))
     p = make(a[0], a[1], leaves)
-    print(p or '沒有要 AI 修的照片')
+    c = make_code(a[1], leaves, a[0])
+    print(p or c or '沒有要交給 AI 的工作')
     return 0
 
 

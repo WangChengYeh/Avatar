@@ -142,6 +142,9 @@ def main(argv=None):
             r = ai_request.make(img, out, diagnosis)
             if r:
                 print(f'     AI 修圖單：{os.path.join(r, "AI修圖單.md")}')
+            c = ai_request.make_code(out, diagnosis, img)   # program problems: only when no photo comes first
+            if c:
+                print(f'     AI 改 code 單：{os.path.join(c, "AI改code單.md")}')
         except Exception as error:
             print(f'     AI 修圖單失敗：{error}')
 
@@ -232,8 +235,9 @@ def main(argv=None):
         for f in (status_path, record_path, os.path.join(out, 'diagnosis.json')):
             if os.path.exists(f):
                 os.remove(f)
-        if os.path.isdir(os.path.join(out, 'ai_fix_request')):
-            shutil.rmtree(os.path.join(out, 'ai_fix_request'))
+        for d in ('ai_fix_request', 'ai_code_request'):
+            if os.path.isdir(os.path.join(out, d)):
+                shutil.rmtree(os.path.join(out, d))
         rc = photo_check()
         # FAIL: fix what can be fixed with high confidence and check again (docs/SOP.md); stop when anything needs
         # regeneration, confidence is low, or a round does not lower the FAIL count
