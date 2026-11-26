@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """escalate.py — 診斷處理不掉時，整理發給 Claude 的 GitHub issue 內文（docs/Project-Loop.md）
 
-    python escalate.py OUTPUT_DIR --agent ChatGPT --avatar avatar-A [--tried "重畫 el30_090 兩次，仍 FAIL"] [--reason ...]
-    gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
+    python escalate.py OUTPUT_DIR --agent ChatGPT --avatar avatar_001 [--tried "重畫 el30_090 兩次，仍 FAIL"] [--reason ...]
+    gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file issue.md
+（一般由 next_step 走到 ESCALATE 時自動產生；照片不附在公開的 issue，寫雲端硬碟的路徑）
 
 內文：SOP／程式版本與 git commit、驗收總表、停在哪一步、診斷（照修的順序）、每一項未通過的原文、AI 修圖單／
 改 code 單是否已產生、run_all.log 末段。

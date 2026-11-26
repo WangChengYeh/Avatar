@@ -17,7 +17,9 @@ next_step 看最新的版本，讀它的驗收結果、診斷、工作單與過�
     WAITING   issue 或 PR 還沒解決：等；Claude 合併了修正（程式變了）或 issue／PR 關閉，就繼續（issue 開著也一樣，跑完回報到 issue）
     DONE      四包都是好的：做交付檢查
 
-每個有結果的版本會自動上傳到資料 repo（GitHub Release，data_repo.py），issue 內文附上連結。
+每個有結果的版本，執行者用 Google Drive 連結器放到雲端硬碟 avatar/<agent>/<avatar>/vNNN/（next_step.md 會寫要放哪些檔、
+放到哪裡），issue 內文寫雲端硬碟的路徑。GitHub repo 是公開的：照片不上傳到 GitHub（資料 repo 的 Release 只在
+AVATAR_DATA_PUBLISH=1 時上傳）。
 只有 DONE、WAITING，以及沒有 gh 時把 issue 交給人的 ESCALATE 可以停下來。其他狀態照指令做完，再跑一次 next_step，不要問人要不要繼續。
 結果也寫在 WS/next_step.md 與 WS/avatar_state.json。
 """
@@ -125,7 +127,9 @@ def next_version_steps(ws, n, photos, name, template, why=''):
 def auto_publish(ws, state):
     """upload the latest version with results to the data repo (once per change of its results); the release URL
     goes into the state and the issue body. Never blocks the next step: a failure is recorded and shown."""
-    if state.get('offline') or os.environ.get('NEXT_STEP_OFFLINE') or os.environ.get('NEXT_STEP_NO_PUBLISH'):
+    # opt-in only: the data repo is public and the photos are of a person; results are exchanged on the Drive
+    if (state.get('offline') or os.environ.get('NEXT_STEP_OFFLINE') or os.environ.get('NEXT_STEP_NO_PUBLISH')
+            or os.environ.get('AVATAR_DATA_PUBLISH') != '1'):
         return
     vs = versions(ws)
     if not vs:
@@ -165,6 +169,26 @@ def wait_answered(w, state):
     if not since and state.get('runs'):
         since = (load(os.path.join(state['runs'][-1]['out'], 'gates.json'), {}) or {}).get('code', {}).get('hash')
     return bool(since) and since != current_code()
+
+
+def drive_dir(ws, n):
+    """where this version's results go on the Drive: avatar/<agent>/<avatar>/vNNN (docs/SOP.md)"""
+    ws = os.path.abspath(ws)
+    return f'avatar/{os.path.basename(os.path.dirname(ws)).lower()}/{os.path.basename(ws)}/v{n:03d}'
+
+
+def drive_files(ws):
+    """the latest version's files to put on the Drive, and where"""
+    vs = versions(ws)
+    if not vs:
+        return None
+    n, cur = vs[-1]
+    out = os.path.join(cur, 'output')
+    if not os.path.exists(os.path.join(out, 'gates.json')):
+        return None
+    d = os.path.join(out, 'deliver')
+    files = sorted(f for f in os.listdir(d) if f.endswith('.zip')) if os.path.isdir(d) else []
+    return drive_dir(ws, n), files + ['gates.json', 'next_step.md']
 
 
 def decide(ws, avatar, agent, name, template, state):
@@ -276,9 +300,7 @@ def decide(ws, avatar, agent, name, template, state):
     tried = '；'.join(f'{os.path.basename(os.path.dirname(r["out"]))}：{len(r.get("fail", []))} 項 FAIL' for r in history[-4:])
     body = escalate.body(out, agent, avatar, tried=f'最近幾輪：{tried}。重複出現的 FAIL：{"、".join(sorted(repeated)) or "無"}',
                          reason=reason)
-    url = state.get('published', {}).get(os.path.basename(cur), {}).get('url')
-    body = (f'**資料**：{url}（照片與結果包；重現：`python body3d/data_repo.py fetch {os.path.basename(url)} DIR`）\n\n'
-            if url else f'**資料**：沒有上傳到資料 repo（{state.get("publish_error", "未知")}），請把 _FAIL.zip 附在 issue\n\n') + body
+    body = f'**資料**：雲端硬碟 `{drive_dir(ws, cn)}`（照片與結果包，用 Google Drive 連結器讀）\n\n' + body
     issue = os.path.join(ws, 'issue.md')
     open(issue, 'w', encoding='utf-8').write(body)
     title = f'[SOP] {agent}／{avatar}：{reason}'
@@ -288,12 +310,12 @@ def decide(ws, avatar, agent, name, template, state):
         open(os.path.join(ws, 'issue_title.txt'), 'w', encoding='utf-8').write(title)
         return dict(state='ESCALATE', why=reason + '（這台沒有登入 gh：issue 由人發）', steps=[
             f'把 {issue} 的內容與標題（{os.path.join(ws, "issue_title.txt")}）交給人，請人在 '
-            'https://github.com/WangChengYeh/Avatar/issues/new 發 issue，結果包（output/deliver 的 _FAIL.zip）一起附上',
+            f'https://github.com/WangChengYeh/Avatar/issues/new 發 issue（結果包已在雲端硬碟 {drive_dir(ws, cn)}，不要附在公開的 issue）',
             '在拿到 issue 編號之前不要再重畫或重跑：同一個 FAIL 已經修了兩輪，再畫一樣不會過',
             f'{me} --waiting-issue N   # 人給你 issue 編號 N 之後登記等待'], stop=True)
     return dict(state='ESCALATE', why=reason, steps=[
         f'gh issue create --repo WangChengYeh/Avatar --title {q(title)} --body-file {q(issue)}   # 記下 issue 編號 N',
-        '照片與結果包已在資料 repo（issue 內文有連結）；沒有上傳成功時，把 output/deliver 裡的 _FAIL.zip 拖進 issue 附上',
+        f'確認這一版的結果包已在雲端硬碟 {drive_dir(ws, cn)}（issue 內文寫了路徑；照片不要附在公開的 issue）',
         f'{me} --waiting-issue N   # 登記等待；Claude 關閉 issue 後 next_step 會叫你 pull、重跑'])
 
 
@@ -332,6 +354,9 @@ def main(argv=None):
                      f'等你回報）。照上面繼續；這一輪跑完，把結果和 Claude 在 issue 留言要的數字回覆到 #{rt["number"]}：'
                      f'`gh issue comment {rt["number"]} --repo WangChengYeh/Avatar --body-file <檔案>`。'
                      '沒有 gh 時，把要回覆的內容寫進 issue_reply.md，交給人貼上。']
+    df = drive_files(ws)
+    if df:
+        text += ['', f'**雲端硬碟**：用 Google Drive 連結器把這一版的 {"、".join(df[1])} 放到 `{df[0]}/`（已經放過就略過）']
     pub = state.get('published', {})
     if pub:
         last = sorted(pub)[-1]

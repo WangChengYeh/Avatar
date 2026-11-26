@@ -19,7 +19,7 @@ body:
     id: avatar
     attributes:
       label: Avatar
-      placeholder: avatar-A
+      placeholder: chatgpt/avatar_001
     validations:
       required: true
   - type: dropdown

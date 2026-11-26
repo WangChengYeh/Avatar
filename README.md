@@ -57,11 +57,13 @@ python -m pytest -q --photos=./photos
 
 可單獨分享 `check_turnaround.py`。照片初篩基本功能需要 `numpy` 和 `opencv-python`，第 11 / 11b 項的臉部檢查必須安裝 MediaPipe（`mediapipe==0.10.14`），沒裝時判 FAIL。
 
-## Loop engineering
+## Loop engineering（Claude 排查問題的方法）
+
+執行者的日常工作照 [runbook](docs/Agent-Runbook.md) 與 `next_step.py` 進行；這一節是 Claude（或任何人）深入排查一個問題時的做法。照片與結果包在雲端硬碟 `avatar/`，Issue 裡寫路徑與量測、放對照圖，不放人物原圖。
 
 **一輪對應一個 GitHub Issue。** 開工時建立 Issue，寫下觀察到的差異、輸入與 GLB 版本、重現步驟及驗收條件。這一輪的分析、試修和回驗都記在同一個 Issue 或其留言。
 
-- **問題分析與證據**：在 Issue 內嵌原圖、Three.js 渲染、對照圖或回投疊圖，標明角度和版本。記錄差異最早在哪一步出現，以及支撐判斷的量測和門檻。
+- **問題分析與證據**：在 Issue 內嵌 Three.js 渲染、對照圖或回投疊圖，標明角度和版本；原圖與結果包放雲端硬碟，Issue 寫路徑。記錄差異最早在哪一步出現，以及支撐判斷的量測和門檻。
 - **重要中間結果與修改**：保留 checker 重現的結果、會影響判斷的試修與取捨，以及實際修改的照片、checker 或 3D 步驟。將相關 commit、PR 和檢查報告連回該 Issue。
 - **驗收與下一輪**：在 Issue 內嵌同條件下的修正前後圖，記錄 KPI、PASS／FAIL 與 GLB 版本。GLB 只需記錄版本和驗收結果。驗收後關閉 Issue。下一輪開一個新 Issue，連回上一輪並說明延續的問題或新目標。
 
@@ -100,7 +102,8 @@ node scripts/compare_turnaround.mjs --photos ./photos \
 
 ## 文件
 
-- [執行者 runbook](docs/Agent-Runbook.md) · ChatGPT／Gemini 反覆跑 `body3d/next_step.py`、照它說的做，只有 DONE 或 WAITING 才停
+- [重要檔案清單](docs/File-List.md) · 要讀哪些文件、程式入口、每一輪產生的檔案、各 avatar 目前的狀態與交接清單
+- [執行者 runbook](docs/Agent-Runbook.md) · ChatGPT／Gemini 反覆跑 `body3d/next_step.py`、照它說的做，只有 DONE、WAITING（或沒有 gh 時交出 issue）才停；結果用 Google Drive 連結器放到雲端硬碟 `avatar/`
 - [專案迴圈](docs/Project-Loop.md) · 三個 AI agent：Claude 維護 SOP 與程式、經 GitHub 交付與 review；ChatGPT、Gemini 照 SOP 各開發一個 avatar；處理不掉發 issue 給 Claude
 - [未通過時的診斷 SOP 與診斷樹](docs/Diagnosis-Tree.md) · 每一個未通過項目問到原因；多個 FAIL 時前面階段、信心高的先修；在所屬階段補檢查再修；照片叫 AI 修圖（含 R14 實例）
 - [標準作業流程（SOP）](docs/SOP.md) · 每個階段的成果（好／_FAIL）、四道關卡、PASS／WARN／FAIL 怎麼處理、交付條件
