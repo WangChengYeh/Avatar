@@ -1,6 +1,6 @@
 # 執行者 runbook（ChatGPT／Gemini）
 
-[專案迴圈](Project-Loop.md) · [SOP](SOP.md) · [診斷 SOP](Diagnosis-Tree.md#診斷-sop)
+[重要檔案清單](File-List.md) · [專案迴圈](Project-Loop.md) · [SOP](SOP.md) · [診斷 SOP](Diagnosis-Tree.md#診斷-sop)
 
 你負責一個 avatar，從開始做到交付。**不要停下來問人要不要繼續**：人只準備輸入與 token，其他都是你的工作。
 

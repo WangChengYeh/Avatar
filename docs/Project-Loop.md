@@ -1,6 +1,6 @@
 # 專案迴圈：三個 AI agent
 
-[返回 README](../README.md) · [SOP](SOP.md) · [診斷 SOP 與診斷樹](Diagnosis-Tree.md)
+[返回 README](../README.md) · [重要檔案清單](File-List.md) · [SOP](SOP.md) · [診斷 SOP 與診斷樹](Diagnosis-Tree.md)
 
 **一句話：Claude 維護 SOP 與程式、經 GitHub 交付；ChatGPT 與 Gemini 各自照 SOP 開發一個 avatar；診斷處理不掉的就發 GitHub issue 給 Claude，Claude 改好 SOP／程式，ChatGPT／Gemini 更新後繼續。**
 

@@ -4,6 +4,13 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 重要檔案清單：docs/File-List.md 與雲端硬碟的 avatar/file_list.md
+
+大家（人、Claude、ChatGPT、Gemini）找檔案只看一個地方。
+- `docs/File-List.md`（GitHub，Claude 維護）：每個人先讀的文件、程式入口、每一輪產生的檔案與用途、各 avatar 目前停在哪裡（版本、問題、issue／PR）。repo 是公開的，所以**不放**雲端硬碟的分享連結（人物照片）。
+- `avatar/file_list.md`（雲端硬碟，和 `chatgpt/`、`gemini/` 同一層）：next_step 每一輪自動更新，一個版本一列：時間、四道關卡結果、下一步、結果包檔名、分享連結（人或執行者填，next_step 保留）。要 Claude 看某一版時，給它這一份或那個檔案的分享連結。
+- README、AGENTS.md、GEMINI.md、runbook、專案迴圈都加上連結；測試：一版一列、填好的連結在下一次更新後還在。
+
 ## MakeHuman 模板修好：頭用外殼的、身體擬合到照片、手指乾淨（body3d 2.18.0、照片檢查 1.42.1）
 
 起因：使用者在 App 裡看到 R31 的模型斜一點角度時，臉上有一圈接縫、雙下巴；手臂放下時手指有黑白色塊。用 R31 的 GLB 重現：正面 0° 乾淨，15°–30°（0° 與 45° 兩張特寫之間）才出現。同一組 R31 照片用外殼流程沒有這圈接縫，完美照片 luna-v1 用 MakeHuman 也有嘴唇重影，所以是 MakeHuman 模板的程式問題，不是照片（一開始誤判成照片，已更正）。MakeHuman 在 luna-v1 完美照片上第 4 關也 FAIL（14.4%）。
