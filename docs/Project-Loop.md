@@ -110,7 +110,7 @@ gh issue create --title "[SOP] avatar-A：<一句話>" --body-file issue.md
 │       ├── next_step.md          ← 下一步（人只要看這個）
 │       └── issue.md              ← 要發給 Claude 的 issue 內文（需要時才有）
 └── gemini/
-    └── avatar_002/ …
+    └── avatar_001/ …             ← 每個執行者的 avatar 各自從 001 編號
 ```
 
 issue 內文附上那個版本的 Release 連結；Claude 用 `python body3d/data_repo.py fetch <tag> DIR` 下載照片與結果包重現（`data_repo.py list chatgpt/avatar_001` 列出版本）。

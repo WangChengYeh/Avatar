@@ -14,18 +14,19 @@
 | **AI 生圖** | 依[生圖規格](Workflow-and-Validation.md#生圖規格)生 33 張照片；收到 **AI 修圖單**（`ai_fix_request/`）就照單重畫那幾張。 |
 | **AI 寫程式**（Claude Code、Codex 等） | 照[執行者 runbook](Agent-Runbook.md) 反覆跑 `next_step.py`（它會跑 `run_all.py`、自動上傳到資料 repo、自動抓新的 SOP）、讀客戶頁與診斷；照片有問題就把 AI 修圖單交給 AI 生圖；程式有問題就照 **AI 改 code 單**（`ai_code_request/`）補檢查、改程式、驗收、開 PR；逐項看需複核（WARN）並記在 Issue；在 Yoga2 做匯入驗收。 |
 
-## 東西放在哪裡、怎麼交換（GitHub）
+## 東西放在哪裡、怎麼交換（GitHub ＋ 雲端硬碟）
 
-三個 agent（Claude、ChatGPT、Gemini）之間的所有交換都在 GitHub 上，不用 email、雲端硬碟或手動傳檔：
+SOP、程式、問題、程式改動在 GitHub；照片與結果包在雲端硬碟的 `avatar/`（實際做法，執行者把每一版放在自己的資料夾）。不用 email 或手動傳檔。找檔案先看[重要檔案清單](File-List.md)。
 
 | 東西 | 放在哪裡 | 誰放、什麼時候 | 誰拿、怎麼拿 |
 | --- | --- | --- | --- |
 | SOP、程式、檢查 | [`WangChengYeh/Avatar`](https://github.com/WangChengYeh/Avatar) 的 main | Claude 合併 PR | 執行者：`next_step.py` 每次自動 `git fetch`，main 有新的就叫你 `git pull`、重跑（UPDATE） |
-| 照片、結果包 | [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data) 的 **Release**（一個版本一個） | 執行者的 `next_step.py` 每個版本跑完**自動上傳** | 任何人：`python body3d/data_repo.py fetch <tag> DIR`；`data_repo.py list chatgpt/avatar_001` 列出版本 |
+| 照片、結果包 | 雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`（一個版本一個資料夾）；每個執行者的 `file_list.md` 一版一列 | 執行者每個版本跑完放上去；`next_step.py` 更新 `file_list.md` | Claude：Google Drive 連結器（依檔名找），或人給的 `avatar` 分享連結 |
+| 同上（備用） | [`WangChengYeh/avatar_data`](https://github.com/WangChengYeh/avatar_data) 的 **Release** | 執行者的 `next_step.py` 有 gh 時**自動上傳** | 任何人：`python body3d/data_repo.py fetch <tag> DIR` |
 | 處理不掉的問題 | `WangChengYeh/Avatar` 的 **Issue**（SOP 升級表單） | 執行者（next_step 走到 ESCALATE 時，內文已寫好、附 Release 連結） | Claude：下載 Release 重現、修好開 PR `Fixes #N` |
 | 程式改動 | `WangChengYeh/Avatar` 的 **PR** | 執行者（照 AI 改 code 單）或 Claude | Claude review、合併；執行者下次跑 next_step 自動更新 |
 
-**Release 的規則**
+**Release 的規則**（有 gh 的執行者才會上傳；目前兩個執行者都用雲端硬碟）
 
 - tag：`<agent>-<avatar>-v<NNN>`（例：`chatgpt-avatar_001-v003`），對應執行者機器上的 `~/avatar/<agent>/<avatar>/v<NNN>/`。
 - 附件：`photos.zip`（這一版的 33 張照片）、四個階段的結果包（好或 `_FAIL`）、`gates.json`、`diagnosis.json`、`next_step.md`。說明欄是驗收總表與程式版本。
@@ -42,7 +43,7 @@
 │   ├── v001/photos/  v001/output/      ← 上傳成 Release chatgpt-avatar_001-v001
 │   ├── v002/ …                         ← 重畫或重跑都開下一個版本
 │   └── avatar_state.json  next_step.md  issue.md
-└── gemini/avatar_002/ …
+└── gemini/avatar_001/ …（每個執行者各自從 001 編號）
 ```
 
 ## 流程（AI 跑，人看）

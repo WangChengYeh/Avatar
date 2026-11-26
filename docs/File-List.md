@@ -52,14 +52,39 @@
 
 ## 4. 目前各 avatar 的狀態
 
-由 Claude 在每次處理 issue／PR 時更新。
+由 Claude 在每次處理 issue／PR 時更新（最後更新 2026-11-27，依雲端硬碟 `avatar/` 實際內容）。每個執行者的 avatar 各自從 `avatar_001` 編號。
 
-| Avatar | 執行者 | 最新版本 | 停在 | 主要問題 | 相關 |
-| --- | --- | --- | --- | --- | --- |
-| avatar_001（R 系列） | ChatGPT | v041（R41） | 階段 1 照片檢查：第 10i 項全視角外殼覆蓋 6 FAIL | v033–v041 8 輪沒進步：3 張斜對角的手臂和水平環不同（#70 後會直接指名：el30_315、low20_045、low20_315 的手臂，el30_045 的身體） | issue #65、PR #70 |
-| avatar_002 | Gemini | — | — | 還沒有結果回報 | — |
+| 執行者／Avatar | 雲端硬碟上的版本 | 最新結果 | 主要問題 | 相關 |
+| --- | --- | --- | --- | --- |
+| ChatGPT／avatar_001（R 系列） | v033、v038、v041、v045、v047 | v047：`Avatar-R47_stage1_photos_FAIL.zip`（第 1 關 FAIL，內容尚未分析） | v033–v041 8 輪卡在第 10i 項：3 張斜對角的手臂和水平環不同。照片檢查 1.43（#70）起直接指名 el30_315、low20_045、low20_315 的手臂與 el30_045 的身體；v047 是第一個在 1.43 之後的版本 | issue #65 |
+| Gemini／avatar_001 | v002 | 四個階段的結果包都不是 `_FAIL`（`body_stage1_photos.zip` … `body_stage4_acceptance.zip`、`gates.json`、`next_step.md`） | 尚未確認；要照 [可以交付了嗎](SOP.md#可以交付了嗎) 做交付檢查 | — |
 
 模板：預設外殼流程；`--template makehuman` 從 body3d 2.18 起頭用外殼的、身體擬合到照片，兩組完美照片四道關卡 0 FAIL（#69）。
+
+### 雲端硬碟上的資料夾（實際）
+
+```
+avatar/                       ← 人用「知道連結的人可以檢視」分享整個資料夾
+├── chatgpt/avatar_001/v033 … v047/    每一版放結果包（例：Avatar-R47_stage1_photos_FAIL.zip）
+└── gemini/avatar_001/v002/            四個階段結果包、gates.json、next_step.md
+```
+
+Claude 讀雲端硬碟的方式：新的 session 用 Google Drive 連結器（依檔名搜尋、讀檔）；沒有連結器時，用人給的 `avatar` 資料夾分享連結一層層點進去。分享連結不寫進這個公開 repo。
+
+## 5. 交接：還沒做完的事
+
+給接手的 Claude session（以及人）。做完一項就從這裡刪掉。
+
+| 項目 | 下一步 | 在哪裡 |
+| --- | --- | --- |
+| Gemini avatar_001 v002 四關看起來都過了 | 下載 `gates.json` 與四包，確認 0 FAIL、照 SOP 做交付檢查（WARN 逐項看、在 App 匯入 GLB 截圖站姿與抬手）；可交付就在 File-List 改狀態 | 雲端硬碟 `avatar/gemini/avatar_001/v002` |
+| ChatGPT avatar_001 v047 還在第 1 關 | 看 `Avatar-R47_stage1_photos_FAIL.zip` 的 manifest：是不是已經改成指名手臂、手臂有沒有變好；沒進步就在 #65 回覆 | 雲端硬碟 `avatar/chatgpt/avatar_001/v047`、issue #65 |
+| 兩個執行者的 `file_list.md` 還沒出現 | 執行者下次跑 next_step（≥ #71）才會產生；沒有就檢查它們有沒有 pull main | `avatar/<chatgpt|gemini>/file_list.md` |
+| #65 還開著 | 等 ChatGPT 回報 R31 系列（現在是 R47）重畫、`--template makehuman` 重跑後的第 4 關數字 | issue #65 |
+| synth 完美照片用 MakeHuman，第 2 關右臉頰 1 個 WARN | P90 22.4／20（外殼流程 18.0）；查肩頸在 315° 的遮擋 | `check_turnaround.py` 頭部重疊、`mh_fit.py` |
+| 中間角度與擺姿勢後的貼圖沒有直接的自動檢查 | 目前靠臉頰亮度、五官投影間接抓（R31 的臉部接縫就是在 App 裡才看到） | 第 3／4 關 |
+| `test_camera_benchmark_perspective` 在 main 上失敗 | 用故意壞掉的透視照片跑基準，現在被照片檢查擋下回傳非零；基準應該用 `--force` 或接受非零 | `tests/test_run_all.py`、`body3d/camera_benchmark.py` |
+| 肩帶附近貼圖色塊、兩腿內側暗線 | 兩種模板都有，照片與烘焙的問題 | `bake33.py` |
 
 ## 雲端硬碟上的 file_list.md
 
