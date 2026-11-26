@@ -1,5 +1,7 @@
 # Avatar 正確性審查
 
+> 歷史文件：body3d 2.3.0 當時的審查與重現方式，結論已在之後的版本處理（見 [CHANGELOG](../CHANGELOG.md)）。現行流程見 [SOP](SOP.md)。
+
 2026-11-24 · 審閱對象為 WangChengYeh/Avatar 維護者 · body3d 2.3.0 · [main @ fff1f02](https://github.com/WangChengYeh/Avatar/commit/fff1f02b1fde4813afa5d9fe8560f837665c8a24)
 
 ## 結論
