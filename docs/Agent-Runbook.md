@@ -32,3 +32,22 @@ python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT
 - 每一輪用新的照片資料夾（`photos_vN`）與新的輸出資料夾（`out_vN`），不覆蓋舊的：next_step 靠它們判斷「同一個 FAIL 有沒有一直出現」。
 - 做不到 next_step 要求的事（例如沒有生圖工具、沒有 `gh` 權限）：這就是 ESCALATE 的理由，發 issue 說明，不要停在原地等人。
 - 每次回報給人時，附上 `WS/next_step.md` 的內容：人只需要看狀態。
+
+## 啟動提示詞（第一次交給 agent 時貼上）
+
+ChatGPT／Gemini 用**聊天介面**時，每回覆一次就結束一輪，不會自動讀 `AGENTS.md`／`GEMINI.md`。開始時把下面整段貼給它一次（換掉 AVATAR、AGENT、WS）：
+
+```text
+你是這個 repo（https://github.com/WangChengYeh/Avatar）的執行者，負責開發 AVATAR，照 docs/Agent-Runbook.md 做。
+規則：
+1. 每做完一步就跑：python body3d/next_step.py --workspace WS --avatar AVATAR --agent AGENT
+2. 照它印出的指令做，做完再跑一次。在同一個回覆裡一直做下去，不要做完一步就結束回覆。
+3. 只有狀態是 DONE 或 WAITING 才可以結束回覆。其他狀態（START、RUN、RETOUCH、CODE、ESCALATE）都不可以停，也不要問我要不要繼續。
+4. 每次結束回覆時，最後貼出 WS/next_step.md 的內容。
+5. 如果因為長度或工具限制必須中斷，最後一行寫「未完成：下一步是 <next_step.md 的狀態>」。我回「繼續」時，你直接從 next_step 接著做，不要重新規劃、不要問問題。
+6. 做不到 next_step 要求的事（例如沒有生圖工具、沒有 gh 權限），就照 ESCALATE 發 issue 說明，不要停下來等我。
+```
+
+用 **agent 模式**（Codex CLI／Codex 雲端、Gemini CLI、ChatGPT agent）時，它們會自動讀 `AGENTS.md`／`GEMINI.md`，通常不需要貼；不確定就照樣貼一次。
+
+人要做的只有兩件事：一開始貼這段提示詞；agent 停在 WAITING 或「未完成」時回一句「繼續」。
