@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.41.1（2026-11-26）
+版本 1.42.0（2026-11-26）
 
 版本紀錄:
+  1.42.0 第 10i 項新增「斜角照是外殼形狀」：俯角／仰角全身圖幾乎不切水平環外殼（< 1% FAIL，< 1.5% WARN；完美照片每張 ≥ 2.2%）
+         表示照片是照水平環外殼（AI 修圖單的「輪廓上限」綠線）填滿或渲染出來的，不是畫出來的人（R31：15 張 0.0–0.2%，手臂成扁平厚板）。
   1.41.1 烘焙前檢查新增「網格落地」：重建網格最低點 ±1.5 cm 內通過、超過 ±3 cm FAIL（R17 MakeHuman −5.2 cm）。
   1.41.0 新增第 10i 項全視角外殼覆蓋：24 張全身圖用規格相機一起雕出外殼，量它蓋住每張水平全身圖的比例（≥ 96% 通過、
          < 93% FAIL；完美照片 ≥ 97.2%）。R17 各項都只到 WARN，一起雕卻把身體切瘦（側面 73%，成品比照片小 25–32%）。
@@ -283,7 +285,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.41.1'
+__version__ = '1.42.0'
 import numpy as np
 import cv2
 
@@ -482,6 +484,12 @@ HULL_COVER_PASS, HULL_COVER_FAIL = 0.96, 0.93
 # bad views hardly lower the coverage; their own cut shows them (perfect photos <= 6.6 %, R17 culprits 23-26 %,
 # a +30° side view drawn 60 px forward 25 %)
 HULL_CUT_PASS, HULL_CUT_FAIL = 0.10, 0.15
+# ... and a floor: a real body seen from +30° / -20° is always thinner than the level-ring hull somewhere (arms are
+# round, not the slabs the level ring carves; the torso corners), so every tilted view cuts a little (perfect photos
+# synth 2.2-6.4 %, luna-v1 2.6-6.6 %). A view that cuts almost nothing has the hull's own outline: it was drawn by
+# filling the level-ring hull (the green "should-be outline" of the AI retouch request) or rendered from it, not
+# drawn as the person. R31: 15 of 16 tilted views 0.0-0.2 %, arms as flat slabs, final acceptance 18.8 %.
+HULL_CUT_MIN_PASS, HULL_CUT_MIN_FAIL = 0.015, 0.01
 HULL_CUT_CULPRIT = HULL_CUT_PASS
 RING_TILT = {'el30': 30.0, 'low20': -20.0}
 
@@ -3663,6 +3671,15 @@ def main():
             report(lvl, f'{a}° 全視角外殼覆蓋', msg)
         for n, c in sorted(cut.items()):
             n = n.removesuffix('.jpg')
+            if c < HULL_CUT_MIN_PASS:
+                lvl = FAIL if c < HULL_CUT_MIN_FAIL else WARN
+                report(lvl, f'{n} 斜角照是外殼形狀',
+                       f'這張用規格相機看，幾乎不切水平環外殼：{100 * c:.1f}%（應 ≥ {100 * HULL_CUT_MIN_PASS:g}%，'
+                       f'< {100 * HULL_CUT_MIN_FAIL:g}% 判 FAIL；完美照片每張 ≥ 2.2%：真實的身體從斜角看一定比外殼瘦）'
+                       f' → {n} 的人物輪廓就是水平環外殼的投影：照片是把「輪廓上限」綠線填滿、或從外殼／重建模型渲染'
+                       '出來的，不是畫出來的人（手臂會變成扁平的厚板、側面出現方塊）。用 AI 重新生成這張：同一個人、同一姿勢、'
+                       '真實的俯角 30°／仰角 20° 視角，人物在綠線以內、比綠線瘦；不要用渲染或投影產生照片')
+                continue
             lvl = PASS if c <= HULL_CUT_PASS else WARN if c <= HULL_CUT_FAIL else FAIL
             msg = (f'這張用規格相機看，切掉水平環外殼的 {100 * c:.1f}%（應 ≤ {100 * HULL_CUT_PASS:g}%，'
                    f'> {100 * HULL_CUT_FAIL:g}% 判 FAIL；完美照片每張 ≤ 6.6%）')
