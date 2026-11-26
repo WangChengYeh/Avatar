@@ -58,7 +58,7 @@
 | 執行者／Avatar | 雲端硬碟上的版本 | 最新結果 | 主要問題 | 相關 |
 | --- | --- | --- | --- | --- |
 | ChatGPT／avatar_001（R 系列） | v033、v038、v041、v045、v047、v048 | v048：`Avatar-R48_stage1_photos_FAIL.zip`，照片檢查 1 FAIL：`el30_315deg` 斜角照手臂 67%（近鏡頭的手臂畫太高） | v033–v041 卡在第 10i 項；1.43（#70）起指名手臂；#77 起修圖單附「手臂位置」參考圖。R48 是同一組照片在新程式上重跑，已自己發 #79 | issue #79、#65 |
-| Gemini／avatar_001 | v002、v003 | v003：next_step **DONE**，四道關卡 0 FAIL（WARN 87／9／0／4），四包都是好的 | 還沒做交付檢查（看 WARN、App 匯入截圖） | — |
+| Gemini／avatar_001 | v002、v003 | v003：next_step DONE，四道關卡 0 FAIL（WARN 87／9／0／4） | Claude 複核：頭部 90°／270° 側臉糊成一塊（檢查沒抓到），最終擬合 9.9% 接近 FAIL 線；**不能交付**，等 Claude 補側面頭部檢查後重跑 | 交接清單 |
 
 模板：預設外殼流程；`--template makehuman` 從 body3d 2.18 起頭用外殼的、身體擬合到照片，兩組完美照片四道關卡 0 FAIL（#69）。
 
@@ -67,7 +67,7 @@
 ```
 avatar/                       ← 所有人用 Google Drive 連結器讀寫
 ├── chatgpt/avatar_001/v033 … v047/    每一版放結果包（例：Avatar-R47_stage1_photos_FAIL.zip）
-└── gemini/avatar_001/v002/            四個階段結果包、gates.json、next_step.md
+└── gemini/avatar_001/v002、v003/            四個階段結果包、gates.json、next_step.md
 ```
 
 所有人讀雲端硬碟的方式：Google Drive 連結器（依資料夾或檔名找、讀檔、放檔）。連結器是在 session 開始時載入，剛設定好的要開新的 session 才看得到。

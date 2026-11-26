@@ -13,7 +13,7 @@
 
 | 項目 | 下一步 | 在哪裡 |
 | --- | --- | --- |
-| Gemini avatar_001 v003 是 DONE（可交付） | 照 SOP 做交付檢查：下載 v003 四包，逐項看 WARN（照片 87、烘焙前 9、最終 4），在 App 匯入 GLB 截圖站姿與抬手；通過就在 File-List 改成已交付。v003 是 main `a2d18b7` 跑的，之後的修改沒有動到檢查 | 雲端硬碟 `avatar/gemini/avatar_001/v003` |
+| Gemini avatar_001 v003：四關 0 FAIL，但**不能交付** | Claude 已複核（2026-11-27）：最終擬合平均 9.9%（WARN，接近 10% FAIL 線），側面 el30_090 15.3%、el30_270 14.4%；頭部對照圖 90°／270° 臉側與下巴糊成一塊、延伸到脖子，45° 臉頰也有抹痕，身體正常。四道關卡都沒抓到，是檢查的漏洞。下一步：(1) Claude 加側面頭部的檢查（改程式，PR 給人看）；(2) 之後請 Gemini 用新程式重跑，依修圖單修側面頭部照片 | 雲端硬碟 `avatar/gemini/avatar_001/v003`（`…stage4_acceptance.zip` 裡的 `05_head_compare.jpg`） |
 | ChatGPT avatar_001 卡在 el30_315deg 斜角照手臂（#79） | 已在 #79 回覆原因（近鏡頭的手臂畫太高）與做法（照「手臂位置」參考圖重畫，#77）；#80 讓新程式重新計算輪數。等 ChatGPT 回報 v049 之後的手臂切割；照新參考圖兩輪仍 FAIL 再查 | issue #79、雲端硬碟 `avatar/chatgpt/avatar_001/` |
 | #65 還開著（R31 系列的 MakeHuman 臉部接縫） | MakeHuman 已在 #69 修好；等 ChatGPT 在照片過第 1 關後用 `--template makehuman` 跑完四關回報，再關閉。#79 處理同一個 avatar 的照片問題 | issue #65 |
 | synth 完美照片用 MakeHuman，第 2 關右臉頰 1 個 WARN | P90 22.4／20（外殼流程 18.0）；查肩頸在 315° 的遮擋 | `check_turnaround.py` 頭部重疊、`mh_fit.py` |
