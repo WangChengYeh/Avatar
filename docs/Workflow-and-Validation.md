@@ -40,7 +40,9 @@ no hard shadows or highlights
 same camera distance and framing in every full-body view, only the camera angle changes,
 aim at the same 3D body centre, halfway up the figure on the vertical rotation axis,
 place that point at the image centre; for the level ring the figure fills about 85 % of the image height,
-orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion
+orthographic projection, 200mm telephoto lens, camera very far away, no perspective distortion,
+the same T-pose in every view: both arms straight out to the sides, exactly horizontal at shoulder height,
+the same arm height, arm angle and hand orientation in the level, +30° and −20° views
 ```
 
 頭部特寫每張加上：
@@ -51,7 +53,7 @@ camera aimed at the centre of the head, head width about one third of the image 
 head top at the same height in every close-up, orthographic projection, no perspective distortion
 ```
 
-其他要求（同一角色、固定種子、相機角度寫法、光線提示詞）見 `python body3d/check_turnaround.py --help` 列出的第九節。
+俯角／仰角圖最常見的錯是手臂：AI 畫出來的手臂高度或前後角度和水平環不同（R33–R41 三張斜對角的手臂，照片檢查第 10i 項「斜角照手臂」會指名）。其他要求（同一角色、固定種子、相機角度寫法、光線提示詞）見 `python body3d/check_turnaround.py --help` 列出的第九節。
 
 ## 18 步重建
 
@@ -146,7 +148,9 @@ python body3d/check_turnaround.py ./photos \
 
 | 驗收 | 通過與失敗條件 |
 | --- | --- |
-| 同一皮膚位置的臉頰亮度差 | 取共同可見點的亮度絕對差 P90。> 20/255 判 WARN（完美照片 13–16）。 |
+| 頭部特寫環對準點 | 頭部特寫環擬合出的對準點離旋轉軸多遠：≤ 3 mm 通過、> 5 mm 失敗（完美照片 ≤ 1 mm）。照片檢查通過時對準點鎖在軸上（headreg）。 |
+| 網格落地 | 重建網格的最低點離地面 ±1.5 cm 內通過、超過 ±3 cm 失敗（R17 MakeHuman −5.2 cm）。只判流程重建出來的全身網格。 |
+| 同一皮膚位置的臉頰亮度差 | 在頭部表面均勻取樣（與網格疏密無關），取共同可見點的亮度絕對差 P90。> 20/255 判 WARN（完美照片 4–18）。 |
 | 全身照與同角度頭部特寫 | 共同可見區的亮度差 P90 > 35/255 判 WARN（完美照片 20–30，多為髮緣和網格誤差；光線本身由照片檢查第 10f／10g 項量）。共同覆蓋 < 60% 判 FAIL，低於 80% 提醒複核。 |
 | 眼、鼻、嘴投影偏移 | 用可見眼鼻點試算整體縮放與平移，再以嘴部驗證。以圖高 1.35% 為複核目標。有至少 3 個可見點的部位，校正後中位偏移 > 圖高 2% 時失敗（完美照片最多 1.15%）。 |
 | 五官尺寸與回投眼距 | 只列 INFO 供診斷，不判 WARN／FAIL：完美照片也差到 29%（MediaPipe 讀 3/4 臉的偏差與剪影重建的臉形），分不出照片好壞。左右斜面各取一側可見端點，也可回投到正面估計雙眼中心距。 |
@@ -167,7 +171,7 @@ python body3d/fit_report.py ./output/work --accept
 
 ## GLB 與動作驗證
 
-`verify_glb.py` 檢查 GLB 格式、骨架階層、綁定矩陣、權重、尺寸、貼圖與材質。蒙皮測試會將左上臂往下轉 70°，量測指尖與腳底，並檢查三角形邊是否異常拉長。頭部預覽從正面、左右 45° 與兩側檢查貼圖暗條紋。任何 `FAIL` 回傳結束碼 1。
+`verify_glb.py` 檢查 GLB 格式、骨架階層（外殼流程 22 根骨頭；MakeHuman 模板 52 根，含手指）、綁定矩陣、權重、尺寸、貼圖與材質。蒙皮測試會將左上臂往下轉 70°，量測指尖與腳底，並檢查三角形邊是否異常拉長。頭部預覽從正面、左右 45° 與兩側檢查貼圖暗條紋。任何 `FAIL` 回傳結束碼 1。
 
 ```sh
 python -m pytest -q tests/test_verify_glb.py tests/test_head_overlap.py tests/test_view_overlays.py

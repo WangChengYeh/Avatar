@@ -2,7 +2,7 @@
 
 [返回 README](../README.md#loop-engineering) · [流程與驗收](Workflow-and-Validation.md) · [版本與量測紀錄](../CHANGELOG.md)
 
-README 的 Loop engineering 寫的是「怎麼做」。本文說明這些步驟背後「為什麼」，以及每條規則對應到哪段程式。
+README 的 Loop engineering 寫的是 Claude 排查問題時「怎麼做」（執行者的日常工作照 [runbook](Agent-Runbook.md) 與 `next_step.py`）。本文說明這些步驟背後「為什麼」，以及每條規則對應到哪段程式。
 
 ## 前提：一個不動的虛擬人物，被一台假想相機環繞拍攝
 
