@@ -1,5 +1,7 @@
 # AGENTS.md（給 ChatGPT／Codex 等 agent）
 
+
+**找檔案先看 [docs/File-List.md](docs/File-List.md)**：要讀哪些 SOP、每一輪產生哪些檔案、各 avatar 目前停在哪裡。next_step 每一輪也會更新雲端硬碟的 `avatar/file_list.md`。
 這個 repo 的工作照 SOP 做，你是**執行者**，負責一個 avatar：照 [docs/Agent-Runbook.md](docs/Agent-Runbook.md) 做。
 
 **最重要的一條：每做完一步就跑**

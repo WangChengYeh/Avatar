@@ -127,3 +127,18 @@ def test_wait_ends_when_the_fix_arrives(tmp_path, monkeypatch):
     state = dict(waiting=dict(kind='issue', number=65), runs=[dict(out=str(v), fail=[])])
     r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
     assert r['state'] != 'WAITING' and state['report_to']['number'] == 65
+
+
+def test_file_list_one_row_per_version_keeps_links(tmp_path):
+    """avatar/file_list.md (docs/File-List.md): a row per version with the result and its packs; a share link
+    someone filled in survives the next update"""
+    ws = avatar(tmp_path)
+    v1 = version(ws, 1, G1, ['x']); (v1 / 'output' / 'deliver').mkdir(); (v1 / 'output' / 'deliver' / 'a_stage1_photos_FAIL.zip').write_bytes(b'')
+    path = ns.update_file_list(str(ws), 'ChatGPT', 'avatar_001', 'RETOUCH')
+    text = open(path, encoding='utf-8').read()
+    assert path == str(tmp_path / 'avatar' / 'file_list.md')
+    assert '| chatgpt | avatar_001 | v001 |' in text and 'a_stage1_photos_FAIL.zip' in text and 'RETOUCH' in text
+    open(path, 'w', encoding='utf-8').write(text.replace('| RETOUCH | a_stage1_photos_FAIL.zip |  |', '| RETOUCH | a_stage1_photos_FAIL.zip | https://drive/x |'))
+    version(ws, 2, G0, deliverable=True)
+    text = open(ns.update_file_list(str(ws), 'ChatGPT', 'avatar_001', 'DONE'), encoding='utf-8').read()
+    assert 'https://drive/x' in text and '| chatgpt | avatar_001 | v002 |' in text and '可交付' in text
