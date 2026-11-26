@@ -146,3 +146,6 @@ def test_escalate_without_gh_uses_the_github_connector(tmp_path, monkeypatch):
     assert r['state'] == 'ESCALATE' and not r.get('stop')
     assert any(s.startswith('gh issue create') for s in r['steps']) and any('GitHub 連結器' in s for s in r['steps'])
     assert (ws / 'issue.md').exists() and (ws / 'issue_title.txt').exists()
+    # who did it: title prefix, label and a first line in the body
+    assert (ws / 'issue_title.txt').read_text(encoding='utf-8').startswith('[ChatGPT]')
+    assert any('agent:chatgpt' in s for s in r['steps']) and (ws / 'issue.md').read_text(encoding='utf-8').startswith('> 由 **ChatGPT**')

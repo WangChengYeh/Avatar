@@ -4,6 +4,18 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 人要看得出是哪個 agent 做的
+
+三個 agent 多半用同一個 GitHub 帳號，看帳號分不出是誰。專案迴圈新增「誰做的」：
+- issue／PR 標題開頭 `[ChatGPT]`／`[Gemini]`／`[Claude]`；
+- label `agent:chatgpt`／`agent:gemini`／`agent:claude`；
+- 內文與留言第一行「> 由 **X** 發／回報」；
+- 分支 `<名字>/…`；
+- commit 結尾 `Agent: X`；
+- 雲端硬碟每個 agent 只寫自己的資料夾。
+
+next_step 產生的升級 issue 自動帶好標題前綴、label 與第一行。PR 模板、issue 表單、AGENTS.md、GEMINI.md、CLAUDE.md 都寫進這條規則。repo 已建好這四個 label（含 `sop-escalation`）。
+
 ## 三個角色怎麼操作：大家都有 GitHub 和 Google Drive
 
 - **專案迴圈**新增「三個角色怎麼操作」：

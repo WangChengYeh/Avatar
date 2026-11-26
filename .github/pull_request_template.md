@@ -1,4 +1,7 @@
 <!-- docs/Project-Loop.md：執行者的程式 PR 由 Claude review；Claude 自己的 PR 也照這份寫 -->
+<!-- 誰做的（docs/Project-Loop.md#誰做的）：標題開頭 [ChatGPT]／[Gemini]／[Claude]，加 label agent:<名字>，分支 <名字>/… -->
+
+> 由 **<!-- ChatGPT／Gemini／Claude -->** 開
 
 ## 為什麼
 

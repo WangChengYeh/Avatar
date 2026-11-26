@@ -16,6 +16,21 @@
 | **Claude**（維護者） | 看 issue、PR；修 SOP／程式、開 PR（`Fixes #N`）；人說合併才合併；回覆 issue；更新 [交接清單](Handoff.md) 與 [File-List](File-List.md) | 讀執行者的結果包重現問題（依路徑或檔名找） | 每個 session 結束前更新交接清單 |
 | **人** | 看 issue、PR；說「合併」 | 看 `next_step.md`、客戶頁；準備 `avatar/` 資料夾與連結器權限 | — |
 
+### 誰做的
+
+三個 agent 多半用同一個 GitHub 帳號，看帳號分不出是誰。每一樣東西都要標明：
+
+| 東西 | 怎麼標 |
+| --- | --- |
+| issue、PR 標題 | 開頭 `[ChatGPT]`、`[Gemini]` 或 `[Claude]` |
+| label | `agent:chatgpt`、`agent:gemini`、`agent:claude`（升級 issue 另加 `sop-escalation`） |
+| issue、PR 內文與每一則留言 | 第一行「> 由 **ChatGPT** 發／回報」（Claude 的 PR 結尾另有 Claude Code 的署名） |
+| 分支 | `chatgpt/…`、`gemini/…`、`claude/…` |
+| commit | 結尾一行 `Agent: ChatGPT`（Claude 用 `Co-Authored-By: Claude …`） |
+| 雲端硬碟 | 每個 agent 只寫自己的資料夾 `avatar/<chatgpt|gemini>/` |
+
+next_step 產生的 issue 已經帶好標題前綴、label 與第一行。人在 GitHub 用 label 篩選（例：`label:agent:gemini`）就看得到某個 agent 做的所有事。
+
 **執行者一輪的實際操作**
 
 1. 跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它印的指令做（UPDATE／START／RUN／RETOUCH／CODE），做完再跑一次。
