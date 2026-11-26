@@ -4,6 +4,13 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 專案迴圈：三個 AI agent 與 GitHub issue 升級
+
+- [docs/Project-Loop.md](docs/Project-Loop.md)：Claude 維護 SOP 與程式（PR、review、合併、處理 issue）；ChatGPT、Gemini 各自照 SOP 開發一個 avatar（生圖、跑流程、照診斷修圖或改程式，程式改動開 PR 給 Claude review）。什麼時候發 issue（診斷信心低或沒規則、同一個 FAIL 修 2 輪還在、檢查缺口、程式出錯或改 code 單做不完、SOP 矛盾、懷疑門檻錯）、issue 要附什麼、Claude 怎麼處理（重現 → 找原因所在階段 → 補檢查／修程式／補診斷／改 SOP → PR `Fixes #` → 回覆最低版本與怎麼繼續）、執行者怎麼更新繼續、兩個 avatar 共用一份 SOP 的規則。
+- `body3d/escalate.py`：從輸出資料夾整理 issue 內文（版本與 commit、驗收總表、停在哪、診斷、未通過原文、工作單、log 末段），自動判斷符合哪一條升級條件。
+- `.github/ISSUE_TEMPLATE/sop-escalation.yml`（SOP 升級 issue 表單）、`.github/pull_request_template.md`（PR 驗收清單：原因所在階段、補的檢查前後數字、兩組完美照片、測試、另一個 avatar 的影響）。
+- 診斷 SOP 加第 6 步「處理不掉就發 issue」；SOP、README 連到專案迴圈。
+
 ## 照片檢查器 1.41.1 / body3d 2.17.0 · MakeHuman 的腳落地；MakeHuman 版也有階段 3 預覽圖
 
 R17 的階段 3 結果包（標「好」）有兩個問題，照診斷 SOP 處理：

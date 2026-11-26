@@ -57,6 +57,10 @@ python body3d/diagnose.py prebake PHOTOS OUT/work   # 關卡 2（需要重建中
 
 用新的輸出資料夾從頭跑。還有 FAIL 就回第 1 步：新的診斷照新的結果排順序。全部通過才往下看[交付條件](SOP.md#可以交付了嗎)。
 
+### 第 6 步：處理不掉就發 issue
+
+診斷信心低或沒有規則、同一個 FAIL 修了 2 輪還在、後面才 FAIL 但前面沒有檢查抓得到、程式出錯或改 code 單做不完、SOP 矛盾、懷疑門檻錯：執行者（ChatGPT／Gemini）用 `body3d/escalate.py` 整理證據，發 GitHub issue 給 Claude，等 Claude 改好 SOP／程式再 pull、從頭重跑（[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)）。
+
 ### 例：R14
 
 | 順序 | 葉子 | 原因所在 | 第 3 步：補的檢查 | 第 4 步：修 |
