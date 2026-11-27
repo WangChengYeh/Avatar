@@ -16,6 +16,7 @@
 | Gemini avatar_001 v003／v006：四關 0 FAIL，但**不能交付** | 頭部側面糊掉、最終剪影 9.9%（接近 FAIL 線）。PR #92 收緊頭部特寫門檻（v003 的 10–17 現在會 FAIL）；已在 #84 請 pull 後加 `--force` 重跑、照修圖單重畫。等回報 | issue #84 |
 | ChatGPT avatar_001：R54 卡第 4 關（15.4%）、側面頭部仍糊 | PR #92：最終剪影 FAIL 也出修圖單（R54 乾跑：重畫 el30_135、low20_135、low20_045、el30_315、el30_225、el30_045），頭部特寫 > 8 判 FAIL、整組 8 張一次重畫。已在 #79 請 pull 後加 `--force` 重跑。等回報 | issue #79、PR #92 |
 | 照片檢查（第 1 關）沒抓到 R54 斜角照和水平環對不上 | R54 第 1 關 0 FAIL，最終剪影斜角 21–27%。PR #92 讓第 4 關出修圖單繞過去，但第 1 關的缺口還在：找出第 10 系列（輪廓上限、斜角照手臂）為什麼放過這些照片，補檢查 | `check_turnaround.py` 第 10 項、`r54` 的 fit_report |
+| Gemini avatar_001 v010：四關 0 FAIL、9.8%，品質仍不夠（側臉糊、腳只剩一截、側面太厚） | 分析與四個程式修正見 CHANGELOG「Gemini v010 品質分析」。照片要修的（head_090／head_270 是同一顆頭、統一站姿、側面照手臂正對鏡頭）已在 #84 通知，等 Gemini 重畫。還沒處理：側面照的手掌烘焙到肩膀上；第 1 關 FAIL 後頭部相機逐張對位會對歪（v010 的 45° 特寫） | #84、`headsil33.py`、`headreg33.py`、`bake33.py` |
 | #65 還開著（R31 系列的 MakeHuman 臉部接縫） | MakeHuman 已在 #69 修好；本機 MPFB 已重裝、R52 MakeHuman 跑通。等 ChatGPT 在照片過第 1 關後用 `--template makehuman` 跑完四關回報，再關閉。#79 處理同一個 avatar 的照片問題 | issue #65 |
 | synth 完美照片用 MakeHuman，第 2 關右臉頰 1 個 WARN | P90 22.4／20（外殼流程 18.0）；查肩頸在 315° 的遮擋 | `check_turnaround.py` 頭部重疊、`mh_fit.py` |
 | 中間角度與擺姿勢後的貼圖沒有直接的自動檢查 | 目前靠臉頰亮度、五官投影間接抓（R31 的臉部接縫就是在 App 裡才看到） | 第 3／4 關 |

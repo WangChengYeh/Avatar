@@ -15,11 +15,11 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
    3 refine    聯合微調相機 + 視覺外殼（refine33.py）
    4 arms      T-pose 手臂重建為橢圓柱（arms33.py）
    5 round     3D 開運算讓外形圓滑（round33.py）
-   6 legs      腿部嚴格雕刻：兩腿之間的外殼殘留（legs33.py）
+   6 legs      腿部嚴格雕刻：兩腿之間的外殼殘留；軀幹前後厚度以水平側面照為準（legs33.py）
    7 mesh      Marching cubes + 平滑 + 減面 → body33s.ply（mesh33s.py）
    8 headreg   頭部特寫相機對位（headreg33.py），再把頭修到 8 張特寫的輪廓（headsil33.py）
    9 face      MediaPipe 臉部特徵點（face_landmarks.py，必要）
-  10 face3d    用臉部特徵點對齊 3/4 頭部特寫相機、補出鼻子 / 眼窩（face33.py，必要）
+  10 face3d    用臉部特徵點對齊 3/4 頭部特寫相機、補出鼻子 / 眼窩（face33.py，必要），再用 8 張特寫的輪廓修一次（headsil33.py --after-face）
   11 uv        Blender 展 UV（bl_uv33s.py）；--template makehuman：擬合 MakeHuman 人體（mh33.py）
   12 bake      頭部投影重疊檢查、多視角貼圖烘焙（bake33.py）
   13 export    Blender 匯出有貼圖的 GLB + 預覽圖（bl_export.py）
@@ -42,7 +42,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.22.0'
+__version__ = '2.23.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
@@ -410,6 +410,11 @@ def main(argv=None):
         run([py, S('headreg33.py')], work, log)
         run([py, S('headsil33.py')], work, log)
 
+    def step_face3d():
+        # the face relief from the 3/4 close-ups, then the profile close-ups have the last word on it (headsil33)
+        run([py, S('face33.py'), img], work, log, ok_codes=(0, 2) if go_on else (0,))
+        run([py, S('headsil33.py'), '--after-face'], work, log)
+
     actions = {
         'check': step_check,
         'cams': lambda: run([py, S('cams33.py'), img], work, log),
@@ -422,7 +427,7 @@ def main(argv=None):
                          run([py, S('mesh33s.py'), 'occ33d.npy', 'body33s.ply'], work, log)),
         'headreg': step_headreg,
         'face': step_face,
-        'face3d': lambda: run([py, S('face33.py'), img], work, log, ok_codes=(0, 2) if go_on else (0,)),
+        'face3d': step_face3d,
         'uv': lambda: run(need_blender() + [S('bl_uv33s.py'), '--', work], work, log),
         'bake': step_bake,
         'export': step_export,
