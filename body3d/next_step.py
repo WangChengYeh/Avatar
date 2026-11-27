@@ -88,10 +88,12 @@ def reached(gates):
 
 
 def progressed(a, b):
-    """run b made progress over run a: fewer FAIL items, or a later gate"""
-    if len(b.get('fail', [])) < len(a.get('fail', [])):
-        return True
-    return a.get('reached') is not None and b.get('reached') is not None and b['reached'] > a['reached']
+    """run b made progress over run a: a later gate, or the same gate with fewer FAIL items. Stopping at an earlier
+    gate is not progress, however few items fail there (gate 2 with 3 FAILs -> gate 1 with 1)"""
+    ra, rb = a.get('reached'), b.get('reached')
+    if ra is not None and rb is not None and ra != rb:
+        return rb > ra
+    return len(b.get('fail', [])) < len(a.get('fail', []))
 
 
 def stuck(runs):
@@ -200,12 +202,14 @@ def wait_budget(state, hb_path, fixed=None):
         survived = max(0.0, hb.get('beat', hb['started']) - hb['started'])
         if survived >= WAIT_MIN:                       # sooner than that is a person stopping it, not a time limit
             w['killed_after'] = round(min(survived, w.get('killed_after', survived)), 1)
-    elif hb and hb.get('full') and not w.get('killed_after'):
+    elif hb and hb.get('full') and not w.get('killed_after') and not fixed:
         w['budget'] = min(WAIT_MAX, round(1.5 * hb.get('budget', WAIT_FIRST)))
     budget = fixed if fixed else w.get('budget', WAIT_FIRST)
     if w.get('killed_after') is not None:
         budget = min(budget, 0.7 * w['killed_after'])
-    w['budget'] = budget = int(max(WAIT_MIN, min(WAIT_MAX, budget)))
+    budget = int(max(WAIT_MIN, min(WAIT_MAX, budget)))
+    if not fixed:                                      # --wait N is for this call: what was learned stays
+        w['budget'] = budget
     return budget
 
 

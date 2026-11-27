@@ -71,6 +71,7 @@ def test_stuck_counts_only_retries_without_progress():
     assert not ns.stuck([run_('a'), run_('b'), run_('c')])                 # no item in all three
     assert not ns.stuck([run_('ab'), run_('ab'), run_('abx', 2)])          # got to a later gate: progress
     assert ns.stuck([run_('a'), run_('ab'), run_('abc')])                  # worse is not progress
+    assert ns.stuck([run_('abc', 2), run_('ac', 1), run_('ac', 1)])         # back at an earlier gate: not progress
 
 
 def test_stuck_caps_at_five_runs():
@@ -253,6 +254,8 @@ def test_wait_budget_learns_the_sandbox_limit(tmp_path):
     json.dump(dict(started=0, beat=140, budget=140, done=True, full=True), open(hb, 'w'))
     assert ns.wait_budget(state, hb) == 140                                         # a known limit: no growing back
     assert ns.wait_budget({}, str(tmp_path / 'none.json'), fixed=30) == ns.WAIT_MIN  # --wait 0.5: at least a minute
+    learned = dict(wait=dict(budget=450))
+    assert ns.wait_budget(learned, str(tmp_path / 'none.json'), fixed=120) == 120 and learned['wait']['budget'] == 450
     stopped = {}
     json.dump(dict(started=0, beat=3, budget=300, done=False, full=False), open(hb, 'w'))
     assert ns.wait_budget(stopped, hb) == ns.WAIT_FIRST and 'killed_after' not in stopped['wait']   # stopped by hand
