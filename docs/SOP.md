@@ -182,7 +182,7 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 - [ ] AI 逐項看過需複核（WARN），記在 Issue。
 - [ ] AI 在 Three.js／Yoga2 匯入 GLB，比對 0°／90°／180°（有疑點加 45°／315° 與特寫），並測站姿與抬手（README 的 Loop engineering 第 1 步）。
 
-交付內容：雲端硬碟上那個版本的資料夾（四個好的結果包）、`client/` 整個資料夾、Yoga2 站姿／抬手截圖。在 Issue 寫上雲端硬碟的路徑、驗收總表與前後對照圖（不貼人物照片），關閉 Issue。
+交付內容：雲端硬碟上那個版本的資料夾（四個好的結果包）、`client/` 整個資料夾、Yoga2 站姿／抬手截圖。在 Issue 寫上雲端硬碟的路徑、驗收總表與前後對照圖（不貼人物照片）。**執行者不關閉 Issue**：Claude 複核交付（結果包、對照圖、WARN）後在 Issue 回覆並關閉；複核不過就留言說明要重做什麼（例：Gemini v006 四關 0 FAIL，但頭部側面糊掉，不能交付）。
 
 ---
 

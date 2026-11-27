@@ -50,7 +50,7 @@ next_step 產生的 issue 已經帶好標題前綴、label 與第一行。人在
 
 | Agent | 負責 | 在 GitHub 上做什麼 |
 | --- | --- | --- |
-| **Claude** | SOP 與程式的擁有者：寫 SOP、寫程式、code review、處理升級的 issue | 開 PR、review、合併到 main；回覆並關閉 issue |
+| **Claude** | SOP 與程式的擁有者：寫 SOP、寫程式、code review、處理升級的 issue | 開 PR、review、合併到 main；回覆並關閉 issue（所有 issue 都由 Claude 關閉，包括交付的 issue：複核過才關） |
 | **ChatGPT** | 執行者：照 SOP 開發自己的 avatar（`avatar/chatgpt/avatar_001`…）：生圖、跑流程、照診斷修圖或改程式 | 從 main 取 SOP 與程式；程式改動開 PR 給 Claude review；處理不掉的發 issue |
 | **Gemini** | 執行者：照 SOP 開發自己的 avatar（`avatar/gemini/avatar_001`…，同上） | 同上 |
 
