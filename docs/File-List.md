@@ -11,6 +11,7 @@
 | 檔案 | 誰讀 | 內容 |
 | --- | --- | --- |
 | [docs/Handoff.md](Handoff.md) | Claude（每個新 session 先讀） | 還沒做完的事：下一步、在哪裡 |
+| [docs/papers/](papers/)（[網站](https://wangchengyeh.github.io/Avatar/)） | 所有人 | 技術報告：每個難題一篇，理論與量測 |
 | [docs/SOP.md](SOP.md) | 所有人 | 四個階段、四道關卡、可以交付了嗎 |
 | [docs/Agent-Runbook.md](Agent-Runbook.md) | ChatGPT、Gemini | 反覆跑 next_step、每個狀態怎麼做、什麼時候可以停 |
 | [AGENTS.md](../AGENTS.md)／[GEMINI.md](../GEMINI.md) | ChatGPT／Gemini | 自動讀到的入口，指向 runbook |
