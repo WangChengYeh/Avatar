@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.44.0（2026-11-27）
+版本 1.45.0（2026-11-27）
 
 版本紀錄:
+  1.45.0 「頭部特寫相鄰一致」門檻收緊為 > 6 WARN、> 8 FAIL（完美照片 1–5）：ChatGPT R54 每一組 8–13，側面臉仍糊，
+         舊門檻只給 WARN。整圈都對不上時（5 張以上）改叫整組 8 張一次重畫，不再一張張補。
   1.44.0 烘焙前新增「頭部特寫相鄰一致」：相鄰 45° 的兩張頭部特寫在同一塊皮膚上的亮度差中位數，> 8 WARN、> 12 FAIL，
          並列出要重畫的特寫（Gemini v003、ChatGPT R52 側面臉糊成一塊：相鄰特寫的臉頰、下巴畫得不一樣）。
   1.43.0 第 10i 項分開身體與手臂：手臂只用正面與俯視照重建（arms33），斜角照不切手臂；外殼切割只算身體（≤ 3% 通過、> 6% FAIL，
@@ -291,7 +293,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.44.0'
+__version__ = '1.45.0'
 import numpy as np
 import cv2
 
@@ -2373,8 +2375,20 @@ def report_face_reconstruction(work, cameras, landmarks, photo_height):
 # Where two close-ups disagree, the bake joins them on the cheek / jaw and the finished head shows a smeared face at
 # 45–90° (Gemini avatar_001 v003, ChatGPT R52), although the frontal and the outline look right.
 # Calibrated (trimmed head, headsil33): perfect photos 1–4 / 255, synth_c 3–5;
-# Gemini v003 13–17, R52 10–18. Back pairs (135/180, 180/225) see little skin: counted only with enough samples.
-HEAD_PAIR_PASS, HEAD_PAIR_FAIL, HEAD_PAIR_MIN = 8.0, 12.0, 300
+# Gemini v003 10–17, R52 7–18, R54 8–13 (all smeared at the side). Back pairs (135/180, 180/225) see little skin:
+# counted only with enough samples.
+HEAD_PAIR_PASS, HEAD_PAIR_FAIL, HEAD_PAIR_MIN = 6.0, 8.0, 300
+
+
+def head_pair_advice(n_redo):
+    """how to redraw the close-ups that disagree: one or two -> match the neighbours; most of the ring -> the whole
+    ring at once from one reference (R54: three redrawn one by one, every pair still 8-13)"""
+    if n_redo >= 5:
+        return ('整圈特寫彼此都對不上（不是一兩張的問題）：不要一張張補，整組 8 張一次重畫：同一個人、同一個光源方向'
+                '（固定在人身上，不跟著鏡頭轉）、同一個膚色與曝光；以 head_000deg 為準，每張都是同角度全身圖頭部的 4 倍放大，'
+                '臉頰、下巴、耳朵在相鄰兩張裡的位置和形狀一致')
+    return ('相鄰角度的特寫把臉頰、下巴畫得不一樣（位置、形狀或明暗），烘焙後側面會糊成一塊；'
+            '照同角度全身圖頭部的 4 倍放大重畫，和相鄰兩張的臉一致')
 
 
 def report_head_pairs(folder, work, cameras):
@@ -2414,7 +2428,7 @@ def report_head_pairs(folder, work, cameras):
             bad[(a, b)] = status
         failed |= status == FAIL
         print(f'[{status}] {label}：同一塊皮膚的亮度差中位數 {diff:.1f} / 255（{common.sum()} 點，'
-              f'應 ≤ {HEAD_PAIR_PASS:g}，> {HEAD_PAIR_FAIL:g} 判 FAIL；完美照片 1–2）')
+              f'應 ≤ {HEAD_PAIR_PASS:g}，> {HEAD_PAIR_FAIL:g} 判 FAIL；完美照片 1–5）')
     if bad:
         worst = {k: v for k, v in bad.items() if v == FAIL} or bad
         count = {}
@@ -2422,8 +2436,7 @@ def report_head_pairs(folder, work, cameras):
             count[a] = count.get(a, 0) + 1; count[b] = count.get(b, 0) + 1
         shared = [a for a in sorted(count) if count[a] >= 2]      # in two disagreeing pairs: this one is off
         redo = [f'head_{a:03d}deg' for a in (shared or sorted(count))]
-        print(f'  → 要重畫的頭部特寫：{"、".join(redo)}。相鄰角度的特寫把臉頰、下巴畫得不一樣（位置、形狀或明暗），'
-              f'烘焙後側面會糊成一塊；照同角度全身圖頭部的 4 倍放大重畫，和相鄰兩張的臉一致')
+        print(f'  → 要重畫的頭部特寫：{"、".join(redo)}。{head_pair_advice(len(redo))}')
     return failed
 
 

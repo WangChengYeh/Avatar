@@ -56,8 +56,11 @@ def auto_reason(diagnosis, progress, gates):
         return REASONS[0]
     g = (gates or {}).get('gates', {})
     first_fail = next((k for k, v in g.items() if v['FAIL']), None)
-    if first_fail and first_fail[0] in '34' and all(v['FAIL'] == 0 for k, v in g.items() if k[0] < first_fail[0]):
-        return REASONS[2]                              # caught late, nothing earlier caught it (R17)
+    late = [d for d in diagnosis or [] if str(d.get('gate')) == first_fail[0] and d.get('owner') == '照片'] if first_fail else []
+    if first_fail and first_fail[0] in '34' and all(v['FAIL'] == 0 for k, v in g.items() if k[0] < first_fail[0]) \
+            and not late:
+        return REASONS[2]                              # caught late, nothing earlier caught it (R17); a late FAIL the
+                                                       # diagnosis traces to named photos goes back to the AI (R54)
     if g and not diagnosis and any(v['FAIL'] for v in g.values()):
         return REASONS[0]
     return None

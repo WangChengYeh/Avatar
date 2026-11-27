@@ -42,7 +42,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.19.1'
+__version__ = '2.20.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
@@ -155,6 +155,7 @@ def main(argv=None):
         try:
             import diagnose as dz
             leaves = (dz.diagnose_photo_fails(fails.get('1 照片檢查', [])) if gate == 1
+                      else dz.diagnose_fit(out) if gate == 4
                       else dz.diagnose_prebake(img, work, fails.get('2 烘焙前檢查', [])))
         except Exception as error:                     # the diagnosis must never hide the gate's own result
             print(f'     診斷樹失敗：{error}')
@@ -394,6 +395,8 @@ def main(argv=None):
         tally('4 最終驗收')
         txt = open(log, errors='replace').read().split('\n$ ')[-1]
         print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]', '總結'))))
+        if rc:                                       # the worst views go on the AI retouch request (R54 escalated without one)
+            diagnose(4)
         if rc and not go_on:
             raise RuntimeError('成品與原圖剪影差異太大（見 fit_report.json）：先修正照片（第 10 / 10d / 10e 項）')
         if rc:

@@ -199,7 +199,7 @@ def head_pair_leaves(fail_lines):
     return [leaf('頭部特寫相鄰一致', ['關卡 2 烘焙前檢查', '相鄰兩張頭部特寫在同一塊皮膚上不一致',
                  f'不一致的組：{"、".join(f"{a}°/{b}°" for a, b in pairs)}'],
                  '相鄰角度的頭部特寫把臉頰、下巴畫得不一樣（位置、形狀或明暗），烘焙後側面糊成一塊', '照片',
-                 '重畫：' + '、'.join(names) + '。照同角度全身圖頭部的 4 倍放大，臉頰、下巴、耳朵的位置和相鄰兩張特寫一致',
+                 '重畫：' + '、'.join(names) + '。' + ct.head_pair_advice(len(names)),
                  '高', {'pairs': ['/'.join(p) for p in pairs]})]
 
 
@@ -257,6 +257,59 @@ def diagnose_prebake(photos, work, fail_lines=None):
         out.append(leaf('全身／頭部一致性', ['關卡 2', '1–3 都沒有超過門檻'], '五官位置在門檻附近或亮度造成', '程式',
                         '看亮度差（P90）與疊圖', '低', ev))
     return out
+
+
+# ---- gate 4: the finished body against the full-body photos (fit_report.json)
+FIT_LIST = 6                           # the worst views go on the retouch request; the rest are counted
+
+
+def fit_direction(row):
+    """what the extra / missing pixels say about one view (extra: the model outside the photo's outline; missing:
+    the person in the photo where the model is not)"""
+    ex, mi = row.get('extra', 0), row.get('missing', 0)
+    if ex > 1.5 * mi:
+        return ('模型超出這張照片的輪廓：照片上的人比其他角度畫得瘦、小，或位置偏了',
+                '人物的大小、位置照規格（畫面寬 1.95 m、對準身體中心），身體和手臂的粗細和其他角度一致')
+    if mi > 1.5 * ex:
+        return ('這張照片上的人有一部分模型沒有：照片畫得比其他角度胖、大，或手臂／腳伸到別的位置，重建時被其他照片切掉',
+                '把人物畫在其他角度看得到的範圍裡：大小、手臂和腳的位置與水平環一致，不要畫得比其他角度寬')
+    return ('多出與缺少差不多：人物的位置、姿勢或比例和其他角度對不上（不是單純大小）',
+            '照規格相機重畫：人物置中、T-pose 手臂水平、腳的位置與水平環一致')
+
+
+def diagnose_fit(out):
+    """gate 4 FAIL: the finished body misses the full-body photos. The worst views are the photos to redraw (the hull
+    is carved by all of them, so one inconsistent photo cuts the body that the others see)."""
+    try:
+        rep = json.load(open(os.path.join(out, 'fit_report.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    if rep.get('level') != 'FAIL':
+        return []
+    import fit_report
+    rows = sorted(rep.get('rows', []), key=lambda r: -r['xor'])
+    over = [r for r in rows if r['xor'] > fit_report.VIEW_WARN]
+    pick = over[:FIT_LIST] or rows[:3]
+    diag = [r for r in rows if re.search(r'_(045|135|225|315)deg', r['view'])]
+    rest = [r for r in rows if r not in diag]
+    note = ''
+    if diag and rest and np.mean([r['xor'] for r in diag]) > 1.3 * np.mean([r['xor'] for r in rest]):
+        level = '、'.join('%s %.0f%%' % (r['view'], 100 * r['xor']) for r in diag if r.get('kind') == 'main')
+        note = ('。斜 45° 的角度（045 / 135 / 225 / 315）在每一環都最差' + (f'，水平環的斜角圖也偏（{level}）' if level else '')
+                + '：斜角環和水平環對不上，外殼在斜角被切掉。斜角照要照水平環畫（參考圖的綠線）')
+    more = len(over) - len(pick)
+    if more > 0:
+        note += f'。另外 {more} 張也超過 {100 * fit_report.VIEW_WARN:.0f}%：先修這 {len(pick)} 張，重跑後再看'
+    out_ = []
+    for r in pick:
+        cause, how = fit_direction(r)
+        out_.append(leaf(f'最終剪影 {r["view"]}', ['關卡 4 最終驗收', f'平均不一致 {100 * rep["mean"]:.1f}% > 10%',
+                         f'{r["view"]} 不一致 {100 * r["xor"]:.1f}%（單張應 ≤ {100 * fit_report.VIEW_WARN:.0f}%）'],
+                         cause + (note if r is pick[0] else ''), '照片', f'重畫 {r["view"]}：{how}', '中',
+                         dict(xor_percent=round(100 * r['xor'], 1), extra_px=r['extra'], missing_px=r['missing'],
+                              mean_percent=round(100 * rep['mean'], 1),
+                              other_views_over=more if more > 0 else 0)))
+    return out_
 
 
 def main(argv=None):
