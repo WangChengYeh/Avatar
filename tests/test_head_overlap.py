@@ -248,3 +248,41 @@ def test_head_pairs_name_the_close_up_that_disagrees(tmp_path, capsys):
     import diagnose
     leaf, = diagnose.head_pair_leaves(failed)
     assert leaf['owner'] == '照片' and leaf['action'].startswith('重畫：head_090deg。'), leaf
+
+
+def test_whole_ring_disagreeing_asks_for_one_redraw_of_all():
+    import diagnose
+    fails = [f'[FAIL] 頭部特寫相鄰一致 head_{a:03d}deg / head_{(a + 45) % 360:03d}deg：x' for a in range(0, 360, 45)]
+    leaf, = diagnose.head_pair_leaves(fails)
+    assert leaf['action'].count('head_') >= 8 and '整組 8 張一次重畫' in leaf['action'], leaf
+    assert '整組' not in checker.head_pair_advice(1)
+
+
+def _fit_out(tmp_path, xors, level='FAIL'):
+    names = ['01_000deg_front', '02_045deg_front_left', '03_090deg_left', '04_135deg_back_left',
+             'el30_000deg', 'el30_135deg', 'low20_045deg', 'low20_090deg']
+    rows = [dict(view=n, kind='main' if n[0].isdigit() else n[:4].rstrip('_'), extra=e, missing=m, xor=x)
+            for n, (x, e, m) in zip(names, xors)]
+    json.dump(dict(level=level, mean=sum(r['xor'] for r in rows) / len(rows), rows=rows),
+              open(tmp_path / 'fit_report.json', 'w'))
+    return tmp_path
+
+
+def test_fit_fail_names_the_worst_views(tmp_path):
+    import diagnose
+    out = _fit_out(tmp_path, [(0.09, 10, 10), (0.13, 20, 20), (0.08, 9, 9), (0.14, 30, 10),
+                              (0.10, 5, 5), (0.27, 48, 62), (0.23, 51, 8), (0.09, 4, 4)])
+    leaves = diagnose.diagnose_fit(str(out))
+    assert [d['item'] for d in leaves] == ['最終剪影 el30_135deg', '最終剪影 low20_045deg', '最終剪影 04_135deg_back_left',
+                                           '最終剪影 02_045deg_front_left'], leaves
+    assert all(d['owner'] == '照片' and d['confidence'] == '中' and d['stage'] == 1 for d in leaves)
+    assert leaves[0]['action'].startswith('重畫 el30_135deg：') and '超出' in leaves[1]['cause']
+    assert '斜 45°' in leaves[0]['cause']                     # the diagonals are worst in every ring
+    import ai_request
+    assert ai_request.photos_of(leaves[2]) == ['04_135deg_back_left']
+
+
+def test_fit_pass_has_no_leaves(tmp_path):
+    import diagnose
+    assert diagnose.diagnose_fit(str(_fit_out(tmp_path, [(0.05, 1, 1)] * 8, 'PASS'))) == []
+    assert diagnose.diagnose_fit(str(tmp_path / 'missing')) == []

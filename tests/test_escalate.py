@@ -10,6 +10,9 @@ def test_auto_reason():
     assert escalate.auto_reason([dict(confidence='低')], {}, g(1)) == escalate.REASONS[0]
     assert escalate.auto_reason([], {}, g(0, 0, 0, 1)) == escalate.REASONS[2]                        # R17: only stage 4
     assert escalate.auto_reason([dict(confidence='高')], {}, g(2)) is None                            # fix it yourself
+    fit = [dict(gate=4, owner='照片', confidence='中')]                       # R54: stage 4 traced to named photos
+    assert escalate.auto_reason(fit, {}, g(0, 0, 0, 1)) is None                                      # -> the retouch request
+    assert escalate.auto_reason([dict(gate=4, owner='程式', confidence='中')], {}, g(0, 0, 0, 1)) == escalate.REASONS[2]
 
 
 def test_body(tmp_path):

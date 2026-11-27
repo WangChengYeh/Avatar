@@ -198,7 +198,7 @@ def make(photos, out, leaves):
         for d in ds:
             lines += [f'- **問題**：{d["cause"]}（{d["item"]}，信心{d["confidence"]}）', f'- **怎麼修**：{d["action"]}']
             ev = d.get('evidence', {})
-            nums = {k: v for k, v in ev.items() if k in ('dy_relative_mm', 'photo_11c_dy_mm', 'line')}
+            nums = {k: v for k, v in ev.items() if k in ('dy_relative_mm', 'photo_11c_dy_mm', 'line', 'xor_percent', 'extra_px', 'missing_px')}
             if nums:
                 lines.append('- **量到的數字**：' + '；'.join(f'{k} = {v}' for k, v in nums.items()))
         if re.match(r'(el30|low20)_\d{3}deg$', p):
