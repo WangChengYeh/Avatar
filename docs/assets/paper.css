@@ -92,6 +92,8 @@ td:first-child, th:first-child { padding-left: 0.1rem; }
 .status-solved, .status-concluded { color: var(--ok); }
 .status-mitigated { color: var(--warn); }
 .status-open { color: var(--bad); }
+.status-draft { color: var(--ink-3); font-weight: 400; }
+.draft-note { font-family: var(--sans); font-size: 0.86rem; color: var(--ink-2); border-left: 3px solid var(--rule); padding: 0.2rem 0 0.2rem 0.9rem; margin: 1.4rem 0 0; }
 .abstract { margin: 1.6rem 0 0; padding: 0.4rem 1.2rem 0.6rem; background: var(--wash); border-radius: 4px; }
 .abstract h2 { border: 0; margin: 0.6rem 0 0; padding: 0; font-size: 0.82rem; letter-spacing: 0.2em; color: var(--ink-2); }
 .abstract p { margin: 0.4rem 0 0.6rem; }
