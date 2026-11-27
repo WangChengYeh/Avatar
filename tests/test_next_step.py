@@ -131,6 +131,10 @@ def test_issue_points_at_the_drive(tmp_path):
     assert '雲端硬碟 `avatar/chatgpt/avatar_001/v001`' in issue and 'releases' not in issue
     where, files = ns.drive_files(str(ws))
     assert where == 'avatar/chatgpt/avatar_001/v001' and 'gates.json' in files and 'next_step.md' in files
+    assert not [f for f in files if f.endswith('.glb')]                     # no model yet
+    for f in ('body_rigged.glb', 'body_rigged_lit.glb'):
+        (ws / 'v001' / 'output' / f).write_bytes(b'glTF')
+    assert [f for f in ns.drive_files(str(ws))[1] if f.endswith('.glb')] == ['body_rigged.glb']   # the unlit one
     state = {}
     ns.auto_publish(str(ws), state)
     assert 'published' not in state and 'publish_error' not in state
