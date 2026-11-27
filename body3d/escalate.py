@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REASONS = ['診斷信心低或沒有對應的規則', '同一個 FAIL 修了 2 輪還在', 'SOP 或檢查有缺口（後面才 FAIL，前面沒抓到）',
+REASONS = ['診斷信心低或沒有對應的規則', '同一個 FAIL 重畫 2 輪沒進步', 'SOP 或檢查有缺口（後面才 FAIL，前面沒抓到）',
            '程式出錯、或 AI 改 code 單做不完', 'SOP 互相矛盾或不清楚', '懷疑門檻錯']
 
 

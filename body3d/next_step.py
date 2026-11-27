@@ -35,7 +35,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-REPEAT_ROUNDS = 2                      # the same FAIL item in this many runs in a row -> escalate
+STALL_ROUNDS = 2                       # this many retries in a row without progress, a FAIL item still there -> escalate
+MAX_ROUNDS = 5                         # a FAIL item in this many runs in a row, progress or not -> escalate
 
 
 def load(p, default=None):
@@ -70,6 +71,35 @@ def fail_items(out):
         return []
     text = open(log, encoding='utf-8', errors='replace').read()
     return sorted({m.split(':', 1)[0].strip() for m in re.findall(r'^\s*\[FAIL\]\s*(.*)$', text, re.M)})
+
+
+def reached(gates):
+    """the last gate a run got to (gates.json keys '1 照片檢查' …), None if unknown"""
+    ns = [int(m.group()) for k in (gates or {}).get('gates', {}) for m in [re.match(r'\d+', str(k))] if m]
+    return max(ns) if ns else None
+
+
+def progressed(a, b):
+    """run b made progress over run a: fewer FAIL items, or a later gate"""
+    if len(b.get('fail', [])) < len(a.get('fail', [])):
+        return True
+    return a.get('reached') is not None and b.get('reached') is not None and b['reached'] > a['reached']
+
+
+def stuck(runs):
+    """runs (oldest first, one code) -> the FAIL items that are stuck (empty: none): in every run of the last
+    MAX_ROUNDS, or in every run of the last STALL_ROUNDS retries, none of which made progress"""
+    def common(rs):
+        s = set(rs[0].get('fail', []))
+        for r in rs[1:]:
+            s &= set(r.get('fail', []))
+        return s
+    if len(runs) >= MAX_ROUNDS and common(runs[-MAX_ROUNDS:]):
+        return common(runs[-MAX_ROUNDS:])
+    last = runs[-(STALL_ROUNDS + 1):]
+    if len(last) == STALL_ROUNDS + 1 and not any(progressed(a, b) for a, b in zip(last, last[1:])):
+        return common(last)
+    return set()
 
 
 def gh(*args):
@@ -271,23 +301,19 @@ def decide(ws, avatar, agent, name, template, state):
         # nothing failed but not deliverable: the four gates did not all run (e.g. --only / --from): run it all
         return dict(state='RUN', why=f'{os.path.basename(cur)} 沒有跑完四道關卡（沒有 FAIL，但也還不能交付）：從頭完整跑',
                     steps=next_version_steps(ws, cn + 1, photos, name, template) + [me])
-    # the same FAIL item two runs in a row -> escalate (the executor does not decide this). Only runs of the same
-    # code count: after an update the new SOP gets its own tries (R48: the same photos rerun on new code, with a
-    # new arm reference in the retouch request, escalated before anyone redrew with it)
+    # the same FAIL item, no progress -> escalate (the executor does not decide this). A retry makes progress when it
+    # fails fewer items or gets to a later gate: a small redraw that fixes some photos keeps going (R52: ChatGPT
+    # escalated after fixing 5 of 7). Only runs of the same code count: after an update the new SOP gets its own
+    # tries (R48: the same photos rerun on new code, with a new arm reference, escalated before anyone redrew with it)
     import escalate
     history = state.setdefault('runs', [])
     items = fail_items(out)
     code = made_by.get('hash') or made_by.get('commit')
     if not history or history[-1].get('out') != out:
-        history.append(dict(out=out, photos=photos, fail=items, code=code,
+        history.append(dict(out=out, photos=photos, fail=items, code=code, reached=reached(gates),
                             at=datetime.datetime.now().astimezone().isoformat(timespec='seconds')))
-    same_code = [r for r in history if r.get('code') == code]
-    repeated = set(items)
-    for r in same_code[-REPEAT_ROUNDS:]:
-        repeated &= set(r.get('fail', []))
-    reason = None
-    if len(same_code) >= REPEAT_ROUNDS and repeated:
-        reason = escalate.REASONS[1]
+    repeated = stuck([r for r in history if r.get('code') == code])
+    reason = escalate.REASONS[1] if repeated else None
     reason = reason or escalate.auto_reason(diagnosis, progress, gates)
     first = sorted(diagnosis, key=lambda d: d.get('order', 99))[0] if diagnosis else None
     if not reason and first and first['owner'] == '照片' and os.path.exists(os.path.join(out, 'ai_fix_request', 'AI修圖單.md')):
