@@ -1,0 +1,49 @@
+{%- assign c = page.charts[include.id] -%}
+{%- assign lo = c.min | default: 0 -%}
+{%- assign span = c.max | minus: lo | times: 1.0 -%}
+{%- assign kinds = c.rows | map: "kind" | uniq -%}
+<figure class="viz-root chart" role="group" aria-label="{{ c.title }}">
+<figcaption><strong>圖 {{ c.n }}</strong>　{{ c.title }}</figcaption>
+{%- if kinds.size > 1 %}
+<ul class="legend">
+{%- for k in kinds %}
+<li><span class="sw k-{{ k }}"></span>{{ c.kinds[k] | default: site.chart_kinds[k] }}</li>
+{%- endfor %}
+</ul>
+{%- endif %}
+<div class="rows">
+{%- for r in c.rows -%}
+{%- assign w = r.value | minus: lo | times: 100.0 | divided_by: span -%}
+{%- if r.group %}
+<div class="grp">{{ r.group }}</div>
+{%- endif %}
+<div class="row" title="{{ r.label }}：{{ r.text | default: r.value }}{{ c.unit }}">
+<div class="lab">{{ r.label }}</div>
+<div class="track">
+{%- for m in c.marks -%}
+{%- assign x = m.value | minus: lo | times: 100.0 | divided_by: span -%}
+<i class="mark mark-{{ m.kind }}" style="left:{{ x }}%"></i>
+{%- endfor -%}
+{%- if c.form == "dot" -%}
+{%- if r.to -%}
+{%- assign w2 = r.to | minus: r.value | times: 100.0 | divided_by: span -%}
+<b class="rng k-{{ r.kind }}" style="left:{{ w }}%;width:{{ w2 }}%"></b>
+{%- else -%}
+<b class="dot k-{{ r.kind }}" style="left:{{ w }}%"></b>
+{%- endif -%}
+{%- else -%}
+<b class="bar k-{{ r.kind }}" style="width:{{ w }}%"></b>
+{%- endif -%}
+</div>
+<div class="val">{{ r.text | default: r.value }}{{ c.unit }}</div>
+</div>
+{%- endfor %}
+</div>
+<p class="axis">
+{%- for m in c.marks %}<span class="mk mk-{{ m.kind }}"></span>{{ m.label }}　{% endfor -%}
+橫軸 {{ lo }} 至 {{ c.max }}{{ c.unit }}{% if c.form == "dot" %}（點或線段的位置）{% endif %}
+</p>
+{%- if c.note %}
+<p class="note">{{ c.note }}</p>
+{%- endif %}
+</figure>

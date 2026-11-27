@@ -1,0 +1,20 @@
+title: Avatar 技術報告
+description: 從 33 張 AI 生成的照片重建可動的 3D 人物：每個難題一篇，附理論與量測。
+lang: zh-Hant
+url: https://wangchengyeh.github.io
+baseurl: /Avatar
+repo: https://github.com/WangChengYeh/Avatar
+markdown: kramdown
+kramdown:
+  input: GFM
+  math_engine: mathjax
+  hard_wrap: false
+chart_kinds:
+  ref: 完美照片
+  ai: AI 照片
+  fix: 修正後
+state_names:
+  solved: 已解決
+  mitigated: 已緩解
+  open: 未解決
+  concluded: 已有結論

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}</title>
+<meta name="description" content="{{ page.summary | default: site.description | strip_html | strip_newlines }}">
+<link rel="stylesheet" href="{{ '/assets/paper.css' | relative_url }}">
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+  options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'] }
+};
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</head>
+<body>
+<header class="site-head">
+  <a class="site-title" href="{{ '/' | relative_url }}">{{ site.title }}</a>
+  <nav><a href="{{ '/' | relative_url }}">目錄</a><a href="{{ site.repo }}">GitHub</a></nav>
+</header>
+<main>
+{{ content }}
+</main>
+<footer class="site-foot">
+  <p>Avatar 專案 · 程式與文件在 <a href="{{ site.repo }}">GitHub</a> · 本站不含人物照片；圖表由量測數字繪製。</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,31 @@
+---
+layout: default
+---
+{%- assign papers = site.pages | where: "layout", "paper" | sort: "number" -%}
+{%- for p in papers -%}{%- if p.number == page.number -%}{%- assign here = forloop.index0 -%}{%- endif -%}{%- endfor -%}
+{%- assign prev_i = here | minus: 1 -%}
+{%- assign next_i = here | plus: 1 -%}
+<article class="paper">
+<header class="paper-head">
+  <p class="kicker"><a href="{{ '/' | relative_url }}">Avatar 技術報告</a> · 第 {{ page.number }} 篇</p>
+  <h1>{{ page.title }}</h1>
+  {%- if page.subtitle %}
+  <p class="subtitle">{{ page.subtitle }}</p>
+  {%- endif %}
+  <p class="meta">Claude（Avatar 專案的 SOP 與程式維護者）· {{ page.date_text }} · 對應程式 {{ page.version }}</p>
+  <p class="meta">狀態：<span class="status status-{{ page.state }}">{{ site.state_names[page.state] }}</span>　{{ page.status }}</p>
+  <section class="abstract">
+    <h2>摘要</h2>
+    {{ page.abstract | markdownify }}
+  </section>
+</header>
+{{ content }}
+<nav class="pager">
+  {%- if prev_i >= 0 %}{% assign p = papers[prev_i] %}
+  <a class="prev" href="{{ p.url | relative_url }}"><span>上一篇</span>{{ p.number }}　{{ p.title }}</a>
+  {%- else %}<span></span>{% endif %}
+  {%- if next_i < papers.size %}{% assign p = papers[next_i] %}
+  <a class="next" href="{{ p.url | relative_url }}"><span>下一篇</span>{{ p.number }}　{{ p.title }}</a>
+  {%- endif %}
+</nav>
+</article>
