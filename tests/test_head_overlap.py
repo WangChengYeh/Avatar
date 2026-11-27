@@ -206,3 +206,45 @@ def test_bilateral_spans_use_one_visible_eye_from_each_side(capsys):
 def test_dimension_sizes_are_diagnostic_only(label, pixels, fraction, calibrated):
     """#28: MediaPipe on 3/4 close-ups against the silhouette-built face differs by up to 29 % on perfect photos"""
     assert checker.dimension_status(label, pixels, fraction, calibrated) == 'INFO'
+
+
+def _head_ring(tmp_path, odd=None):
+    """a 9 cm cylinder 'head' seen by the 8 close-ups; skin luma 170 everywhere, the `odd` close-up drawn with stripes"""
+    work = tmp_path / 'work'
+    work.mkdir()
+    a, y = np.meshgrid(np.linspace(0, 2 * np.pi, 97)[:-1], np.linspace(1.40, 1.66, 40))
+    pos = np.column_stack((0.09 * np.sin(a).ravel(), y.ravel(), 0.09 * np.cos(a).ravel()))
+    nrm = np.column_stack((np.sin(a).ravel(), np.zeros(a.size), np.cos(a).ravel()))
+    i = np.arange(96)[None, :] + 96 * np.arange(39)[:, None]
+    j = (i % 96 + 1) % 96 + i // 96 * 96
+    tri = np.concatenate([np.stack([i, j, i + 96], -1).reshape(-1, 3), np.stack([j, j + 96, i + 96], -1).reshape(-1, 3)])
+    np.savez(work / 'uvmesh.npz', pos=pos, nrm=nrm, tri=tri)
+    cameras = {}
+    for angle in range(0, 360, 45):
+        name = f'head_{angle:03d}deg'
+        image = np.full((512, 512), 170, np.uint8)
+        if angle == odd:
+            image[(np.arange(512) // 20) % 2 == 1] = 120
+        assert cv2.imwrite(str(tmp_path / f'{name}.jpg'), image)
+        assert cv2.imwrite(str(work / f'mask_{name}.png'), np.full_like(image, 255))
+        cameras[name] = dict(phi=angle, th=0, s=1600, cu=256, cv=2700, kind='head')
+    return work, cameras
+
+
+def test_head_pairs_pass_when_the_close_ups_agree(tmp_path, capsys):
+    work, cameras = _head_ring(tmp_path)
+    assert not checker.report_head_pairs(tmp_path, work, cameras)
+    out = capsys.readouterr().out
+    assert len(lines(out, 'PASS')) == 8 and not lines(out, 'FAIL'), out
+
+
+def test_head_pairs_name_the_close_up_that_disagrees(tmp_path, capsys):
+    work, cameras = _head_ring(tmp_path, odd=90)
+    assert checker.report_head_pairs(tmp_path, work, cameras)
+    out = capsys.readouterr().out
+    failed = lines(out, 'FAIL')
+    assert len(failed) == 2 and all('head_090deg' in line for line in failed), out
+    assert '要重畫的頭部特寫：head_090deg。' in out, out
+    import diagnose
+    leaf, = diagnose.head_pair_leaves(failed)
+    assert leaf['owner'] == '照片' and leaf['action'].startswith('重畫：head_090deg。'), leaf

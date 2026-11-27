@@ -184,12 +184,35 @@ def photo_face_offsets(photos):
     return {a: tuple(float(v) for v in off[a] - off[0]) for a in (45, 315)}
 
 
-def diagnose_prebake(photos, work):
+def head_pair_leaves(fail_lines):
+    """'頭部特寫相鄰一致 head_045deg / head_090deg' FAILs: two neighbouring close-ups disagree on the cheek / jaw. The
+    close-up in two disagreeing pairs is the one to redraw (both of a pair when no close-up is in two)."""
+    pairs = [re.findall(r'head_(\d{3})deg', l)[:2] for l in fail_lines if '頭部特寫相鄰一致' in l]
+    pairs = [p for p in pairs if len(p) == 2]
+    if not pairs:
+        return []
+    count = {}
+    for a, b in pairs:
+        count[a] = count.get(a, 0) + 1; count[b] = count.get(b, 0) + 1
+    redo = [a for a in sorted(count) if count[a] >= 2] or sorted(count)
+    names = [f'head_{a}deg' for a in redo]
+    return [leaf('頭部特寫相鄰一致', ['關卡 2 烘焙前檢查', '相鄰兩張頭部特寫在同一塊皮膚上不一致',
+                 f'不一致的組：{"、".join(f"{a}°/{b}°" for a, b in pairs)}'],
+                 '相鄰角度的頭部特寫把臉頰、下巴畫得不一樣（位置、形狀或明暗），烘焙後側面糊成一塊', '照片',
+                 '重畫：' + '、'.join(names) + '。照同角度全身圖頭部的 4 倍放大，臉頰、下巴、耳朵的位置和相鄰兩張特寫一致',
+                 '高', {'pairs': ['/'.join(p) for p in pairs]})]
+
+
+def diagnose_prebake(photos, work, fail_lines=None):
+    """fail_lines: the pre-bake check's [FAIL] lines; None = the head / body consistency tree only (older callers)"""
     photos, work = Path(photos), Path(work)
+    pair = head_pair_leaves(fail_lines or [])
+    if fail_lines is not None and all('頭部特寫相鄰一致' in l for l in fail_lines):
+        return pair                                   # nothing else failed: no face-residual tree
     res, cams = face_residuals(photos, work)
-    out = []
+    out = list(pair)
     if 0 not in res or 45 not in res or 315 not in res:
-        return [leaf('全身／頭部一致性', ['關卡 2 烘焙前檢查', '量不到 0° / 45° / 315° 的五官'], '五官偵測失敗', '程式',
+        return pair + [leaf('全身／頭部一致性', ['關卡 2 烘焙前檢查', '量不到 0° / 45° / 315° 的五官'], '五官偵測失敗', '程式',
                      'AI 改程式：檢查臉部特徵點步驟（face_landmarks / face33）', '低', {'measured': list(res)})]
     s = cams[FULL[45]]['s']
     r0 = (res[0][0] - BASE_DX, res[0][1] - BASE_DY)
@@ -230,7 +253,7 @@ def diagnose_prebake(photos, work):
         else:
             out.append(leaf(f'全身／頭部一致性 {a}° 上下', ['關卡 2', '3. 上下偏移 → 是', '3b. 照片沒量到同方向的差 → 程式'],
                             '特寫相機的上下對準或比例不對', '程式', 'AI 改程式：檢查頭部特寫環的上下對準（headreg）', '中', e3))
-    if not out:
+    if len(out) == len(pair):
         out.append(leaf('全身／頭部一致性', ['關卡 2', '1–3 都沒有超過門檻'], '五官位置在門檻附近或亮度造成', '程式',
                         '看亮度差（P90）與疊圖', '低', ev))
     return out

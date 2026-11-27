@@ -221,7 +221,7 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 | 關卡 | 指令（`run_all.py` 自動執行） | 檢查什麼 |
 | --- | --- | --- |
 | 1 照片檢查 | `check_turnaround.py PHOTOS` | 33 張照片本身：檔名、解析度、構圖、角度、相機距離、對準點、透視、光線、耳朵、臉部比例、頭部朝向、特寫與全身的臉部位置；24 張全身圖一起雕出的外殼（覆蓋、身體切割、斜角照手臂、斜角照是外殼形狀） |
-| 2 烘焙前檢查 | `check_turnaround.py PHOTOS --head-overlap-work WORK` | 重建後的相機與網格：頭部特寫相機角度與對準點、網格落地、全身與特寫的五官位置、頭部重疊區與臉頰亮度 |
+| 2 烘焙前檢查 | `check_turnaround.py PHOTOS --head-overlap-work WORK` | 重建後的相機與網格：頭部特寫相機角度與對準點、網格落地、全身與特寫的五官位置、頭部重疊區與臉頰亮度、相鄰頭部特寫是否一致 |
 | 3 GLB 驗證 | `verify_glb.py OUT/*.glb` | GLB 結構、骨架與蒙皮、身高、無光照材質、頭部貼圖條紋（unlit／lit 兩個檔各驗一次） |
 | 4 最終驗收 | `fit_report.py WORK --accept` | 成品網格投影回 24 張全身原圖的剪影不一致：平均 ≤ 8% PASS、> 10% FAIL；單張 > 12% WARN |
 
@@ -251,6 +251,6 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 ### 已知限制
 
 - MakeHuman 模板（`--template makehuman`）：身體、手指、骨架來自 MakeHuman，頭來自外殼（body3d 2.18 起；之前用 MakeHuman 的通用臉，0°–45° 之間有接縫，R31）。兩組完美照片四道關卡 0 FAIL；四道關卡都 0 FAIL 時可交付。預設仍是外殼流程。
-- 檢查還沒涵蓋照片之間的中間角度（例如 0° 與 45° 之間）與擺姿勢後的貼圖：R31 的臉部接縫是在 App 裡才看到的，現在靠烘焙前的臉頰亮度與五官投影間接抓。
+- 檢查還沒涵蓋照片之間的中間角度（例如 0° 與 45° 之間）與擺姿勢後的貼圖：R31 的臉部接縫是在 App 裡才看到的，現在靠烘焙前的臉頰亮度、五官投影與相鄰頭部特寫一致間接抓。
 - 檢查還沒涵蓋網格自我穿插；Yoga2 看到斑點或摺痕時，先用 Blender 實際渲染確認（`verify_glb --renders` 的頭部圖用點去畫，會冒出假的小點）。
 - Yoga2 的站姿、抬手截圖還沒自動化：由 AI 用瀏覽器開 Yoga2 匯入 GLB 後截圖。

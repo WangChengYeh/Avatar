@@ -17,7 +17,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
    5 round     3D 開運算讓外形圓滑（round33.py）
    6 legs      腿部嚴格雕刻：兩腿之間的外殼殘留（legs33.py）
    7 mesh      Marching cubes + 平滑 + 減面 → body33s.ply（mesh33s.py）
-   8 headreg   頭部特寫相機對位（headreg33.py）
+   8 headreg   頭部特寫相機對位（headreg33.py），再把頭修到 8 張特寫的輪廓（headsil33.py）
    9 face      MediaPipe 臉部特徵點（face_landmarks.py，必要）
   10 face3d    用臉部特徵點對齊 3/4 頭部特寫相機、補出鼻子 / 眼窩（face33.py，必要）
   11 uv        Blender 展 UV（bl_uv33s.py）；--template makehuman：擬合 MakeHuman 人體（mh33.py）
@@ -42,7 +42,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.18.0'
+__version__ = '2.19.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
@@ -155,7 +155,7 @@ def main(argv=None):
         try:
             import diagnose as dz
             leaves = (dz.diagnose_photo_fails(fails.get('1 照片檢查', [])) if gate == 1
-                      else dz.diagnose_prebake(img, work))
+                      else dz.diagnose_prebake(img, work, fails.get('2 烘焙前檢查', [])))
         except Exception as error:                     # the diagnosis must never hide the gate's own result
             print(f'     診斷樹失敗：{error}')
             return
@@ -399,6 +399,14 @@ def main(argv=None):
         if rc:
             print('     成品與原圖剪影差異太大，--force 繼續：成果標 _FAIL')
 
+    def step_headreg():
+        # register the head close-ups on the untrimmed hull, then trim the head to their outlines (headsil33)
+        hull = os.path.join(work, 'body33s_hull.ply')
+        if os.path.exists(hull):
+            shutil.copy(hull, os.path.join(work, 'body33s.ply'))
+        run([py, S('headreg33.py')], work, log)
+        run([py, S('headsil33.py')], work, log)
+
     actions = {
         'check': step_check,
         'cams': lambda: run([py, S('cams33.py'), img], work, log),
@@ -406,9 +414,10 @@ def main(argv=None):
         'arms': lambda: run([py, S('arms33.py'), '0.20'], work, log),
         'round': lambda: run([py, S('round33.py'), 'occ33b.npy', 'occ33c.npy', '3'], work, log),
         'legs': lambda: run([py, S('legs33.py'), 'occ33c.npy', 'occ33d.npy'], work, log),
-        'mesh': lambda: (os.path.exists(os.path.join(work, 'body33s_noface.ply')) and os.remove(os.path.join(work, 'body33s_noface.ply')),
+        'mesh': lambda: ([os.remove(os.path.join(work, f)) for f in ('body33s_noface.ply', 'body33s_hull.ply')
+                          if os.path.exists(os.path.join(work, f))],
                          run([py, S('mesh33s.py'), 'occ33d.npy', 'body33s.ply'], work, log)),
-        'headreg': lambda: run([py, S('headreg33.py')], work, log),
+        'headreg': step_headreg,
         'face': step_face,
         'face3d': lambda: run([py, S('face33.py'), img], work, log, ok_codes=(0, 2) if go_on else (0,)),
         'uv': lambda: run(need_blender() + [S('bl_uv33s.py'), '--', work], work, log),
