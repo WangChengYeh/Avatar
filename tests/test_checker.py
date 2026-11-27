@@ -453,6 +453,7 @@ def test_all_view_hull_coverage(broken):
     rc, out = check(broken)
     assert len([l for l in lines(out, 'PASS') if '全視角外殼覆蓋' in l]) == 8
     assert len([l for l in lines(out, 'PASS') if '外殼切割' in l]) == 16
+    assert len([l for l in lines(out, 'PASS') if '頭部側面特寫鏡像' in l]) == 1          # 11e on the clean set
     for name, dx in (('el30_090deg.jpg', -60), ('el30_270deg.jpg', 60)):     # toward the face in both views
         f = broken / name
         im = cv2.imread(str(f)); h, w = im.shape[:2]
@@ -566,3 +567,21 @@ def test_arm_reference_shows_where_the_arms_belong(broken):
     after = covered(broken)
     assert before > 0.7 and after < before - 0.2, (before, after)
     assert ai_request.arm_reference(str(broken), 'el30_315deg') is not None
+
+
+def test_head_profile_mirror(synth_set):
+    """11e: head_090 and the mirrored head_270 are one outline (orthographic, opposite sides). Gemini avatar_001
+    v010: 0.891, each profile drawn on its own; the side of the face baked in the wrong place"""
+    import check_turnaround as ct
+    m90 = ct.segment(cv2.imread(str(synth_set / 'head_090deg.jpg')))[0]
+    m270 = ct.segment(cv2.imread(str(synth_set / 'head_270deg.jpg')))[0]
+    iou, area = ct.head_profile_mirror(m90, m270)
+    assert iou > 0.99 and abs(area) < 0.01, (iou, area)
+    h, w = m270.shape
+    top = int(np.flatnonzero(m270.any(1))[0])
+    cx = float(np.flatnonzero(m270[top:top + 400].any(0)).mean())
+    big = cv2.warpAffine(m270.astype(np.uint8), np.float32([[1.12, 0, -0.12 * cx], [0, 1.0, 0]]), (w, h))   # 12 % deeper
+    iou2, _ = ct.head_profile_mirror(m90, big)
+    assert iou2 < ct.PROFILE_MIRROR_FAIL, iou2
+    moved = cv2.warpAffine(m270.astype(np.uint8), np.float32([[1, 0, 20], [0, 1, 0]]), (w, h))               # framing only
+    assert ct.head_profile_mirror(m90, moved)[0] > 0.98
