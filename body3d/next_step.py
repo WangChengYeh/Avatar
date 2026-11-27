@@ -275,8 +275,17 @@ def drive_files(ws):
     d = os.path.join(out, 'deliver')
     files = sorted(f for f in os.listdir(d) if f.endswith('.zip')) if os.path.isdir(d) else []
     # the unlit GLB on its own too, so anyone can download a version's model from the Drive without unpacking the
-    # 10-28 MB stage 3 pack
-    glb = sorted(f for f in os.listdir(out) if f.endswith('_rigged.glb'))
+    # 10-28 MB stage 3 pack. Its name carries the version: every version of an avatar makes the same
+    # <name>_rigged.glb, and downloaded side by side they could not be told apart. A copy named
+    # <name>_vNNN_rigged.glb is made next to the packs (output/deliver) for the upload.
+    glb = []
+    for f in sorted(f for f in os.listdir(out) if f.endswith('_rigged.glb')):
+        named = f'{f[:-len("_rigged.glb")]}_v{n:03d}_rigged.glb'
+        src, dst = os.path.join(out, f), os.path.join(d, named)
+        os.makedirs(d, exist_ok=True)
+        if not os.path.exists(dst) or os.path.getmtime(dst) < os.path.getmtime(src):
+            shutil.copy2(src, dst)
+        glb.append(named)
     return drive_dir(ws, n), files + glb + ['gates.json', 'next_step.md']
 
 

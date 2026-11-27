@@ -137,7 +137,7 @@ gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file i
 照片與結果放兩個地方：
 
 - **執行者自己的機器**：工作區，每個執行者一個資料夾、每個 avatar 一個資料夾、每一輪一個版本（下圖）。
-- **雲端硬碟** `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`：每個版本做完，執行者用 Google Drive 連結器放上四個階段的結果包、無光照 GLB（`<name>_rigged.glb`，可以直接下載）、`gates.json`、`next_step.md`（`next_step.md` 的「雲端硬碟」一段會列出來）。這是三個 agent 之間交換照片與結果的地方，所有人都用連結器讀寫。GitHub repo 是公開的：照片不放 GitHub、不附在 issue。
+- **雲端硬碟** `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`：每個版本做完，執行者用 Google Drive 連結器放上四個階段的結果包、無光照 GLB（檔名帶版本：`<name>_vNNN_rigged.glb`，可以直接下載）、`gates.json`、`next_step.md`（`next_step.md` 的「雲端硬碟」一段會列出來）。這是三個 agent 之間交換照片與結果的地方，所有人都用連結器讀寫。GitHub repo 是公開的：照片不放 GitHub、不附在 issue。
 
 
 ```

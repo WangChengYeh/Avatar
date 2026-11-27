@@ -135,7 +135,8 @@ def test_issue_points_at_the_drive(tmp_path):
     assert not [f for f in files if f.endswith('.glb')]                     # no model yet
     for f in ('body_rigged.glb', 'body_rigged_lit.glb'):
         (ws / 'v001' / 'output' / f).write_bytes(b'glTF')
-    assert [f for f in ns.drive_files(str(ws))[1] if f.endswith('.glb')] == ['body_rigged.glb']   # the unlit one
+    assert [f for f in ns.drive_files(str(ws))[1] if f.endswith('.glb')] == ['body_v001_rigged.glb']   # the unlit one,
+    assert (ws / 'v001' / 'output' / 'deliver' / 'body_v001_rigged.glb').read_bytes() == b'glTF'      # named by version
     state = {}
     ns.auto_publish(str(ws), state)
     assert 'published' not in state and 'publish_error' not in state

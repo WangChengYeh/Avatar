@@ -46,7 +46,7 @@
 | `<avatar>/vNNN/output/deliver/{name}_stage1_photos(_FAIL).zip` | 階段 1 結果包 | 照片、檢查報告、AI 修圖單（有 FAIL 時） |
 | `…/{name}_stage2_reconstruction(_FAIL).zip` | 階段 2 | 相機、網格、頭部對照圖 |
 | `…/{name}_stage3_models(_FAIL).zip` | 階段 3 | GLB（unlit／lit）與渲染圖 |
-| `<avatar>/vNNN/output/{name}_rigged.glb` | 無光照 GLB | 跑到第 3 關才有；和結果包一起放上雲端硬碟，可以直接下載 |
+| `<avatar>/vNNN/output/deliver/{name}_vNNN_rigged.glb` | 無光照 GLB（檔名帶版本） | 跑到第 3 關才有；next_step 從 `output/{name}_rigged.glb` 複製出來，和結果包一起放上雲端硬碟，可以直接下載，各版本下載後不會同名 |
 | `…/{name}_stage4_acceptance(_FAIL).zip` | 階段 4 | 成品對原圖的比對、`fit_report.json` |
 | `<avatar>/vNNN/output/client/index.html` | 客戶頁 | 四個階段的進度、要做的事、結果包連結 |
 | `<avatar>/vNNN/output/ai_fix_request/AI修圖單.md` | AI 修圖單 | 照片的問題：哪幾張、怎麼改、參考圖 |
