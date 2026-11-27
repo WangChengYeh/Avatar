@@ -1,6 +1,7 @@
 """Bake body + head textures from all 33 views (orthographic cameras in cams33.json).
 weight = (n . view)^P  x  visibility (z-buffer per view)  x  distance from the photo silhouette edge  x  view weight
-Head close-ups dominate on the head (highest resolution). Unseen texels are filled by diffusion over the surface.
+Head close-ups dominate on the head (highest resolution); the frontal one alone paints the features, its share falling
+smoothly to nothing at the face outline (facemask.py). Unseen texels are filled by diffusion over the surface.
 Memory: the two 4K textures have ~14–17 M texels; per-texel arrays are float32 and every per-view pass runs in
 chunks of CHUNK texels (peak footprint was 8.6 GB before, killed on 9.7 GiB machines)."""
 import json, os, sys
@@ -77,6 +78,7 @@ del N
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera      # orthographic or perspective (c['D']) projection shared by all steps
+import facemask    # the part of the face the frontal close-up owns
 
 
 def remap(img, col, row):
@@ -112,7 +114,7 @@ def load_view(n):
 
 
 VW = {'main': 6.0, 'el30': 1.0, 'low20': 1.0, 'top': 0.5, 'head': 1.0}   # main ring is the best-aligned: it wins where it sees
-HEAD_PRI = {'head_000deg': 6.0, 'head_180deg': 3.0}                       # frontal close-up owns the face features
+HEAD_PRI = {'head_000deg': 6.0, 'head_180deg': 3.0}                       # front and back close-ups win where they see
 PW = 12.0                    # sharp: the most frontal view dominates (blending misaligned AI views ghosts)
 
 
@@ -164,6 +166,7 @@ for n, c in cams.items():
         print(f'gain {n:14s} BGR {np.round(GAIN[n], 3)}  overlap {ov.sum()}')
 
 acc = np.zeros((len(X), 3), np.float32); wsum = np.zeros(len(X)); wconf = np.zeros(len(X), np.float32)
+OWN_I, OWN_W, OWN_C = [], [], []      # texels the frontal close-up owns: index, its share (0-1), its colour
 # the hands (T-pose: past the wrists): a view that looks along the arm sees the hand end-on, in front of the head
 # and body, and a hand that is not exactly where the photo's is (the MakeHuman template hand) takes the hair or the
 # clothes behind it (dark / white fingers with the arms down). Only views that see the hand from the side paint it.
@@ -189,12 +192,10 @@ for n, c in sorted(cams.items()):
     pw = 12.0 if kind == 'head' else PW
     fm = None
     if kind == 'head' and n == 'head_000deg' and os.path.exists(os.path.join(D, 'face_lm33.npy')):
-        # inside the face outline (landmark hull) the frontal close-up owns the texture regardless of the
-        # (noisy) surface normals, so no side close-up can paste a second eye / mouth
-        lmk = np.load(os.path.join(D, 'face_lm33.npy'))[:, :2].astype(np.int32)
-        fm = np.zeros(m.shape, np.uint8); cv2.fillConvexPoly(fm, cv2.convexHull(lmk), 1)
-        fm = cv2.erode(fm, np.ones((61, 61), np.uint8))          # stay inside the face oval (earrings hang just outside)
-        fm = cv2.GaussianBlur(fm.astype(np.float32), (0, 0), 8)
+        # the frontal close-up owns the features (brows, eyes, nose, lips) regardless of the (noisy) surface
+        # normals, so no side close-up can paste a second eye / mouth; its share falls smoothly to nothing at the
+        # face outline (earrings hang just outside), over all the featureless skin in between
+        fm = facemask.owner_mask(np.load(os.path.join(D, 'face_lm33.npy')), m.shape, facemask.PAD * c['s'])
     gain = GAIN.get(n, np.ones(3))[None, :]
     used = 0
     for a0 in range(0, len(X), CHUNK):
@@ -213,7 +214,12 @@ for n, c in sorted(cams.items()):
         if kind == 'head':
             w *= headw                                # close-ups only on the head / upper neck
             if fm is not None:
-                w = w + remap(fm, col, row) * (ndot > 0.2) * vis * inb * 1e3
+                # a share of the final colour, applied after the blend. (Adding it to w as a weight of 1000 made
+                # the hand-over happen in the far tail of the mask, in 2-4 mm: a line down each cheek, Gemini v015)
+                own = remap(fm, col, row) * (ndot > 0.2) * vis * inb
+                ko = np.nonzero(own > 1e-3)[0]
+                OWN_I.append(a0 + ko); OWN_W.append(own[ko].astype(np.float32))
+                OWN_C.append((remap(img, col[ko], row[ko]) * gain).astype(np.float32))
         else:
             w *= 1 - headw                            # full-body views never paint the head (they would win on
                                                       # down-facing spots like under the lip and paste their own lips)
@@ -237,6 +243,13 @@ for n, c in sorted(cams.items()):
     print(f'{n:28s} kind {kind:5s} texels used {used:9d}', flush=True)
 
 colr = (acc / np.maximum(wsum, 1e-30)[:, None]).astype(np.float32); del acc
+if OWN_I:
+    oi = np.concatenate(OWN_I); ow = np.concatenate(OWN_W)[:, None]; oc = np.concatenate(OWN_C)
+    ow = np.where(wsum[oi, None] > 1e-30, ow, 1.0).astype(np.float32)         # nothing else saw it: all frontal
+    colr[oi] = ow * oc + (1 - ow) * colr[oi]
+    wsum[oi] = np.maximum(wsum[oi], 1e-6)
+    print('frontal close-up owns %d texels (share > 0.5: %d)' % (len(oi), int((ow > 0.5).sum())), flush=True)
+    del OWN_I, OWN_W, OWN_C, oi, ow, oc
 conf = (np.clip(wconf / 0.15, 0, 1) * (wsum > 1e-30)).astype(np.float32); del wconf
 print('low-confidence texels: %.1f%%' % (100 * (conf < 0.5).mean()), flush=True)
 

@@ -88,3 +88,47 @@ def test_legs_carves_the_torso_depth_with_the_level_side_views(tmp_path):
     front = res[:, band, :][:, :, zs > 0.112].sum(); back = res[:, band, :][:, :, zs < -0.102].sum()
     assert front == 0, f'{front} voxels of the extra front left'
     assert back > 0, 'the back that one level side photo shows was carved'
+
+
+def _face_landmarks():
+    """468 made-up landmarks in a 2048 px close-up: the outline on an ellipse (143 x 165 mm at 4199 px/m), the
+    features (brows, eyes, nose, lips) inside the part of the face they occupy on a person"""
+    import facemask
+    rng = np.random.default_rng(1)
+    cx, cy, a, b = 1024.0, 1000.0, 300.0, 346.0
+    ang = rng.uniform(0, 2 * np.pi, 468)
+    lm = np.c_[cx + a * np.cos(ang), cy + b * np.sin(ang)]
+    f = np.array(facemask.FEATURE_IDX)
+    lm[f] = np.c_[cx + rng.uniform(-200, 200, len(f)), cy + rng.uniform(-150, 190, len(f))]
+    lm[[70, 300, 291, 61, 17]] = [[cx - 245, cy - 150], [cx + 245, cy - 150], [cx + 105, cy + 150], [cx - 105, cy + 150],
+                                  [cx, cy + 190]]                              # brow tails, mouth corners, lower lip
+    return lm, (cx, cy, a, b)
+
+
+def test_face_owner_mask_is_whole_on_the_features_and_fades_to_the_outline():
+    """bake33: the frontal close-up alone paints the features; its share falls smoothly to nothing at the face
+    outline. Before 2.28.0 the hand-over took 2-4 mm (12 px): a line down each cheek (Gemini avatar_001 v015)"""
+    import facemask
+    lm, (cx, cy, a, b) = _face_landmarks()
+    m = facemask.owner_mask(lm, (2048, 2048), facemask.PAD * 4199)
+    assert m.dtype == np.float32 and 0 <= m.min() and m.max() <= 1
+    for i in facemask.FEATURE_IDX:                                             # every feature is the frontal view's
+        assert m[int(lm[i, 1]), int(lm[i, 0])] > 0.999, i
+    assert m[int(cy), int(cx + a + 5)] == 0 and m[int(cy - b - 5), int(cx)] == 0     # nothing outside the outline
+    assert m[int(cy), int(cx + a - 3)] < 0.01                                  # and next to nothing just inside it
+    row = m[int(cy + 150), int(cx + 105):int(cx + a)]                          # from a mouth corner out over the cheek
+    assert row[0] > 0.999 and row[-1] < 0.05
+    assert (np.diff(row.astype(float)) <= 1e-6).all(), 'the share only falls on the way out'
+    step = np.abs(np.diff(row.astype(float))).max()
+    assert step < 0.03, f'largest change between neighbouring pixels {step:.3f}: the hand-over is a line again'
+    band = ((row > 0.1) & (row < 0.9)).sum() / 4.199                           # mm
+    assert band > 10, f'hand-over band on the cheek {band:.1f} mm'
+
+
+def test_face_owner_mask_without_the_468_point_mesh():
+    """fewer landmarks (another detector): the middle of the outline stands in for the features"""
+    import facemask
+    ang = np.linspace(0, 2 * np.pi, 40, endpoint=False)
+    lm = np.c_[1024 + 300 * np.cos(ang), 1000 + 346 * np.sin(ang)]
+    m = facemask.owner_mask(lm, (2048, 2048), 17)
+    assert m[1000, 1024] > 0.999 and m[1000, 1024 + 305] == 0 and 0.05 < m[1000, 1024 + 200] < 0.95
