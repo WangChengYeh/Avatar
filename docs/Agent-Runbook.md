@@ -39,7 +39,7 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 | RETOUCH | 把 AI 修圖單交給生圖（你自己的生圖工具），重畫指定的照片；開下一個版本 `v(N+1)/photos`，複製整組再覆蓋重畫的，跑 `run_all.py` | 不行 |
 | CODE | 照 AI 改 code 單改程式、開 PR 給 Claude，用 `--waiting-pr N` 登記 | 不行，登記後回第 1 步 |
 | ESCALATE | 用它寫好的內文**自己發 issue**：`gh issue create`，或用 GitHub 連結器（標題 `issue_title.txt`、內文 `issue.md`，寫了這一版在雲端硬碟的路徑，結果包要先放上去）；用 `--waiting-issue N` 登記 | 不行，登記後回第 1 步 |
-| WAITING | 等 Claude 處理 issue／PR；之後再跑第 1 步。Claude 合併了修正（pull 之後程式變了）就不再等，即使 issue 還開著：照新的 SOP 繼續，這一輪跑完照 next_step.md 的「回報」回覆到 issue | **可以** |
+| WAITING | 等 Claude 處理 issue／PR：照它印的指令跑 `next_step.py … --wait`，**程式自己等**（每分鐘檢查一次 GitHub，Claude 的修正一合併就回來給下一步；等不到會在沙盒逾時之前回來，還是 WAITING 就再跑一次同一個指令）。沒有任何東西會主動通知你，只有再跑一次才會再檢查。Claude 合併了修正（pull 之後程式變了）就不再等，即使 issue 還開著：照新的 SOP 繼續，這一輪跑完照 next_step.md 的「回報」回覆到 issue。「vNNN 還在跑」的 WAITING 是等自己的重建跑完（超過 30 分鐘沒動靜會判定被中斷，改叫你重跑） | 等 Claude 時不停：一直跑 `--wait` |
 | DONE | 做交付檢查（看 WARN 記在 Issue、Yoga2 匯入截圖），交付 | **可以** |
 
 ## 規則
@@ -47,7 +47,8 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 - **程式更新了就一定重跑**：每份結果都記錄是哪一版程式跑的（程式內容的指紋，加上 git commit）。最新的結果如果是舊程式跑的（之後 `body3d/` 改過，不管是 next_step 的 UPDATE、你手動 pull、還是別的工具更新的），next_step 一律給 RUN：同一組照片用新程式重跑。只改文件不會重跑。
 - **不用自己記得去 GitHub 抓新的**：next_step 每次都先 `git fetch`，main 比本機新就給 UPDATE（pull、重跑）。Claude 合併的修正（不管是不是為你的 avatar），你下一次跑 next_step 就會拿到。抓不到 GitHub（沒網路）時它照本機的版本繼續，並在 `avatar_state.json` 的 `update_check` 寫原因。
 
-- 只有 **DONE** 和 **WAITING** 可以停下來。其他狀態一律照做、再跑 next_step。
+- 只有 **DONE** 可以停下來。等 Claude 的 **WAITING** 一直跑 `--wait`（見上表）；其他狀態一律照做、再跑 next_step。
+- **`--wait` 一次等多久**：沒有哪個執行環境公布一個指令能跑多久，所以程式自己量。第一次等 5 分鐘；每次順利等完，下一次加長 1.5 倍，最多 20 分鐘；如果某一次等到一半被沙盒砍掉（沒有寫下「完成」），之後每次只等它撐過時間的 70%。也可以自己指定：`--wait 3`（分鐘）。記錄在 avatar 資料夾的 `wait_heartbeat.json` 與 `avatar_state.json` 的 `wait`。
 - 每一版跑完，照 `next_step.md` 的「雲端硬碟」把結果放到 `avatar/<agent>/<avatar_NNN>/vNNN/`：Claude 和人都從那裡看。
 - 不要問人「要繼續嗎」「要不要修」「要不要發 issue」：next_step 已經決定了。要決定的事情（例如同一個 FAIL 重畫 2 輪沒進步要不要升級）它都照[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)的規則判斷好了。
 - 不要改 SOP、門檻、檢查來讓自己過關；不要手動修中間檔（`cams33.json`、網格…）。覺得 SOP 或門檻錯，next_step 會走到 ESCALATE，或你自己發 issue。
@@ -65,7 +66,7 @@ ChatGPT／Gemini 用**聊天介面**時，每回覆一次就結束一輪，不�
 規則：
 1. 每做完一步就跑：python body3d/next_step.py --workspace ~/avatar/AGENT/AVATAR（它每次都會先檢查 GitHub 上有沒有新的 SOP，有就叫你 git pull、重跑）
 2. 照它印出的指令做，做完再跑一次。在同一個回覆裡一直做下去，不要做完一步就結束回覆。
-3. 只有狀態是 DONE 或 WAITING 才可以結束回覆。其他狀態（START、RUN、RETOUCH、CODE、ESCALATE）都不可以停，也不要問我要不要繼續。
+3. 只有狀態是 DONE 才可以結束回覆。WAITING（等 Claude）時照它印的 next_step.py … --wait 一直跑，程式會自己等；其他狀態（START、RUN、RETOUCH、CODE、ESCALATE）都不可以停，也不要問我要不要繼續。
 4. 每一版跑完，照 next_step.md 的「雲端硬碟」用 Google Drive 連結器把結果放到 avatar/AGENT/AVATAR/vNNN/。
 5. 每次結束回覆時，最後貼出 avatar 資料夾裡 next_step.md 的內容。
 6. 如果因為長度或工具限制必須中斷，最後一行寫「未完成：下一步是 <next_step.md 的狀態>」。我回「繼續」時，你直接從 next_step 接著做，不要重新規劃、不要問問題。
@@ -74,4 +75,4 @@ ChatGPT／Gemini 用**聊天介面**時，每回覆一次就結束一輪，不�
 
 用 **agent 模式**（Codex CLI／Codex 雲端、Gemini CLI、ChatGPT agent）時，它們會自動讀 `AGENTS.md`／`GEMINI.md`，通常不需要貼；不確定就照樣貼一次。
 
-人要做的事：一開始貼這段提示詞；agent 停在 WAITING 或「未完成」時回一句「繼續」。
+人要做的事：一開始貼這段提示詞；agent 的回覆被截斷（「未完成」，或等 Claude 等到回合結束）時回一句「繼續」。
