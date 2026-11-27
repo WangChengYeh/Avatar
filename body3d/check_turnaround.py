@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.43.0（2026-11-26）
+版本 1.44.0（2026-11-27）
 
 版本紀錄:
+  1.44.0 烘焙前新增「頭部特寫相鄰一致」：相鄰 45° 的兩張頭部特寫在同一塊皮膚上的亮度差中位數，> 8 WARN、> 12 FAIL，
+         並列出要重畫的特寫（Gemini v003、ChatGPT R52 側面臉糊成一塊：相鄰特寫的臉頰、下巴畫得不一樣）。
   1.43.0 第 10i 項分開身體與手臂：手臂只用正面與俯視照重建（arms33），斜角照不切手臂；外殼切割只算身體（≤ 3% 通過、> 6% FAIL，
          完美照片 ≤ 2.1%）；新增「斜角照手臂」（≤ 40% 通過、> 50% FAIL，完美照片 8–36%）；「斜角照是外殼形狀」改看手臂。
          R33–R41 8 輪覆蓋率 85–89% 沒進步：被切的幾乎全是 3 張斜對角的手臂，修圖單卻只說「重畫切最多的幾張」。
@@ -289,7 +291,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.43.0'
+__version__ = '1.44.0'
 import numpy as np
 import cv2
 
@@ -2366,6 +2368,65 @@ def report_face_reconstruction(work, cameras, landmarks, photo_height):
     return failed
 
 
+# head close-up ring agreement (pre-bake): every two neighbouring close-ups (45° apart) sampled on the same head
+# surface, skin only (hair is drawn differently in every AI image), exposure offset removed; median luma difference.
+# Where two close-ups disagree, the bake joins them on the cheek / jaw and the finished head shows a smeared face at
+# 45–90° (Gemini avatar_001 v003, ChatGPT R52), although the frontal and the outline look right.
+# Calibrated (trimmed head, headsil33): perfect photos 1–4 / 255, synth_c 3–5;
+# Gemini v003 13–17, R52 10–18. Back pairs (135/180, 180/225) see little skin: counted only with enough samples.
+HEAD_PAIR_PASS, HEAD_PAIR_FAIL, HEAD_PAIR_MIN = 8.0, 12.0, 300
+
+
+def report_head_pairs(folder, work, cameras):
+    folder, work = Path(folder), Path(work)
+    try:
+        with np.load(work / 'uvmesh.npz') as mesh:
+            points, normals = head_surface_samples(mesh['pos'], mesh['nrm'], mesh['tri'])
+    except (OSError, KeyError, ValueError) as error:
+        print(f'[WARN] 頭部特寫相鄰一致：讀不到網格（{error}）')
+        return False
+    views = {}
+    for a in range(0, 360, 45):
+        name = f'head_{a:03d}deg'
+        if name not in cameras:
+            continue
+        try:
+            image, mask = read_view(folder, work, name)
+        except ValueError:
+            continue
+        _, _, luma, valid = projected_samples(points, normals, cameras[name], cv2.GaussianBlur(image, (0, 0), 3), mask)
+        facing = np.einsum('ij,ij->i', normals, camera_toward(points, cameras[name])) > 0.5
+        views[a] = (luma, valid & facing & (luma > 120))      # skin, seen at most 60° off
+    failed, bad = False, {}
+    for a in sorted(views):
+        b = (a + 45) % 360
+        if b not in views:
+            continue
+        common = views[a][1] & views[b][1]
+        label = f'頭部特寫相鄰一致 head_{a:03d}deg / head_{b:03d}deg'
+        if common.sum() < HEAD_PAIR_MIN:
+            print(f'[INFO] {label}：共同看到的皮膚太少（{common.sum()} 點），略過')
+            continue
+        delta = views[a][0][common] - views[b][0][common]
+        diff = float(np.median(np.abs(delta - np.median(delta))))
+        status = PASS if diff <= HEAD_PAIR_PASS else WARN if diff <= HEAD_PAIR_FAIL else FAIL
+        if status != PASS:
+            bad[(a, b)] = status
+        failed |= status == FAIL
+        print(f'[{status}] {label}：同一塊皮膚的亮度差中位數 {diff:.1f} / 255（{common.sum()} 點，'
+              f'應 ≤ {HEAD_PAIR_PASS:g}，> {HEAD_PAIR_FAIL:g} 判 FAIL；完美照片 1–2）')
+    if bad:
+        worst = {k: v for k, v in bad.items() if v == FAIL} or bad
+        count = {}
+        for a, b in worst:
+            count[a] = count.get(a, 0) + 1; count[b] = count.get(b, 0) + 1
+        shared = [a for a in sorted(count) if count[a] >= 2]      # in two disagreeing pairs: this one is off
+        redo = [f'head_{a:03d}deg' for a in (shared or sorted(count))]
+        print(f'  → 要重畫的頭部特寫：{"、".join(redo)}。相鄰角度的特寫把臉頰、下巴畫得不一樣（位置、形狀或明暗），'
+              f'烘焙後側面會糊成一塊；照同角度全身圖頭部的 4 倍放大重畫，和相鄰兩張的臉一致')
+    return failed
+
+
 def report_head_overlap(folder, work, overlay_kpis=None, overlay_dir=None):
     folder, work = Path(folder), Path(work)
     try:
@@ -2378,6 +2439,7 @@ def report_head_overlap(folder, work, overlay_kpis=None, overlay_dir=None):
     failed = report_head_yaws(cameras)
     failed |= report_head_ring_aim(cameras)
     failed |= report_mesh_floor(work)
+    failed |= report_head_pairs(folder, work, cameras)
     failed |= report_body_head_pairs(folder, work, cameras, overlay_dir)
     try:
         landmarks = np.load(work / 'face_lm33.npy')
