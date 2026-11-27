@@ -197,3 +197,10 @@ td:first-child, th:first-child { padding-left: 0.1rem; }
 .dg-axis { stroke: var(--ink-2); stroke-width: 1.25; }
 .dg-lim-old { stroke: var(--ink); stroke-width: 1.5; }
 .dg-lim-new { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.dg-cam { fill: var(--series-ref); }
+.dg-frame { fill: var(--surface-1); stroke: var(--ink-2); stroke-width: 1.5; }
+.dg-thick-ref { stroke: var(--series-ref); stroke-width: 5; stroke-linecap: round; }
+.dg-thick-ai { stroke: var(--series-ai); stroke-width: 5; stroke-linecap: round; }
+.dg-strip-ref { fill: var(--series-ref); fill-opacity: 0.3; }
+.dg-outline-ai { fill: none; stroke: var(--series-ai); stroke-width: 2; }
+.dg-bbox { fill: none; stroke: var(--ink-3); stroke-width: 1.25; stroke-dasharray: 3 4; }

@@ -1,0 +1,14 @@
+<figure class="viz-root diagram">
+<svg viewBox="0 0 480 228" role="img" aria-label="去背時每一列拿畫面左右邊緣的顏色當背景；手臂伸到畫面邊緣的那幾列，邊緣其實是手臂，於是手臂和肩膀被當成背景">
+<rect class="dg-frame" x="140" y="15" width="200" height="200"/>
+<rect class="dg-body" x="140" y="125" width="200" height="30"/><rect class="dg-body" x="205" y="125" width="70" height="90"/>
+<circle class="dg-body" cx="240" cy="78" r="30"/>
+<rect class="dg-strip-ref" x="140" y="15" width="9" height="200"/><rect class="dg-strip-ref" x="331" y="15" width="9" height="200"/>
+<rect class="dg-cut" x="140" y="125" width="9" height="30"/><rect class="dg-cut" x="331" y="125" width="9" height="30"/>
+<rect class="dg-outline-ai" x="138" y="123" width="13" height="34"/><rect class="dg-outline-ai" x="329" y="123" width="13" height="34"/>
+<text x="8" y="50" class="dg-c-ref">每一列拿</text><text x="8" y="68" class="dg-c-ref">左右邊緣</text><text x="8" y="86" class="dg-c-ref">當背景色</text>
+<line class="dg-lead" x1="78" y1="64" x2="138" y2="64"/>
+<text x="352" y="136" class="dg-c-ai">這幾列的邊緣</text><text x="352" y="154" class="dg-c-ai">是手臂，</text><text x="352" y="172" class="dg-c-ai">不是背景</text>
+</svg>
+<figcaption><strong>圖 7</strong>　第二顆雷的一個例子：換了人物，去背就出錯。程式原本把每一列左右邊緣的顏色當成背景色（藍色直條）。舊模型的手臂不會碰到畫面邊緣，所以沒事；luna 的手臂伸到邊緣，那幾列的「背景色」其實是膚色（橘框），結果肩膀被當成背景切掉 20%。照片沒有錯，錯的是檢查。</figcaption>
+</figure>

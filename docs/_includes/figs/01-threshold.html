@@ -1,0 +1,13 @@
+<figure class="viz-root diagram">
+<svg viewBox="0 0 480 130" role="img" aria-label="門檻怎麼訂的例子：完美照片量到 0 毫米，通過門檻 3 毫米，失敗門檻 5 毫米，兩組 AI 照片是 7 和 13 毫米">
+<rect class="dg-drop" x="173.3" y="48" width="266.7" height="24"/>
+<line class="dg-axis" x1="40" y1="60" x2="440" y2="60"/>
+<line class="dg-lim-new" x1="120.0" y1="42" x2="120.0" y2="78"/><text x="120.0" y="34" text-anchor="middle" class="dg-s">通過 ≤ 3</text>
+<line class="dg-lim-old" x1="173.3" y1="42" x2="173.3" y2="78"/><text x="177.3" y="34" class="dg-s">失敗 &gt; 5</text>
+<circle class="dg-dot-ref" cx="40.0" cy="60" r="7"/><text x="32.0" y="98" class="dg-c-ref">完美照片：0 mm</text>
+<circle class="dg-dot-ai" cx="226.7" cy="60" r="7"/><text x="226.7" y="98" text-anchor="middle" class="dg-c-ai">v1240：7 mm</text>
+<circle class="dg-dot-ai" cx="386.7" cy="60" r="7"/><text x="386.7" y="98" text-anchor="middle" class="dg-c-ai">v1220：13 mm</text>
+<text x="440" y="122" text-anchor="end" class="dg-s">耳朵在特寫與全身照之間的位置差（mm）</text>
+</svg>
+<figcaption><strong>圖 5</strong>　門檻怎麼訂，以「耳朵位置」這一項為例。先用完美照片量：程式自己的誤差是 0 mm（藍點）。門檻就訂在它外面一點：3 mm 以內通過（虛線），超過 5 mm 失敗（實線，淡色區）。AI 照片量到 7 和 13 mm（橘點），落在失敗區：這個差距不可能是程式造成的，所以是圖畫錯了。</figcaption>
+</figure>
