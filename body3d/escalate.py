@@ -98,7 +98,7 @@ def body(out, agent, avatar, tried='', reason=None):
         L += fails[-60:] + ['```', '</details>', '']
     req = [p for p in ('ai_fix_request/AI修圖單.md', 'ai_code_request/AI改code單.md') if os.path.exists(os.path.join(out, p))]
     L += ['**已產生的工作單**：' + ('、'.join(f'`{p}`' for p in req) if req else '沒有'),
-          '**結果包**：' + ('、'.join(sorted(os.listdir(os.path.join(out, 'deliver')))) if os.path.isdir(os.path.join(out, 'deliver')) else '沒有')
+          '**結果包**：' + ('、'.join(sorted(f for f in os.listdir(os.path.join(out, 'deliver')) if f.endswith('.zip'))) if os.path.isdir(os.path.join(out, 'deliver')) else '沒有')
           + '（`_FAIL.zip` 請拖進 issue 附上）', '']
     if os.path.exists(log):
         tail = open(log, encoding='utf-8', errors='replace').read().splitlines()[-40:]

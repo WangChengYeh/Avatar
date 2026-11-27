@@ -4,6 +4,11 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## 雲端硬碟上的 GLB 檔名帶版本（body3d 2.25.0）
+
+- **原因**：每一版放上雲端硬碟的無光照 GLB 都叫 `<name>_rigged.glb`（Gemini 每版都是 `body_rigged.glb`），下載幾版之後分不出是哪一版。
+- **修改**：next_step 把 `output/<name>_rigged.glb` 複製成 `output/deliver/<name>_vNNN_rigged.glb`（例：`body_v012_rigged.glb`），「雲端硬碟」清單列這個檔名。結果包裡的 GLB 檔名不變。已經在雲端硬碟上的舊檔不會自動改名。
+
 ## 重新對照理論文件、文件與程式（check_turnaround 1.48.0、body3d 2.24.1）
 
 把 `docs/Loop-Engineering-Theory.md` 逐條和程式、其他文件對過一次，並重看今天合併的程式。
