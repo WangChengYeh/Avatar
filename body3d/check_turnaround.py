@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.45.0（2026-11-27）
+版本 1.46.0（2026-11-27）
 
 版本紀錄:
+  1.46.0 三項形狀檢查收緊（Gemini v009、ChatGPT R54 逐張比對第 4 關剪影）：全視角外殼覆蓋 < 97% WARN、< 95% FAIL
+         （原 96 / 93）；外殼切割 > 4.5% FAIL（原 6%）；斜角照手臂 > 45% FAIL（原 50%）。外殼覆蓋不足時列出該角度
+         與對面角度的俯角／仰角照，修圖單直接指名。
   1.45.0 「頭部特寫相鄰一致」門檻收緊為 > 6 WARN、> 8 FAIL（完美照片 1–5）：ChatGPT R54 每一組 8–13，側面臉仍糊，
          舊門檻只給 WARN。整圈都對不上時（5 張以上）改叫整組 8 張一次重畫，不再一張張補。
   1.44.0 烘焙前新增「頭部特寫相鄰一致」：相鄰 45° 的兩張頭部特寫在同一塊皮膚上的亮度差中位數，> 8 WARN、> 12 FAIL，
@@ -293,7 +296,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.45.0'
+__version__ = '1.46.0'
 import numpy as np
 import cv2
 
@@ -487,17 +490,22 @@ def quick_hull(good, vs=0.01, height=None):
 # measure how much of each level-ring photo it still covers. Perfect photos (old test model, luna-v1): 97.2 % or
 # more in every view. R17 (= R14 full-body photos): 73 % at 90° / 270°, final acceptance 24.7 % (hull template)
 # and 31.6 % (MakeHuman); R13 65.6 %; polished 84.8 %.
-HULL_COVER_PASS, HULL_COVER_FAIL = 0.96, 0.93
+# 1.46: tightened from 0.96 / 0.93. Per view, the coverage at an angle is the best photo-check predictor of the final
+# silhouette (gate 4): Gemini v009 90° / 270° 93.7-93.9 % (WARN) -> the 6 worst final views, all at 90° / 270°
+# (12.1-15.4 %, mean 9.9 %); ChatGPT R54 every angle 93.2-95.2 % (WARN) -> final 15.4 % FAIL. Both passed gate 1.
+HULL_COVER_PASS, HULL_COVER_FAIL = 0.97, 0.95
 # per tilted view: share of the level-ring hull it cuts away. The all-view hull tolerates two misses, so one or two
 # bad views hardly lower the coverage; their own cut shows them (perfect photos <= 6.6 %, R17 culprits 23-26 %,
 # a +30° side view drawn 60 px forward 25 %)
-HULL_CUT_PASS, HULL_CUT_FAIL = 0.03, 0.06
+# 1.46: FAIL tightened from 0.06: R54 el30_315 / el30_270 / el30_090 cut 5.2-5.9 % (WARN), final 16-21 % each
+HULL_CUT_PASS, HULL_CUT_FAIL = 0.03, 0.045
 # 1.43: the cut counts the body only (the arms past ARM_X are rebuilt from the front and top views and a tilted view
 # does not carve them). Perfect photos: body cut <= 2.1 % per view (luna-v1 0.7-2.1, synth 0.4-1.2); R41 1.4-6.3 %.
 # The arms on their own: the level-ring hull is fat around them (it cannot see their thickness), so even a perfect
 # tilted view cuts 8-36 % of it; R33-R41 drew the arms at another height or angle in a few diagonal views (52-71 %)
 # and 8 rounds of "redraw the views that cut most" never named the arms.
-ARM_CUT_PASS, ARM_CUT_FAIL = 0.40, 0.50
+# 1.46: FAIL tightened from 0.50: R54's worst final views cut 44-48 % of the arms (WARN; arm cut vs final 0.72)
+ARM_CUT_PASS, ARM_CUT_FAIL = 0.40, 0.45
 # ... and a floor: a real body seen from +30° / -20° is always thinner than the level-ring hull somewhere (arms are
 # round, not the slabs the level ring carves; the torso corners), so every tilted view cuts a little (perfect photos
 # synth 2.2-6.4 %, luna-v1 2.6-6.6 %). A view that cuts almost nothing has the hull's own outline: it was drawn by
@@ -3788,10 +3796,17 @@ def main():
         print('\n10i. 全視角外殼覆蓋（24 張全身圖用規格相機一起雕出的外殼，還蓋得住每張水平全身圖多少）')
         for a, c in sorted(cov.items()):
             lvl = PASS if c >= HULL_COVER_PASS else WARN if c >= HULL_COVER_FAIL else FAIL
+            # the tilted views at this angle and the opposite one see the same outline: they are the ones to redraw
+            # (Gemini v009: low 90° / 270° coverage, worst final views el30_090, el30_270, low20_090, low20_270)
+            here = sorted(((n, cc) for n, cc in cut.items()
+                           if re.search(r'_(\d{3})deg', n) and int(re.search(r'_(\d{3})deg', n).group(1)) in (a, (a + 180) % 360)),
+                          key=lambda kv: -kv[1])
+            here = '、'.join(f'{n.removesuffix(".jpg")}（切掉 {100 * cc:.1f}%）' for n, cc in here)
             msg = (f'外殼蓋住照片人物的 {100 * c:.1f}%（應 ≥ {100 * HULL_COVER_PASS:g}%，< {100 * HULL_COVER_FAIL:g}% 判 FAIL；'
                    f'完美照片 ≥ 97.2%）')
             if lvl != PASS:
                 msg += (' → 俯角／仰角的照片和水平環對不上（對準高度、距離、俯仰角各差一點），一起雕會把身體切瘦，成品會比照片小。'
+                        + (f'這個角度和對面角度的俯角／仰角照：{here}。' if here else '')
                         + (f'切最多的（身體部分，完美照片每張最多切 2.1%）：{culprits}。' if culprits else '')
                         + '重新生成這些照片：同一個相機距離與構圖、身體中心在畫面正中央、正交投影')
             report(lvl, f'{a}° 全視角外殼覆蓋', msg)
