@@ -61,7 +61,7 @@ head top at the same height in every close-up, orthographic projection, no persp
 | --- | --- |
 | 輸入與相機 | `check` → `cams` → `refine` |
 | 幾何 | `arms` → `round`（修圓邊；離地 10 cm 以下只去雜點，保留腳尖）→ `legs`（兩腿嚴格雕刻；軀幹前後厚度以水平 90°／270° 兩張為準）→ `mesh` |
-| 頭部 | `headreg`（特寫相機對位，再把頭修到 8 張特寫的輪廓：headsil33）→ `face` → `face3d`（補出鼻子／眼窩；補出來的部分超出特寫輪廓的再修回去，最多回到補之前：headsil33 `--after-face`） |
+| 頭部 | `headreg`（特寫相機對位，再把頭修到 8 張特寫的輪廓：headsil33）→ `face` → `face3d`（用正面與 45°／315° 特寫的臉部特徵點補出鼻子、眼窩與臉頰的弧度） |
 | 貼圖與匯出 | `uv` → `bake` → `export` |
 | 骨架與驗證 | `joints` → `rig` → `unlit` → `verify` → `fit` |
 

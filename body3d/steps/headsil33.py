@@ -10,7 +10,7 @@ What: in every head close-up, a rim vertex (surface seen edge-on) that projects 
 inward along its in-plane normal by that distance; the moves are spread smoothly over the surface (Laplacian solve)
 and faded out below the chin. Only inward moves: the hull is an upper bound, and the masks include the hair.
 The untrimmed mesh is kept as body33s_hull.ply, so a rerun starts from it.
-usage: python headsil33.py [--after-face]"""
+usage: python headsil33.py"""
 import json, os, shutil, sys
 import cv2
 import numpy as np
@@ -28,39 +28,16 @@ TOL = 0.002                  # outlines closer than this (m) are left alone
 REACH = 0.025                # misses farther than this are occlusions or a wrong match, not a too-full head
 SMOOTH = 4.0
 
-# --after-face: trim the finished head (body33s.ply as face33 left it) once more. face33 gives the face its relief
-# from landmarks in head_045 / head_315; when those two do not show the same face as head_000 (proportions 5-7 % off,
-# only a WARN), the nose, lips and chin end up in front of the profile the side close-ups show. Gemini avatar_001
-# v010: head_090 7.0 % of the head outside the photo's outline after the first trim, 9.5 % after the relief.
-# The profile close-ups measure that relief directly, so they have the last word: where face33 pushed the surface
-# out and it now lies outside a close-up's outline, it goes back, at most to where it was before face33
-# (body33s_noface.ply). Nothing else moves: the trim only goes inward, so a second pass over the whole head would
-# shrink it a little more wherever the close-ups disagree (tried: Gemini v010, photo outside the model 4-10 % ->
-# 6-15 %).
-AFTER_FACE = '--after-face' in sys.argv
-if AFTER_FACE:
-    if not os.path.exists('body33s_noface.ply'):
-        print('headsil33 --after-face: no body33s_noface.ply (face33 did not run), mesh unchanged'); sys.exit(0)
-    mesh = trimesh.load('body33s.ply', process=False)
-else:
-    if not os.path.exists('body33s_hull.ply'):
-        shutil.copy('body33s.ply', 'body33s_hull.ply')
-    if os.path.exists('body33s_noface.ply'):      # face33 must start again from the trimmed head
-        os.remove('body33s_noface.ply')
-    mesh = trimesh.load('body33s_hull.ply', process=False)
+if not os.path.exists('body33s_hull.ply'):
+    shutil.copy('body33s.ply', 'body33s_hull.ply')
+if os.path.exists('body33s_noface.ply'):      # face33 must start again from the trimmed head
+    os.remove('body33s_noface.ply')
+mesh = trimesh.load('body33s_hull.ply', process=False)
 cams = {n: c for n, c in json.load(open('cams33.json')).items() if c.get('kind') == 'head'}
 if not cams:
     mesh.export('body33s.ply'); print('headsil33: no head cameras, mesh unchanged'); sys.exit(0)
 X = np.asarray(mesh.vertices, float).copy(); F = np.asarray(mesh.faces)
 zone = np.clip((X[:, 1] - Y0) / (Y1 - Y0), 0, 1) * np.clip((XMAX - np.abs(X[:, 0])) / 0.03, 0, 1)
-added = None
-if AFTER_FACE:
-    before = np.asarray(trimesh.load('body33s_noface.ply', process=False).vertices, float)
-    if before.shape != X.shape:
-        print('headsil33 --after-face: body33s_noface.ply has another topology, mesh unchanged'); sys.exit(0)
-    out_n = ((X - before) * mesh.vertex_normals).sum(1)          # how far face33 pushed each vertex outward (m)
-    added = np.clip(out_n, 0, None)
-    zone = zone * (added > 0.0005)
 free = zone > 0
 E = mesh.edges_unique
 A = sp.coo_matrix((np.ones(2 * len(E)), (np.r_[E[:, 0], E[:, 1]], np.r_[E[:, 1], E[:, 0]])), shape=(len(X),) * 2).tocsr()
@@ -84,8 +61,6 @@ for it in range(ITERS):
         r_, u_, f_ = camera.axes(c['phi'], c['th'])
         nf = nrm @ f_
         rim = free & (np.abs(nf) < 0.3)
-        if not rim.any():
-            continue
         col, row = camera.project(X[rim], c)
         sd = cv2.remap(sdf[n], col.astype(np.float32).reshape(1, -1), row.astype(np.float32).reshape(1, -1),
                        cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).ravel() / c['s']     # metres, + = outside
@@ -106,10 +81,6 @@ for it in range(ITERS):
     Wd = sp.diags(np.where(has, 1.0, 0.0) + 1e-4)
     solve = factorized((Wd + SMOOTH * LtL).tocsc())
     D = np.stack([solve(Wd @ T[:, k]) for k in range(3)], 1) * zone[:, None]
-    if added is not None:                              # never past where the surface was before face33
-        left = np.clip(added - np.linalg.norm(X - mesh.vertices, axis=1), 0, None)
-        dn = np.linalg.norm(D, axis=1)
-        D *= np.minimum(1.0, left / np.maximum(dn, 1e-9))[:, None]
     X += D
     print('headsil33 %d: %d rim vertices outside the close-ups, mean miss %.1f mm, max move %.1f mm'
           % (it, has.sum(), 1000 * np.linalg.norm(T[has], axis=1).mean(), 1000 * np.linalg.norm(D, axis=1).max()))
