@@ -12,7 +12,7 @@
 
 | 誰 | 用 GitHub 做什麼 | 用雲端硬碟做什麼 | 什麼時候停 |
 | --- | --- | --- | --- |
-| **ChatGPT／Gemini**（執行者） | `git pull` main（next_step 自動檢查）；處理不掉時**自己發 issue**；程式改動開 PR；在 issue 回報重跑結果 | 每一版跑完，把結果包、無光照 GLB、`gates.json`、`next_step.md` 放到 `avatar/<自己>/<avatar_NNN>/vNNN/`（`next_step.md` 最後一段列出來） | 只有 DONE 和 WAITING |
+| **ChatGPT／Gemini**（執行者） | `git pull` main（next_step 自動檢查）；處理不掉時**自己發 issue**；程式改動開 PR；在 issue 回報重跑結果 | 每一版跑完，把結果包、無光照 GLB、`gates.json`、`next_step.md` 放到 `avatar/<自己>/<avatar_NNN>/vNNN/`（`next_step.md` 最後一段列出來） | 只有 DONE（等 Claude 時一直跑 `--wait`） |
 | **Claude**（維護者） | 看 issue、PR；修 SOP／程式、開 PR（`Fixes #N`）；新功能的 PR 人說合併才合併，只改文件或測試的自己合併；回覆 issue；更新 [交接清單](Handoff.md) 與 [File-List](File-List.md) | 讀執行者的結果包重現問題（依路徑或檔名找） | 每個 session 結束前更新交接清單 |
 | **人** | 看 issue；看新功能的 PR，說「合併」 | 看 `next_step.md`、客戶頁；準備 `avatar/` 資料夾與連結器權限 | — |
 
@@ -35,7 +35,7 @@ next_step 產生的 issue 已經帶好標題前綴、label 與第一行。人在
 
 1. 跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它印的指令做（UPDATE／START／RUN／RETOUCH／CODE），做完再跑一次。
 2. 每一版跑完：照 `next_step.md` 的「雲端硬碟」用連結器放檔。
-3. 走到 ESCALATE：用 `gh issue create`（或 GitHub 連結器，標題與內文在 `issue_title.txt`、`issue.md`）發 issue，`--waiting-issue N` 登記，停在 WAITING。
+3. 走到 ESCALATE：用 `gh issue create`（或 GitHub 連結器，標題與內文在 `issue_title.txt`、`issue.md`）發 issue，`--waiting-issue N` 登記；WAITING 時跑 `next_step.py … --wait`，程式自己每分鐘檢查 GitHub、在沙盒逾時之前回來，還沒等到就再跑一次（[runbook](Agent-Runbook.md)）。
 4. Claude 合併修正後，下一次 next_step 給 UPDATE：pull、從頭重跑；跑完照 `next_step.md` 的「回報」在 issue 留言。
 5. DONE：做[交付檢查](SOP.md#可以交付了嗎)，在 issue（或新的 issue）寫交付的雲端硬碟路徑。
 

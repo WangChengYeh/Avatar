@@ -212,3 +212,76 @@ def test_repeat_counts_only_runs_of_the_same_code(tmp_path):
             run_all.code_hash = orig
     finally:
         _ns.code_changed_since = old
+
+
+def test_wait_slice_returns_when_the_fix_arrives(tmp_path):
+    """--wait: one check a minute; back as soon as the state is no longer WAITING, with the heartbeat marked done"""
+    now = [1000.0]; calls = []
+    def check():
+        calls.append(now[0])
+        return dict(state='WAITING' if len(calls) < 3 else 'RUN', why='', steps=[])
+    hb = str(tmp_path / 'hb.json')
+    r, waited = ns.wait_slice(check, 300, hb, clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + s),
+                              say=lambda *a, **k: None)
+    assert r['state'] == 'RUN' and len(calls) == 3 and 115 <= waited <= 125
+    assert json.load(open(hb))['done'] and not json.load(open(hb))['full']
+
+
+def test_wait_slice_comes_back_before_the_budget(tmp_path):
+    """nothing changes: the slice ends on its own inside the budget, still WAITING (the caller runs it again)"""
+    now = [0.0]
+    hb = str(tmp_path / 'hb.json')
+    r, waited = ns.wait_slice(lambda: dict(state='WAITING', why='', steps=[]), 300, hb, clock=lambda: now[0],
+                              sleep=lambda s: now.__setitem__(0, now[0] + s), say=lambda *a, **k: None)
+    h = json.load(open(hb))
+    assert r['state'] == 'WAITING' and 295 <= waited <= 300 and h['done'] and h['full']
+    now[0] = 0.0                                             # the shortest budget still waits (one check at its end)
+    r, waited = ns.wait_slice(lambda: dict(state='WAITING', why='', steps=[]), ns.WAIT_MIN, hb, clock=lambda: now[0],
+                              sleep=lambda s: now.__setitem__(0, now[0] + s), say=lambda *a, **k: None)
+    assert 55 <= waited <= 60
+
+
+def test_wait_budget_learns_the_sandbox_limit(tmp_path):
+    """a slice that never wrote 'done' was killed: later slices take 70 % of what it survived, and stay there;
+    slices that end on their own grow 1.5x up to WAIT_MAX"""
+    hb = str(tmp_path / 'hb.json'); state = {}
+    assert ns.wait_budget(state, hb) == ns.WAIT_FIRST                               # nothing known yet
+    json.dump(dict(started=0, beat=300, budget=300, done=True, full=True), open(hb, 'w'))
+    assert ns.wait_budget(state, hb) == 450                                         # ended on its own: longer
+    json.dump(dict(started=0, beat=200, budget=450, done=False, full=False), open(hb, 'w'))
+    assert ns.wait_budget(state, hb) == 140 and state['wait']['killed_after'] == 200   # killed at 200 s
+    json.dump(dict(started=0, beat=140, budget=140, done=True, full=True), open(hb, 'w'))
+    assert ns.wait_budget(state, hb) == 140                                         # a known limit: no growing back
+    assert ns.wait_budget({}, str(tmp_path / 'none.json'), fixed=30) == ns.WAIT_MIN  # --wait 0.5: at least a minute
+    stopped = {}
+    json.dump(dict(started=0, beat=3, budget=300, done=False, full=False), open(hb, 'w'))
+    assert ns.wait_budget(stopped, hb) == ns.WAIT_FIRST and 'killed_after' not in stopped['wait']   # stopped by hand
+    big = {}
+    json.dump(dict(started=0, beat=1200, budget=1200, done=True, full=True), open(hb, 'w'))
+    assert ns.wait_budget(big, hb) == ns.WAIT_MAX
+
+
+def test_waiting_on_claude_says_to_keep_waiting(tmp_path, capsys):
+    """WAITING on Claude prints the --wait command and does not say it is fine to stop"""
+    ws = avatar(tmp_path); v = version(ws, 1, G1, ['x'])
+    json.dump(dict(waiting=dict(kind='issue', number=65, code=ns.current_code()), runs=[dict(out=str(v / 'output'), fail=['x'])]),
+              open(ws / 'avatar_state.json', 'w'))
+    ns.main(['--workspace', str(ws)])
+    text = capsys.readouterr().out
+    assert '# 下一步：WAITING' in text and '--wait' in text and '可以停下來' not in text and '再跑一次' in text
+
+
+def test_killed_rebuild_is_not_running_forever(tmp_path):
+    """progress.json still says 'running' long after its last write: the sandbox killed the rebuild. RUN again in a
+    new version instead of WAITING for something that is not running"""
+    import os, time
+    ws = avatar(tmp_path); v = version(ws, 1)
+    (v / 'output').mkdir()
+    p = v / 'output' / 'progress.json'
+    json.dump(dict(state='running', code=dict(commit='abc1234')), open(p, 'w'))
+    r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', {})
+    assert r['state'] == 'WAITING' and '還在跑' in r['why']
+    old = time.time() - ns.STALE_RUN - 60
+    os.utime(p, (old, old))
+    r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', {})
+    assert r['state'] == 'RUN' and '中斷' in r['why'] and any('v002' in s for s in r['steps'])

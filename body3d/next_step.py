@@ -29,12 +29,20 @@ import json
 import os
 import re
 import shlex
+import time
 import shutil
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+# --wait: the program waits for Claude's fix itself, in slices the sandbox does not kill. No executor documents how
+# long one command may run (Codex cloud: none published, users report whole tasks cut at about 25 min; one rebuild
+# command has run 7 min there and 13 min in Gemini's Antigravity), so the slice is learned on the spot: every slice
+# leaves a heartbeat; a slice that never wrote "done" was killed, and the next ones stay at 70 % of what it survived.
+# A slice that ends on its own makes the next one 1.5x longer, up to WAIT_MAX.
+WAIT_FIRST, WAIT_MAX, WAIT_MIN, WAIT_POLL = 300, 1200, 60, 60     # seconds
+STALE_RUN = 1800                       # progress.json says "running" and has not changed for this long: it was killed
 STALL_ROUNDS = 2                       # this many retries in a row without progress, a FAIL item still there -> escalate
 MAX_ROUNDS = 5                         # a FAIL item in this many runs in a row, progress or not -> escalate
 
@@ -184,6 +192,45 @@ def auto_publish(ws, state):
         state['publish_error'] = f'{key} 沒有上傳到資料 repo：{error}'
 
 
+def wait_budget(state, hb_path, fixed=None):
+    """seconds this wait slice may take, from what the earlier slices did (state['wait'], the heartbeat file)"""
+    w = state.setdefault('wait', {})
+    hb = load(hb_path, None)
+    if hb and not hb.get('done'):                      # the last slice was killed: the sandbox's limit, measured
+        survived = max(0.0, hb.get('beat', hb['started']) - hb['started'])
+        if survived >= WAIT_MIN:                       # sooner than that is a person stopping it, not a time limit
+            w['killed_after'] = round(min(survived, w.get('killed_after', survived)), 1)
+    elif hb and hb.get('full') and not w.get('killed_after'):
+        w['budget'] = min(WAIT_MAX, round(1.5 * hb.get('budget', WAIT_FIRST)))
+    budget = fixed if fixed else w.get('budget', WAIT_FIRST)
+    if w.get('killed_after') is not None:
+        budget = min(budget, 0.7 * w['killed_after'])
+    w['budget'] = budget = int(max(WAIT_MIN, min(WAIT_MAX, budget)))
+    return budget
+
+
+def wait_slice(check, budget, hb_path, poll=WAIT_POLL, clock=time.time, sleep=time.sleep, say=print):
+    """call check() every `poll` seconds until it no longer says WAITING or `budget` seconds are over; returns
+    (the last result, seconds waited). The heartbeat file says how far this slice got if the sandbox kills it"""
+    t0 = clock()
+    hb = dict(started=t0, beat=t0, budget=budget, done=False, full=False)
+
+    def beat(**kw):
+        hb.update(beat=clock(), **kw)
+        tmp = hb_path + '.tmp'
+        json.dump(hb, open(tmp, 'w')); os.replace(tmp, hb_path)
+    beat()
+    r = check()
+    while r['state'] == 'WAITING' and budget - (clock() - t0) >= 5:
+        end = clock() + min(poll, budget - (clock() - t0))
+        while clock() < end:
+            sleep(min(10, max(0.0, end - clock()))); beat()
+        say(f'（等了 {round((clock() - t0) / 60, 1)} 分鐘，再檢查一次 GitHub…）', flush=True)
+        r = check()
+    beat(done=True, full=r['state'] == 'WAITING')
+    return r, clock() - t0
+
+
 def current_code():
     sys.path.insert(0, HERE)
     import run_all
@@ -272,8 +319,9 @@ def decide(ws, avatar, agent, name, template, state):
             state['waiting'] = None
             return dict(state='RUN', why=f'{kind} #{num} 已解決（{st}）：拿新的 SOP／程式從頭重跑', steps=[
                 f'cd {shlex.quote(REPO)} && git pull origin main'] + next_version_steps(ws, cn + 1, photos, name, template) + [me])
-        return dict(state='WAITING', why=f'等 Claude 處理 {kind} #{num}（目前 {st or "查不到狀態：檢查 gh 是否登入"}）', steps=[
-            f'可以停下來。之後再跑：{me}'])
+        return dict(state='WAITING', why=f'等 Claude 處理 {kind} #{num}（目前 {st or "查不到狀態：檢查 gh 是否登入"}）', claude=True, steps=[
+            f'{me} --wait   # 程式自己等：每分鐘檢查一次 GitHub，Claude 的修正一合併就回來告訴你下一步；'
+            '等不到也會在沙盒逾時之前回來，再跑一次同一個指令繼續等'])
     if not out or not (os.path.exists(os.path.join(out, 'gates.json')) or os.path.exists(os.path.join(out, 'progress.json'))):
         return dict(state='RUN', why=f'{os.path.basename(cur)} 的照片還沒跑過', steps=[
             run_cmd(photos, os.path.join(cur, 'output'), name, template), me])
@@ -281,6 +329,13 @@ def decide(ws, avatar, agent, name, template, state):
     progress = load(os.path.join(out, 'progress.json'), {})
     diagnosis = load(os.path.join(out, 'diagnosis.json'), []) or []
     if progress.get('state') == 'running':
+        # run_all saves progress.json at the start and end of every step (the longest takes a few minutes). One that
+        # still says "running" long after was killed with its sandbox: nothing is running, and waiting never ends
+        idle = time.time() - os.path.getmtime(os.path.join(out, 'progress.json'))
+        if idle > STALE_RUN:
+            return dict(state='RUN', why=f'{os.path.basename(cur)} 的重建被中斷了（progress.json 已經 {round(idle / 60)} 分鐘沒有更新，'
+                                         '沒有東西在跑）：用同一組照片在新的版本從頭重跑',
+                        steps=next_version_steps(ws, cn + 1, photos, name, template) + [me])
         return dict(state='WAITING', why=f'{os.path.basename(cur)} 還在跑', steps=[f'等它跑完，再跑：{me}'])
     # results made by older code are not results: rerun the same photos with the code of this checkout
     made_by = (gates.get('code') or progress.get('code') or {})
@@ -361,6 +416,8 @@ def main(argv=None):
     ap.add_argument('--name', help='GLB 名稱，預設：avatar 名稱')
     ap.add_argument('--template', default='hull', choices=['hull', 'makehuman'])
     ap.add_argument('--waiting-issue', type=int); ap.add_argument('--waiting-pr', type=int)
+    ap.add_argument('--wait', type=float, nargs='?', const=0, default=None, metavar='分鐘',
+                    help='WAITING（等 Claude）時不馬上結束：每分鐘檢查一次，最多等這麼久就回來；不給數字就自己學沙盒的時限')
     a = ap.parse_args(argv)
     ws = os.path.abspath(a.workspace); os.makedirs(ws, exist_ok=True)
     a.avatar = a.avatar or os.path.basename(ws)
@@ -374,13 +431,21 @@ def main(argv=None):
                                 code=current_code())   # the wait is over once the code changes (wait_answered)
         state.pop('report_to', None)
     auto_publish(ws, state)
-    r = decide(ws, a.avatar, a.agent, a.name, a.template, state)
+    waited = None
+    if a.wait is not None:
+        hb_path = os.path.join(ws, 'wait_heartbeat.json')
+        budget = wait_budget(state, hb_path, fixed=60 * a.wait if a.wait else None)
+        json.dump(state, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        r, waited = wait_slice(lambda: decide(ws, a.avatar, a.agent, a.name, a.template, state), budget, hb_path)
+    else:
+        r = decide(ws, a.avatar, a.agent, a.name, a.template, state)
+    on_claude = bool(r.pop('claude', False))
     state['last'] = dict(r, at=datetime.datetime.now().astimezone().isoformat(timespec='seconds'))
     rt = state.get('report_to')                         # still shown on DONE (the last report), then cleared
     if rt and r['state'] == 'DONE':
         state.pop('report_to', None)
     json.dump(state, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    stop = r['state'] in ('DONE', 'WAITING')
+    stop = r['state'] in ('DONE', 'WAITING') and not on_claude
     text = [f'# 下一步：{r["state"]}', '', f'原因：{r["why"]}', ''] + [f'{i}. `{s}`' if s.startswith(('python', 'gh ', 'mkdir', 'cd ', '/', "'"))
                                                                    else f'{i}. {s}' for i, s in enumerate(r['steps'], 1)]
     if rt:
@@ -397,7 +462,12 @@ def main(argv=None):
         text += ['', f'資料：{last} 已上傳 {pub[last]["url"]}']
     if state.get('publish_error'):
         text += ['', f'注意：{state["publish_error"]}（下次跑 next_step 會再試；一直失敗就照 ESCALATE 發 issue）']
-    text += ['', '可以停下來。' if stop else '**照上面做完，再跑一次 next_step。不要停下來問人。**']
+    if on_claude:
+        if waited is not None:
+            text += ['', f'這次等了 {round(waited / 60, 1)} 分鐘，GitHub 上還沒有 Claude 的修正。']
+        text += ['', '**再跑一次上面的指令繼續等（不要停下來問人）。**沒有任何東西會主動通知你：只有再跑一次才會再檢查 GitHub。']
+    else:
+        text += ['', '可以停下來。' if stop else '**照上面做完，再跑一次 next_step。不要停下來問人。**']
     open(os.path.join(ws, 'next_step.md'), 'w', encoding='utf-8').write('\n'.join(text))
     print('\n'.join(text))
     return 0

@@ -10,7 +10,7 @@
 python body3d/next_step.py --workspace ~/avatar/chatgpt/<avatar_NNN>
 ```
 
-**照它印出的指令做，做完再跑一次，在同一個回覆／同一輪裡一直做下去。只有狀態是 DONE 或 WAITING 才可以停下來；不要停下來問人要不要繼續。每次停下來時，最後貼出 avatar 資料夾裡的 `next_step.md`。**
+**照它印出的指令做，做完再跑一次，在同一個回覆／同一輪裡一直做下去。只有狀態是 DONE 才可以停下來；WAITING（等 Claude）時照它印的 `next_step.py … --wait` 一直跑：程式自己每分鐘檢查 GitHub，等不到會在沙盒逾時之前回來，再跑一次繼續等；不要停下來問人要不要繼續。每次停下來時，最後貼出 avatar 資料夾裡的 `next_step.md`。**
 
 - 程式更新了就一定重跑：每份結果記錄是哪一版程式跑的，舊程式跑的結果 next_step 會叫你用新程式重跑。
 - 不用自己記得去 GitHub 抓新的 SOP：next_step 每次都會先 `git fetch`，main 有新的就給 UPDATE（`git pull`、重跑）。
