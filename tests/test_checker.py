@@ -1,4 +1,5 @@
 """check_turnaround.py：乾淨的合成照片要通過；故意弄壞的照片要被抓出來"""
+import re
 import shutil
 import cv2
 import numpy as np
@@ -588,3 +589,42 @@ def test_head_profile_mirror(synth_set):
     assert iou2 < ct.PROFILE_MIRROR_FAIL, iou2
     moved = cv2.warpAffine(m270.astype(np.uint8), np.float32([[1, 0, 20], [0, 1, 0]]), (w, h))               # framing only
     assert ct.head_profile_mirror(m90, moved)[0] > 0.98
+
+
+def test_feet_position_and_where_the_hull_falls_short(broken):
+    """10j: the feet of every full-body photo lie inside the feet the level front, back and side photos agree on.
+    10i says where the all-view hull falls short. ChatGPT avatar_001 R63-R72: ten rounds at 94 % coverage redrawing
+    the tilted views' framing as the message said; the feet were off (low20_270: the sole 2 cm below the floor line)"""
+    import check_turnaround as ct
+    rc, out = check(broken)
+    assert len([l for l in lines(out, 'PASS') if '腳的位置' in l]) == 24, [l for l in lines(out, 'WARN') if '腳的位置' in l]
+    low = ('low20_000deg', 'low20_090deg', 'low20_270deg')
+    for name in low:                                                     # the feet drawn 4.5 cm lower in three low views
+        f = broken / (name + '.jpg')
+        im = cv2.imread(str(f)); m = ct.segment(im)[0]
+        bottom = int(np.flatnonzero(m.any(1))[-1]); top = bottom - 110; d = 48
+        im[top + d:bottom + d + 1] = im[top:bottom + 1].copy()
+        cv2.imwrite(str(f), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    warned = sorted(l.split()[1] for l in lines(out, 'WARN') if '腳的位置' in l)
+    assert warned == sorted(low), warned
+
+
+def test_where_the_hull_falls_short_decides_what_to_redraw():
+    """10i: the feet alone (ChatGPT R72, 90°) -> the feet of the photos named, framing left alone; the whole figure
+    (a tilted view drawn 6 cm off) -> the tilted views' framing; the arms' edges alone -> the arms"""
+    import check_turnaround as ct
+    bad = [('low20_270deg', 0.09), ('el30_315deg', 0.062)]
+    r72 = dict(zip(('頭', '手臂的高度', '軀幹', '腿', '腳'), (1.2, 0.2, 0.5, 0.5, 3.8)))
+    t = ct.hull_short_advice(r72, bad, 'el30_090deg（切掉 2.0%）', '')
+    assert '腳 3.8' in t and '少掉的主要是腳' in t and '相機距離與構圖不要動' in t
+    assert re.findall(r'(?:el30|low20)_\d{3}deg', t) == ['low20_270deg', 'el30_315deg']       # not the tilted views at 90°
+    both = dict(r72, **{'手臂的高度': 2.1, '腳': 1.9})                                          # R72 at 45°: the arms too
+    assert '少掉的主要是腳' in ct.hull_short_advice(both, bad) and '手臂的上下緣也少了 2.1%' in ct.hull_short_advice(both, bad)
+    off = dict(zip(('頭', '手臂的高度', '軀幹', '腿', '腳'), (3.7, 0.8, 4.9, 8.0, 2.4)))       # everything short
+    t = ct.hull_short_advice(off, bad, 'el30_090deg（切掉 9.0%）', 'el30_090deg（切掉 9.0%）')
+    assert '少掉的主要是腳' not in t and '俯角／仰角的照片和水平環對不上' in t and 'el30_090deg' in t
+    arms = dict(zip(('頭', '手臂的高度', '軀幹', '腿', '腳'), (0.4, 3.0, 0.2, 0.5, 0.3)))
+    t = ct.hull_short_advice(arms, [])
+    assert '少掉的主要在手臂的上下緣' in t and 'el30' not in t
+    assert '俯角／仰角的照片和水平環對不上' in ct.hull_short_advice(r72, [])                    # feet short, no photo to name

@@ -108,11 +108,23 @@ def photos_in_label(label):
     return [FULL_NAMES[a]] if ring == '主環' and a in FULL_NAMES else [] if ring == '主環' else [f'{ring}_{a:03d}deg']
 
 
+# a rule whose cause is in what the line measured, not in its label: (label, in the line, cause, action). First match wins,
+# before PHOTO_RULES. R63-R72: '全視角外殼覆蓋' sent the AI to the tilted views' framing for ten rounds; the feet were off
+LINE_RULES = [
+    (r'全視角外殼覆蓋', '少掉的主要是腳', '各張全身照的腳畫得不一樣（腳尖的朝向、兩腳的前後或腳底的高度），一起雕會把前腳掌削掉，覆蓋率不足',
+     '只修這幾張的腳，照「腳的位置」參考圖：腳畫在橘線以內、腳尖的朝向和水平照一致、腳底踩在同一條地面線上；'
+     '身體其他部位、相機距離與構圖都不要動'),
+    (r'全視角外殼覆蓋', '少掉的主要在手臂的上下緣', '各張水平照的手臂高度或粗細差了 1–2 cm，一起雕會把手臂的上下緣削掉，覆蓋率不足',
+     '只修手臂：水平環斜角的那幾張（45°、135°、225°、315°），手臂完全水平、高度與粗細和正面照一致；相機距離與構圖不要動'),
+]
+
+
 def diagnose_photo_fails(fail_lines):
     out, seen = [], {}
     for line in fail_lines:
         label = re.split(r'[:：]', line, 1)[0].strip()
-        for pat, cause, action in PHOTO_RULES:
+        rules = [(lp, c, a) for lp, inline, c, a in LINE_RULES if re.search(lp, label) and inline in line] + PHOTO_RULES
+        for pat, cause, action in rules:
             if re.search(pat, label):
                 names = re.findall(r'(?:el30|low20|head)_\d{3}deg|\d{2}_\d{3}deg_[a-z_]+|\btop\b(?=\.jpg)', line)  # photos named
                 names += photos_in_label(label)

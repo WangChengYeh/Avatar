@@ -105,6 +105,70 @@ def tilted_reference(photos, name, vs=0.01):
     return out
 
 
+def _full_body_view(name):
+    """(azimuth, tilt) of a full-body photo by its name, or None"""
+    m_ = re.match(r'(el30|low20)_(\d{3})deg$', name)
+    if m_:
+        return int(m_.group(2)), ct.RING_TILT[m_.group(1)]
+    m_ = re.match(r'\d{2}_(\d{3})deg_', name)
+    return (int(m_.group(1)), 0.0) if m_ else None
+
+
+def _level_masks(photos):
+    good = {}
+    for ang, f in FULL.items():
+        full = cv2.imread(os.path.join(photos, f + '.jpg'))
+        if full is not None:
+            good[ang] = dict(m=ct.segment(full)[0], name=f + '.jpg')
+    return good
+
+
+def feet_reference(photos, name, good=None):
+    """the feet of this full-body photo, enlarged, with the reference feet (orange line: the feet the level front,
+    back and side photos agree on, seen from this photo's angle) and what the photo draws outside them (red)"""
+    view = _full_body_view(name)
+    im = cv2.imread(os.path.join(photos, name + '.jpg'))
+    if view is None or im is None:
+        return None
+    fr = ct.feet_reference(good or _level_masks(photos))
+    if not fr:
+        return None
+    share, T, out = ct.feet_outside(ct.segment(im)[0], fr[0], fr[1], view[0], view[1])
+    if not T.any():
+        return None
+    pic = im.copy()
+    pic[out] = (0.35 * pic[out] + 0.65 * np.array((40, 40, 230))).astype(np.uint8)
+    cnt, _ = cv2.findContours(T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    cv2.drawContours(pic, cnt, -1, (0, 140, 255), max(3, im.shape[1] // 600))
+    ys, xs = np.nonzero(T | out.astype(np.uint8))
+    half = int(max(np.ptp(xs), np.ptp(ys)) * 0.75) + 60
+    cy, cx = int(ys.mean()), int(xs.mean())
+    y0, x0 = max(0, min(im.shape[0] - 2 * half, cy - half)), max(0, min(im.shape[1] - 2 * half, cx - half))
+    crop = pic[y0:y0 + 2 * half, x0:x0 + 2 * half]
+    return cv2.resize(crop, (1024, 1024), interpolation=cv2.INTER_CUBIC)
+
+
+def coverage_overview(photos):
+    """the eight level photos with what the all-view hull does not cover in red: where the body is carved away"""
+    good = _level_masks(photos)
+    extra = {}
+    for ring in ct.RING_TILT:
+        for a in range(0, 360, 45):
+            im = cv2.imread(os.path.join(photos, f'{ring}_{a:03d}deg.jpg'))
+            if im is not None:
+                extra.setdefault(ring, {})[a] = dict(m=ct.segment(im)[0], name=f'{ring}_{a:03d}deg.jpg')
+    if len(good) < 8 or not extra:
+        return None
+    lost = ct.all_view_hull(good, extra)[3]
+    tiles = []
+    for a in sorted(good):
+        m = lost[a]['mask']; t = cv2.resize(cv2.imread(os.path.join(photos, FULL[a] + '.jpg')), (m.shape[1], m.shape[0]))
+        t[m] = (40, 40, 230)
+        cv2.putText(t, f'{a} deg', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2, cv2.LINE_AA)
+        tiles.append(t)
+    return np.vstack([np.hstack(tiles[:4]), np.hstack(tiles[4:])])
+
+
 def arm_reference(photos, name):
     """the tilted photo with its arm_mask drawn in orange: where the arms should be"""
     im = cv2.imread(os.path.join(photos, name + '.jpg'))
@@ -190,6 +254,13 @@ def make(photos, out, leaves):
     for d in todo:
         for p in photos_of(d) or ['（未指定照片）']:
             by_photo.setdefault(p, []).append(d)
+    if any('全視角外殼覆蓋' in d['item'] for d in todo):
+        ov = coverage_overview(photos)
+        if ov is not None:
+            cv2.imwrite(os.path.join(dst, 'reference', '外殼覆蓋_少掉的部分.jpg'), ov, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            lines += ['**先看這張**：`reference/外殼覆蓋_少掉的部分.jpg`。8 張水平全身照上的紅色，是全部照片一起雕之後沒被蓋住的地方：',
+                      '紅色在哪個部位，就是各張照片在那個部位對不上（下面每一項寫了要修哪幾張的哪裡）。', '']
+    level_masks = None
     for k, (p, ds) in enumerate(by_photo.items(), 1):
         lines.append(f'## {k}. {p}.jpg')
         src = os.path.join(photos, p + '.jpg')
@@ -201,6 +272,14 @@ def make(photos, out, leaves):
             nums = {k: v for k, v in ev.items() if k in ('dy_relative_mm', 'photo_11c_dy_mm', 'line', 'xor_percent', 'extra_px', 'missing_px')}
             if nums:
                 lines.append('- **量到的數字**：' + '；'.join(f'{k} = {v}' for k, v in nums.items()))
+        if any('腳的位置' in d['action'] for d in ds) and _full_body_view(p):
+            level_masks = level_masks or _level_masks(photos)
+            fref = feet_reference(photos, p, level_masks)
+            if fref is not None:
+                cv2.imwrite(os.path.join(dst, 'reference', p + '_腳的位置.jpg'), fref, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                lines.append(f'- **腳的參考圖**：`reference/{p}_腳的位置.jpg`（這張照片的腳，放大）：橘線是正面、背面、左右側面四張水平照決定的腳，'
+                             '從這個角度看的範圍，是**上限**：腳要畫在橘線以內（斜角看橘線會比真的腳寬，不要填滿）。紅色是這張的腳超出橘線的'
+                             '部分：把它收回橘線內，通常是腳尖的朝向、兩腳一前一後、或腳底畫得比其他張低。只改腳，小腿以上不要動。')
         if re.match(r'(el30|low20)_\d{3}deg$', p):
             ref = tilted_reference(photos, p)
             if ref is not None:
