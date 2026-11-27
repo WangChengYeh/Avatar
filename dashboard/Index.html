@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base target="_top">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE work: a QA control sheet for the avatar pipeline, read at a glance
+   IDEA the inspection log on a factory line: one row per build, one stamp per gate
+   PICTURE the gate matrix: every version x four gates, stamped FAIL / WARN / PASS with counts
+   COLOUR aluminium ground, black ink, orange pointer for FAIL; night #141517
+   TYPE Geist 500 + Geist, Noto Sans TC for Chinese
+   LAYOUT finding and key figures across the top, matrix full width, selected build's three images below; phone: stacked */
+:root{color-scheme:light dark;--bg:light-dark(#e9eaec,#141517);--panel:light-dark(#f6f6f7,#1c1e20);--ink:light-dark(#111214,#ececee);--mute:light-dark(#5d6168,#9a9ea6);--rule:light-dark(#c9ccd1,#2f3236);--fail:#ff4f00;--warn:light-dark(#b25e00,#ffa45c);--pass:light-dark(#2d3136,#c9ccd1);--sel:light-dark(#ffffff,#26292c)}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Geist,"Noto Sans TC",system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(24px,3.5vw,52px) max(5vw,16px)}
+.wrap{max-width:1240px;margin:0 auto}
+h1{font-size:clamp(30px,4.2vw,46px);line-height:1.08;letter-spacing:-.02em;font-weight:500;margin:0 0 10px;text-wrap:balance}
+h2{font-size:22px;font-weight:500;margin:0 0 4px;letter-spacing:-.01em}
+.src{color:var(--mute);font-size:14px;margin:0}
+.src a{color:inherit}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(15em,1fr));gap:12px;margin-top:22px}
+.kpi{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:14px 16px;display:grid;gap:2px}
+.kpi b{font-size:clamp(26px,3vw,34px);font-weight:500;line-height:1.1;white-space:nowrap}
+.kpi span{color:var(--mute);font-size:14px}
+.kpi .who{color:var(--ink);font-weight:500;font-size:15px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:14px;color:var(--mute);margin:6px 0 12px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.av{margin-top:28px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{font-weight:500;color:var(--mute);text-align:left;padding:6px 8px;border-bottom:1px solid var(--ink);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid var(--rule);vertical-align:middle}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:color-mix(in srgb,var(--sel) 60%,transparent)}
+tbody tr.on td{background:var(--sel)}
+tbody tr.on td:first-child{box-shadow:inset 3px 0 0 var(--fail)}
+tbody tr:focus-visible{outline:2px solid var(--fail);outline-offset:-2px}
+.ver{font-weight:500;white-space:nowrap}
+.stamp{display:inline-grid;grid-template-columns:auto auto;align-items:center;gap:6px;white-space:nowrap}
+.st{font-size:12px;font-weight:700;padding:1px 6px;border-radius:3px;letter-spacing:.02em}
+.st.FAIL{background:var(--fail);color:#fff}
+.st.WARN{border:1px solid var(--warn);color:var(--warn)}
+.st.PASS{border:1px solid var(--pass);color:var(--pass)}
+.st.NONE{color:var(--mute)}
+.st.OK{border:1px dashed var(--mute);color:var(--mute)}
+.n{color:var(--mute);font-variant-numeric:tabular-nums}
+.n em{font-style:normal;color:var(--fail);font-weight:500}
+.fit{font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.fit.bad{color:var(--fail);font-weight:500}
+.res{white-space:nowrap}
+.res.ok{font-weight:500}
+.res.stop{color:var(--mute)}
+.detail{background:var(--panel);border-top:1px solid var(--rule)}
+.dhead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px 20px;margin-bottom:14px}
+.dhead p{margin:0;color:var(--mute);font-size:14px}
+.dhead a{color:var(--ink)}
+.shots{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2.4fr);gap:14px;align-items:start}
+.shots figure{margin:0;display:grid;gap:6px}
+.shots img{width:100%;height:auto;display:block;border:1px solid var(--rule);border-radius:4px;background:#fff}
+.shots figcaption{font-size:14px;color:var(--mute)}
+.strips{display:grid;gap:14px}
+.empty{border:1px dashed var(--rule);border-radius:6px;padding:28px;color:var(--mute);text-align:center}
+.reason{margin:12px 0 0;font-size:14px}
+.gl{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 14px;padding:0;list-style:none;font-size:14px}
+.gl li{white-space:nowrap}
+@media(max-width:760px){.shots{grid-template-columns:minmax(0,1fr)}.shots .model{max-width:320px}}
+@media(max-width:600px){table{font-size:13px}th,td{padding:6px 4px}.stamp{grid-template-columns:auto}.n{font-size:12px}}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:14px 0 0;font-size:14px;color:var(--mute)}
+.bar .msg.err{color:var(--fail)}
+button{font:inherit;font-size:14px;min-height:40px;padding:6px 14px;border-radius:5px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+button.ghost{background:transparent;color:var(--ink)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:2px solid var(--fail);outline-offset:2px}
+.tag{font-size:12px;color:var(--mute);border:1px solid var(--rule);border-radius:3px;padding:0 5px;margin-left:6px}
+.setup{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:18px 20px;margin-top:18px;max-width:760px}
+.setup ol{margin:8px 0 12px;padding-left:1.4em}
+.setup li{margin:4px 0}
+.setup code{overflow-wrap:anywhere}
+.setup input{font:inherit;font-size:16px;width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--ink);border-radius:5px;background:var(--bg);color:var(--ink);margin:6px 0 10px}
+</style>
+</head>
+<body>
+<header class="band">
+<div class="wrap">
+<h1 id="title">Avatar 專案總覽</h1>
+<p class="src">資料來源：Google Drive <code>avatar/&lt;執行者&gt;/avatar_NNN/vNNN/</code> 的各階段結果包，用部署者的 Google 帳號直接讀取。</p>
+<div class="bar"><span class="msg" id="msg"></span><button id="reload" class="ghost" hidden>重新讀取</button></div>
+<div class="kpis" id="kpis"></div>
+</div>
+</header>
+<main class="band" style="padding-top:0">
+<div class="wrap">
+<div class="legend"><span><i style="background:var(--fail)"></i>FAIL：該關有未通過項目</span><span><i style="border:1px solid var(--warn)"></i>WARN：通過但需複核</span><span><i style="border:1px solid var(--pass)"></i>PASS：全部通過</span><span><i style="border:1px dashed var(--mute)"></i>OK：有結果包、數字讀取中</span><span>數字是 FAIL · WARN · PASS 的項目數；點一列看最終結果的 3 張圖</span></div>
+<div id="tables"></div>
+</div>
+</main>
+<section class="band detail" id="detail" aria-live="polite"><div class="wrap" id="dwrap"></div></section>
+<script>
+{
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const okUrl=u=>/^https:\/\//.test(u)?u:'#';
+const NAME={chatgpt:'ChatGPT',gemini:'Gemini'};
+const GATES=[[1,'1 照片'],[2,'2 重建'],[3,'3 模型'],[4,'4 驗收']];
+const $=id=>document.getElementById(id);
+const store={get(k){try{return JSON.parse(localStorage.getItem('av:'+k))}catch(e){return null}},set(k,v){try{localStorage.setItem('av:'+k,JSON.stringify(v))}catch(e){}}};
+const say=(t,err)=>{const m=$('msg');m.textContent=t;m.className='msg'+(err?' err':'')};
+let DATA=null,byKey={},current=null;
+// ---- server calls (Code.gs, runs as the person who deployed it)
+const run=(fn,...args)=>new Promise((res,rej)=>google.script.run.withSuccessHandler(res).withFailureHandler(e=>rej(e instanceof Error?e:new Error(String(e&&e.message||e))))[fn](...args));
+function b64(s){const bin=atob(s);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u}
+async function inflate(e){const raw=b64(e.b64);if(e.method===0)return raw;
+  return new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer())}
+async function entries(z,patterns){const out={};for(const e of await run('readEntries',z.id,z.size,patterns))out[e.name]=await inflate(e);return out}
+const pick1=(m,re)=>{const k=Object.keys(m).find(x=>re.test(x));return k?m[k]:null};
+const json1=(m,re)=>{const b=pick1(m,re);return b?JSON.parse(new TextDecoder().decode(b)):null};
+const img1=(m,re,type)=>{const b=pick1(m,re);return b?URL.createObjectURL(new Blob([b],{type})):null};
+const furthest=v=>Math.max(0,...Object.keys(v.stages).map(Number));
+async function loadNumbers(v){
+  const z=v.stages[furthest(v)];if(!z)return;const ck=z.id+'@'+z.time;
+  let info=store.get(ck);
+  if(!info){const m=await entries(z,['manifest\\.json$','fit_report\\.json$']);const man=json1(m,/manifest\.json$/)||{},fr=json1(m,/fit_report\.json$/);
+    info={gates:{},deliverable:!!man.deliverable,stopped:man.stopped||null,fit:fr?{level:fr.level,mean:fr.mean}:null};
+    for(const[g,c]of Object.entries(man.gates||{}))info.gates[g]={FAIL:c.FAIL||0,WARN:c.WARN||0,PASS:c.PASS||0};
+    store.set(ck,info)}
+  Object.assign(v,info,{loaded:true});
+}
+async function loadImages(v){
+  if(v.images.done)return;v.images.done=true;const s4=v.stages[4],s3=v.stages[3];
+  const[m4,m3]=await Promise.all([s4?entries(s4,['04_body_compare\\.jpg$','05_head_compare\\.jpg$']):{},s3?entries(s3,['v2_three_q[^/]*\\.png$']):{}]);
+  v.images.body=img1(m4,/04_body_compare\.jpg$/,'image/jpeg');v.images.head=img1(m4,/05_head_compare\.jpg$/,'image/jpeg');v.images.model=img1(m3,/v2_three_q[^/]*\.png$/,'image/png');
+}
+async function load(){
+  say('讀取 Google Drive 資料夾…');
+  const tree=await run('getTree');
+  const avatars=tree.avatars.map(a=>({executor:a.executor,avatar:a.avatar,folder:a.folder,versions:a.versions.map(f=>{
+    const stages={};let time='';
+    for(const z of f.zips){const m=/_stage(\d)_/.exec(z.name);if(!m)continue;const n=+m[1];
+      if(!stages[n]||z.modifiedTime>stages[n].time)stages[n]={id:z.id,file:z.name,fail:/_FAIL\.zip$/.test(z.name),size:z.size,time:z.modifiedTime};
+      if(z.modifiedTime>time)time=z.modifiedTime}
+    return{version:f.name,folder:f.id,stages,gates:{},images:{},deliverable:false,fit:null,stopped:null,time,loaded:false}})}));
+  DATA={avatars};render();
+  const todo=[];for(const a of avatars)for(const v of a.versions)if(furthest(v))todo.push([a,v]);
+  let done=0;const total=todo.length;
+  const work=async()=>{while(todo.length){const[a,v]=todo.shift();try{await loadNumbers(v)}catch(e){v.err=e.message}say(`讀取檢查數字 ${++done}/${total}…`);rerow(a,v)}};
+  await Promise.all([work(),work(),work(),work()]);
+  render();say(`即時：${new Date().toLocaleString('zh-TW',{dateStyle:'medium',timeStyle:'short'})} 從 Google Drive 讀取`);$('reload').hidden=false;
+}
+// ---- view
+const gateOf=(v,n)=>{
+  const rows=Object.entries(v.gates).filter(([k])=>k.startsWith(n+' '));const z=v.stages[n];
+  if(!rows.length)return z?{status:z.fail?'FAIL':'OK',unknown:true}:null;
+  const c={FAIL:0,WARN:0,PASS:0};rows.forEach(([,x])=>{c.FAIL+=x.FAIL;c.WARN+=x.WARN;c.PASS+=x.PASS});
+  if(z&&z.fail&&!c.FAIL)c.FAIL=1;c.status=c.FAIL?'FAIL':c.WARN?'WARN':'PASS';return c;
+};
+const result=v=>{
+  if(v.deliverable)return{t:'四關 0 FAIL',cls:'ok'};const n=furthest(v),g=gateOf(v,n);
+  if(!n)return{t:'沒有結果包',cls:'stop'};
+  return{t:g&&g.status==='FAIL'?`停在第 ${n} 關`:`做到第 ${n} 關`,cls:'stop'};
+};
+const stampHtml=g=>!g?'<span class="st NONE">—</span>':g.unknown?`<span class="stamp"><span class="st ${g.status}">${g.status}</span><span class="n">…</span></span>`
+  :`<span class="stamp"><span class="st ${g.status}">${g.status}</span><span class="n">${g.FAIL?`<em>${g.FAIL}</em>`:'0'} · ${g.WARN} · ${g.PASS}</span></span>`;
+const fitTxt=v=>v.fit&&v.fit.mean!=null?(100*v.fit.mean).toFixed(1)+'%':'—';
+const key=(a,v)=>`${a.executor}-${v.version}`;
+const rowHtml=v=>{const r=result(v),bad=v.fit&&v.fit.mean>0.10;
+  return `<td class="ver">${esc(v.version)}</td>${GATES.map(([n])=>`<td>${stampHtml(gateOf(v,n))}</td>`).join('')}<td class="fit${bad?' bad':''}">${esc(fitTxt(v))}</td><td class="res ${r.cls}">${esc(r.t)}</td>`};
+function rerow(a,v){const tr=$('row-'+key(a,v));if(tr)tr.innerHTML=rowHtml(v);if(current===key(a,v))pick(current,false)}
+function render(){
+  const avs=DATA.avatars;byKey={};
+  const latest=avs.filter(a=>a.versions.length).map(a=>({a,v:a.versions[a.versions.length-1]}));
+  $('title').textContent=latest.map(({a,v})=>`${NAME[a.executor]||a.executor} ${v.version}：${result(v).t}${v.fit&&!v.deliverable?`（剪影 ${fitTxt(v)}）`:''}`).join('；')||'Avatar 專案總覽';
+  $('kpis').innerHTML=latest.map(({a,v})=>`<div class="kpi"><span class="who">${esc(NAME[a.executor]||a.executor)} ${esc(a.avatar)}</span><b>${esc(v.version)} · ${esc(result(v).t)}</b><span>最終剪影 ${esc(fitTxt(v))}（≤ 8% 通過、&gt; 10% FAIL）；共 ${a.versions.length} 版</span></div>`).join('');
+  $('tables').innerHTML=avs.map(a=>`<section class="av"><h2>${esc(NAME[a.executor]||a.executor)} · ${esc(a.avatar)}</h2>
+<p class="src"><a href="${esc(okUrl('https://drive.google.com/drive/folders/'+encodeURIComponent(a.folder)))}">在 Google Drive 開啟</a></p>
+<div class="scroll"><table><thead><tr><th>版本</th>${GATES.map(([,l])=>`<th>${l}</th>`).join('')}<th style="text-align:right">剪影</th><th>結果</th></tr></thead><tbody>
+${[...a.versions].reverse().map(v=>{byKey[key(a,v)]={a,v};return `<tr tabindex="0" data-k="${esc(key(a,v))}" id="row-${esc(key(a,v))}">${rowHtml(v)}</tr>`}).join('')}
+</tbody></table></div></section>`).join('')||'<p class="empty">Drive 上還沒有任何版本。</p>';
+  document.querySelectorAll('tbody tr').forEach(tr=>{
+    tr.addEventListener('click',()=>pick(tr.dataset.k,true));
+    tr.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(tr.dataset.k,true)}});
+  });
+  const h=location.hash.slice(1),first=latest.find(({v})=>v.stages[4])||latest[0];
+  if(byKey[current])pick(current,false);else if(byKey[h])pick(h,false);else if(first)pick(key(first.a,first.v),false);
+}
+function pick(k,scroll){
+  const it=byKey[k];if(!it)return;const{a,v}=it;current=k;
+  document.querySelectorAll('tbody tr').forEach(tr=>tr.classList.toggle('on',tr.dataset.k===k));
+  try{history.replaceState(null,'','#'+k)}catch(e){}
+  const im=v.images,gl=Object.entries(v.gates).map(([g,c])=>`<li>${esc(g)}：<b>${c.FAIL}</b> FAIL · ${c.WARN} WARN · ${c.PASS} PASS</li>`).join('');
+  const fig=(src,cap,cls)=>src?`<figure class="${cls||''}"><img src="${esc(src)}" alt="${esc(cap)}"><figcaption>${esc(cap)}</figcaption></figure>`:'';
+  const has=v.stages[3]||v.stages[4];
+  const shots=!has?`<p class="empty">這一版停在第 ${furthest(v)} 關，沒有做出模型，所以沒有最終結果圖。</p>`
+    :!im.done||im.loading?'<p class="empty">讀取結果圖…</p>'
+    :`<div class="shots">${fig(im.model,'成品模型（第 3 關）','model')}<div class="strips">${fig(im.body,'全身：原圖與成品比對（第 4 關）')}${fig(im.head,'頭部：原圖與成品比對（第 4 關）')}</div></div>`;
+  const stop=v.stopped?`<p class="reason">停下原因（步驟 ${esc(v.stopped.step)}）：${esc(v.stopped.reason)}</p>`:'';
+  const err=v.err?`<p class="reason" style="color:var(--fail)">${esc(v.err)}</p>`:'';
+  $('dwrap').innerHTML=`<div class="dhead"><h2>${esc(NAME[a.executor]||a.executor)} ${esc(a.avatar)} · ${esc(v.version)}：${esc(result(v).t)}${v.fit?`，剪影 ${esc(fitTxt(v))}`:''}</h2>
+<p>上傳 ${esc(v.time?new Date(v.time).toLocaleString('zh-TW',{dateStyle:'short',timeStyle:'short'}):'')} · <a href="${esc(okUrl('https://drive.google.com/drive/folders/'+encodeURIComponent(v.folder)))}">Drive 資料夾</a></p></div>
+<ul class="gl">${gl}</ul>${shots}${stop}${err}<p class="src" style="margin-top:10px">結果包：${Object.values(v.stages).map(s=>esc(s.file)).join('、')}</p>`;
+  if(has&&!im.done&&!im.loading){im.loading=true;loadImages(v).catch(e=>{v.err='結果圖讀取失敗：'+e.message}).finally(()=>{im.loading=false;im.done=true;if(current===k)pick(k,false)})}
+  if(scroll)$('detail').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+}
+const start=()=>load().catch(e=>{say('讀取失敗：'+e.message,true);$('reload').hidden=false});
+$('reload').addEventListener('click',()=>{if(DATA)for(const a of DATA.avatars)for(const v of a.versions)v.images={};start()});
+start();
+}
+</script>
+</body>
+</html>
