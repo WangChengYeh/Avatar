@@ -13,7 +13,7 @@
   - 沒有 issue、PR 要處理 → 做 [交接清單](docs/Handoff.md#持續任務技術報告)裡排最前面的那一篇。
   - 目標是讓外行人（不是做影像處理、3D 建模、遊戲、專業攝影的人）看得懂、學到這個技術的關鍵知識：名詞第一次出現就用白話解釋並收進 `docs/glossary.md`，每篇開頭有「看完會知道」（front matter 的 `learn`）。
   - 圖要多（一篇約 6 張以上），圖和白話要能單獨看懂；式子只當補充、放在圖後面（人的回饋：圖看得懂，公式不一定）；數字要在 CHANGELOG、issue 或 PR 查得到；不放照片與雲端硬碟連結。
-  - 一次一篇：合併、確認網站上線後停下來等人看，人說可以才做下一篇。已經給人看過的篇，之後更新數字不用等。
+  - 格式人已經看過、說可以（2026-11-28）：寫好一篇就合併上線、確認網站正常，接著做下一篇，不用等人看；事後有意見再回頭改。
   - 改完跑 `python -m pytest -q tests/test_papers.py`。
 - 各 avatar 目前的狀態在 [docs/File-List.md](docs/File-List.md) 第 4 節；處理完 issue／PR 或看過新的結果就更新。
 - 照片與結果包在雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`，用 Google Drive 連結器讀（連結器在 session 開始時載入）。GitHub repo 是公開的：照片、雲端硬碟連結不放進 repo 或 issue，寫路徑。
