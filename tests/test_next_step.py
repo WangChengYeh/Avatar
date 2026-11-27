@@ -43,15 +43,41 @@ def test_states(tmp_path):
     assert ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)['state'] == 'DONE'
 
 
-def test_same_fail_twice_escalates(tmp_path):
+def test_same_fail_without_progress_escalates(tmp_path):
+    """the same FAIL after two redraws with no progress (3 runs) -> escalate; after one redraw, not yet"""
     ws = avatar(tmp_path); state = {}
     version(ws, 1, G1, ['head 45° 臉部位置'])
     r1 = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
     assert r1['state'] == 'ESCALATE' and '診斷' in r1['why']                # a FAIL with no diagnosis
     version(ws, 2, G1, ['head 45° 臉部位置'])
     r2 = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+    assert '2 輪' not in r2['why'], r2
+    version(ws, 3, G1, ['head 45° 臉部位置'])
+    r3 = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
     issue = (ws / 'issue.md').read_text(encoding='utf-8')
-    assert r2['state'] == 'ESCALATE' and '2 輪' in r2['why'] and '雲端硬碟 `avatar/chatgpt/avatar_001/v002`' in issue   # the Drive path, not a release
+    assert r3['state'] == 'ESCALATE' and '2 輪沒進步' in r3['why'] and '雲端硬碟 `avatar/chatgpt/avatar_001/v003`' in issue   # the Drive path, not a release
+
+
+def run_(fail, reached=1):
+    return dict(fail=list(fail), reached=reached)
+
+
+def test_stuck_counts_only_retries_without_progress():
+    """R52 (#79): ChatGPT fixed a few photos per version; each retry failed fewer items, so it keeps going"""
+    assert not ns.stuck([run_('abc')])
+    assert not ns.stuck([run_('abc'), run_('abc')])                      # one redraw: not yet
+    assert not ns.stuck([run_('abc'), run_('abc'), run_('ab')])      # the last retry made progress
+    assert ns.stuck([run_('abc'), run_('ab'), run_('ab'), run_('ab')]) == {'a', 'b'}   # then two retries without
+    assert not ns.stuck([run_('a'), run_('b'), run_('c')])                 # no item in all three
+    assert not ns.stuck([run_('ab'), run_('ab'), run_('abx', 2)])          # got to a later gate: progress
+    assert ns.stuck([run_('a'), run_('ab'), run_('abc')])                  # worse is not progress
+
+
+def test_stuck_caps_at_five_runs():
+    """progress every round, but the same item in 5 runs in a row -> escalate anyway"""
+    rs = [run_('abcde'), run_('abcd'), run_('abc'), run_('ab')]
+    assert not ns.stuck(rs)
+    assert ns.stuck(rs + [run_('a')])
 
 
 def test_update_when_main_is_newer(tmp_path, monkeypatch):
@@ -153,7 +179,7 @@ def test_escalate_without_gh_uses_the_github_connector(tmp_path, monkeypatch):
 
 def test_repeat_counts_only_runs_of_the_same_code(tmp_path):
     """R48: the same FAIL as R47, but R48 ran on new code (with a new arm reference in the retouch request).
-    Rounds of older code do not count toward 'the same FAIL 2 rounds': the new SOP gets its own tries."""
+    Rounds of older code do not count toward 'the same FAIL 2 rounds without progress': the new SOP gets its own tries."""
     import json as _json
     ws = avatar(tmp_path); state = {}
     def ver(n, h):
@@ -173,6 +199,9 @@ def test_repeat_counts_only_runs_of_the_same_code(tmp_path):
             r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
             assert r['state'] != 'ESCALATE' or '2 輪' not in r['why'], r
             ver(3, 'new')
+            r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
+            assert '2 輪' not in r['why'], r                                  # one redraw on the new code: not yet
+            ver(4, 'new')
             r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
             assert r['state'] == 'ESCALATE' and '2 輪' in r['why'], r
         finally:

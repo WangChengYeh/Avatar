@@ -59,7 +59,7 @@ python body3d/diagnose.py prebake PHOTOS OUT/work   # 關卡 2（需要重建中
 
 ### 第 6 步：處理不掉就發 issue
 
-診斷信心低或沒有規則、同一個 FAIL 修了 2 輪還在、後面才 FAIL 但前面沒有檢查抓得到、程式出錯或改 code 單做不完、SOP 矛盾、懷疑門檻錯：執行者（ChatGPT／Gemini）用 `body3d/escalate.py` 整理證據，發 GitHub issue 給 Claude，等 Claude 改好 SOP／程式再 pull、從頭重跑（[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)）。
+診斷信心低或沒有規則、同一個 FAIL 重畫 2 輪沒進步、後面才 FAIL 但前面沒有檢查抓得到、程式出錯或改 code 單做不完、SOP 矛盾、懷疑門檻錯：執行者（ChatGPT／Gemini）用 `body3d/escalate.py` 整理證據，發 GitHub issue 給 Claude，等 Claude 改好 SOP／程式再 pull、從頭重跑（[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)）。
 
 ### 例：R14
 

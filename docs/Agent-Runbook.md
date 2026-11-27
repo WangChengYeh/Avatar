@@ -49,7 +49,7 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 
 - 只有 **DONE** 和 **WAITING** 可以停下來。其他狀態一律照做、再跑 next_step。
 - 每一版跑完，照 `next_step.md` 的「雲端硬碟」把結果放到 `avatar/<agent>/<avatar_NNN>/vNNN/`：Claude 和人都從那裡看。
-- 不要問人「要繼續嗎」「要不要修」「要不要發 issue」：next_step 已經決定了。要決定的事情（例如同一個 FAIL 修了 2 輪還在要不要升級）它都照[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)的規則判斷好了。
+- 不要問人「要繼續嗎」「要不要修」「要不要發 issue」：next_step 已經決定了。要決定的事情（例如同一個 FAIL 重畫 2 輪沒進步要不要升級）它都照[專案迴圈](Project-Loop.md#什麼時候發-issue任何一條就發)的規則判斷好了。
 - 不要改 SOP、門檻、檢查來讓自己過關；不要手動修中間檔（`cams33.json`、網格…）。覺得 SOP 或門檻錯，next_step 會走到 ESCALATE，或你自己發 issue。
 - 每一輪是一個新的版本（`vNNN/photos`、`vNNN/output`），不覆蓋舊的：next_step 靠它們判斷「同一個 FAIL 有沒有一直出現」。
 - 指令照 next_step 印的原樣執行：路徑已經加了引號（路徑有空格也沒問題），Python 也是跑 next_step 的那一個（有裝好套件）。

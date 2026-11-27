@@ -29,7 +29,7 @@ body:
       label: 為什麼發（docs/Project-Loop.md「什麼時候發 issue」）
       options:
         - 診斷信心低或沒有對應的規則
-        - 同一個 FAIL 修了 2 輪還在
+        - 同一個 FAIL 重畫 2 輪沒進步
         - SOP 或檢查有缺口（後面才 FAIL，前面沒抓到）
         - 程式出錯、或 AI 改 code 單做不完
         - SOP 互相矛盾或不清楚
