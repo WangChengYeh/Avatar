@@ -157,7 +157,10 @@ for n, c in cams.items():
     w, colv = view_samples(n, c)
     ov = (w > 0.5) & (ref_w > 0.5) & (colv.min(1) > 30) & (ref.min(1) > 30)
     if ov.sum() > 2000:
-        GAIN[n] = np.clip(np.median(ref[ov] / colv[ov], axis=0), 0.8, 1.25)
+        # brightness only, one factor for B, G and R: a per-channel gain measured on the few surfaces both see
+        # (shoulders, hair) shifted the hue, and on a pale, nearly colourless top view (R52: B 1.09, G 0.94,
+        # R 0.85) it turned the top of the arms grey-green, plain to see with the arms down
+        GAIN[n] = np.full(3, np.clip(np.median(ref[ov].sum(1) / colv[ov].sum(1)), 0.8, 1.25))
         print(f'gain {n:14s} BGR {np.round(GAIN[n], 3)}  overlap {ov.sum()}')
 
 acc = np.zeros((len(X), 3), np.float32); wsum = np.zeros(len(X)); wconf = np.zeros(len(X), np.float32)
