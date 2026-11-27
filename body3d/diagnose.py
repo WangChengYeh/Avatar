@@ -111,7 +111,7 @@ def photos_in_label(label):
 def diagnose_photo_fails(fail_lines):
     out, seen = [], {}
     for line in fail_lines:
-        label = line.split(':', 1)[0].strip()
+        label = re.split(r'[:：]', line, 1)[0].strip()
         for pat, cause, action in PHOTO_RULES:
             if re.search(pat, label):
                 names = re.findall(r'(?:el30|low20|head)_\d{3}deg|\d{2}_\d{3}deg_[a-z_]+|\btop\b(?=\.jpg)', line)  # photos named
@@ -197,6 +197,8 @@ def head_pair_leaves(fail_lines):
     for a, b in pairs:
         count[a] = count.get(a, 0) + 1; count[b] = count.get(b, 0) + 1
     redo = [a for a in sorted(count) if count[a] >= 2] or sorted(count)
+    if len(pairs) >= ct.HEAD_PAIR_RING:               # most of the ring disagrees: all eight, whoever is in two pairs
+        redo = [f'{a:03d}' for a in range(0, 360, 45)]
     names = [f'head_{a}deg' for a in redo]
     return [leaf('頭部特寫相鄰一致', ['關卡 2 烘焙前檢查', '相鄰兩張頭部特寫在同一塊皮膚上不一致',
                  f'不一致的組：{"、".join(f"{a}°/{b}°" for a, b in pairs)}'],

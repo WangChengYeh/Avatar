@@ -57,12 +57,12 @@
 
 ## 4. 目前各 avatar 的狀態
 
-由 Claude 在每次處理 issue／PR 時更新（最後更新 2026-11-27，依雲端硬碟 `avatar/` 實際內容）。每個執行者的 avatar 各自從 `avatar_001` 編號。
+由 Claude 在每次處理 issue／PR 時更新（最後更新 2026-11-28，依雲端硬碟 `avatar/` 實際內容）。每個執行者的 avatar 各自從 `avatar_001` 編號。
 
 | 執行者／Avatar | 雲端硬碟上的版本 | 最新結果 | 主要問題 | 相關 |
 | --- | --- | --- | --- | --- |
-| ChatGPT／avatar_001（R 系列） | v033 … v061 | v060（`--template makehuman`）：第 1 關 0 FAIL，停在第 2 關（頭部特寫相鄰一致，修圖單：head_045、head_090）；v061 已上傳照片。R54 是最後一版跑完四關的：最終剪影 15.4% FAIL | 頭部特寫彼此不一致；R54 的照片在新門檻下第 1 關 FAIL 12 項（外殼覆蓋、外殼切割、斜角手臂），相對的特寫 135／315 鏡像 0.893 | #79、#65 |
-| Gemini／avatar_001 | v002 … v013 | v010：四關 0 FAIL、最終剪影 9.8%，但模型不對（側臉糊、腳只剩一截、側面太厚）。v012（重畫側面斜角照）：第 1、2 關 0 FAIL，第 3 關 FAIL（擺姿勢網格連續性）。v013（新程式）：第 1 關 FAIL 1 項（head_090／head_270 鏡像 0.891） | head_090 與 head_270 不是同一顆頭、雙腳站姿每張不同、側面照手臂沒有正對鏡頭；v012 的第 3 關 FAIL 要查程式 | #84 |
+| ChatGPT／avatar_001（R 系列） | v033 … v062 | v061（`--template makehuman`，body3d 2.21.0）：第 1 關 0 FAIL，停在第 2 關（3 項 FAIL，R58 是 7 項）；v062 是 pull 後用同一組照片重跑。R54 是最後一版跑完四關的：最終剪影 15.4% FAIL | 頭部特寫彼此不一致（相鄰一致、135／315 鏡像 0.893）；斜角全身照和水平環對不上 | #79、#65 |
+| Gemini／avatar_001 | v002 … v015 | v015（body3d 2.24.1）：四關 0 FAIL、DONE，最終剪影 9.05%；頭部四組鏡像 0.956–0.977 | 側臉貼圖仍糊、肩膀有一塊手：四關沒有比成品貼圖與原圖的檢查（見交接清單）；v012 的第 3 關 FAIL（擺姿勢網格連續性）在 v014 沒有再出現，原因未查 | #84 |
 
 模板：預設外殼流程；`--template makehuman` 從 body3d 2.18 起頭用外殼的、身體擬合到照片，兩組完美照片四道關卡 0 FAIL（#69）。
 
@@ -70,8 +70,8 @@
 
 ```
 avatar/                       ← 所有人用 Google Drive 連結器讀寫
-├── chatgpt/avatar_001/v033 … v061/    每一版放結果包（例：Avatar-R60_stage2_reconstruction_FAIL.zip）、gates.json、next_step.md
-└── gemini/avatar_001/v002 … v013/     同上；body3d 2.22.0 起跑到第 3 關的版本另放無光照 GLB
+├── chatgpt/avatar_001/v033 … v062/    每一版放結果包（例：Avatar-R60_stage2_reconstruction_FAIL.zip）、gates.json、next_step.md
+└── gemini/avatar_001/v002 … v015/     同上；body3d 2.22.0 起跑到第 3 關的版本另放無光照 GLB
 ```
 
 所有人讀雲端硬碟的方式：Google Drive 連結器（依資料夾或檔名找、讀檔、放檔）。連結器是在 session 開始時載入，剛設定好的要開新的 session 才看得到。

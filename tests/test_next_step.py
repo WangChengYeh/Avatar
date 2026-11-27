@@ -87,7 +87,9 @@ def test_update_when_main_is_newer(tmp_path, monkeypatch):
     ws = avatar(tmp_path); version(ws, 1, G0, deliverable=True)
     r = ns.decide(str(ws), 'avatar_001', 'Gemini', 'avatar_001', 'hull', {})
     assert r['state'] == 'UPDATE' and 'git pull origin main' in r['steps'][0]
-    assert 'v002/photos' in r['steps'][1] and 'v001/photos/*.jpg' in r['steps'][1] and 'v002/output' in r['steps'][2]
+    # pull, then ask again: a rerun is decided after the pull (only when the code that makes results changed), so a
+    # docs-only merge no longer makes every executor rerun its photos in a new version (Gemini v014 -> v015)
+    assert len(r['steps']) == 2 and 'next_step.py' in r['steps'][1] and not any('v002' in s for s in r['steps'])
     monkeypatch.setattr(ns, 'behind_main', lambda: (None, 'no network'))
     st = {}
     assert ns.decide(str(ws), 'avatar_001', 'Gemini', 'avatar_001', 'hull', st)['state'] == 'DONE' and '查不到' in st['update_check']
@@ -289,3 +291,43 @@ def test_killed_rebuild_is_not_running_forever(tmp_path):
     os.utime(p, (old, old))
     r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', {})
     assert r['state'] == 'RUN' and '中斷' in r['why'] and any('v002' in s for s in r['steps'])
+
+
+def test_fail_items_end_at_either_colon(tmp_path):
+    """#79 (R55-R61): the pre-bake lines use a full-width colon; with ':' only the label kept the measured value, no
+    item was the same in two runs and nothing was ever stuck"""
+    out = tmp_path
+    (out / 'run_all.log').write_text(
+        '  [FAIL] 頭部特寫相鄰一致 head_090deg / head_135deg：同一塊皮膚的亮度差中位數 13.0 / 255（2519 點）\n'
+        '  [FAIL] 全身／頭部一致性 045° 嘴部：中位偏移 25.9 px（全身照）\n'
+        '  [FAIL] 90° 全視角外殼覆蓋: 外殼蓋住照片人物的 93.9%\n', encoding='utf-8')
+    assert ns.fail_items(str(out)) == sorted(['頭部特寫相鄰一致 head_090deg / head_135deg', '全身／頭部一致性 045° 嘴部',
+                                              '90° 全視角外殼覆蓋'])
+    (out / 'run_all.log').write_text('  [FAIL] 頭部特寫相鄰一致 head_090deg / head_135deg：同一塊皮膚的亮度差中位數 14.0 / 255（2377 點）\n',
+                                     encoding='utf-8')
+    assert ns.fail_items(str(out)) == ['頭部特寫相鄰一致 head_090deg / head_135deg']       # the same item, another value
+
+
+def test_control_files_do_not_change_the_result_fingerprint(tmp_path):
+    """a change to next_step.py / escalate.py makes no number different: no rerun. A wait on Claude still ends"""
+    import shutil
+    import run_all
+    d = tmp_path / 'body3d'; (d / 'steps').mkdir(parents=True)
+    for f in ('run_all.py', 'next_step.py', 'escalate.py'):
+        (d / f).write_text('x = 1\n')
+    (d / 'steps' / 'next_step.py').write_text('x = 1\n')            # only the top-level ones are control files
+    h, full = run_all.code_hash(str(d)), run_all.code_hash(str(d), control=True)
+    (d / 'next_step.py').write_text('x = 2\n')
+    assert run_all.code_hash(str(d)) == h and run_all.code_hash(str(d), control=True) != full
+    (d / 'steps' / 'next_step.py').write_text('x = 2\n')
+    assert run_all.code_hash(str(d)) != h
+    (d / 'run_all.py').write_text('x = 3\n')
+    assert run_all.code_hash(str(d)) != h
+
+
+def test_old_publish_failure_is_dropped_when_not_publishing(tmp_path, monkeypatch):
+    """Gemini: 'v003 沒有上傳到資料 repo' in every next_step.md since v003, though publishing is off"""
+    monkeypatch.delenv('AVATAR_DATA_PUBLISH', raising=False)
+    state = dict(publish_error='v003 沒有上傳到資料 repo：HTTP 403')
+    ns.auto_publish(str(avatar(tmp_path)), state)
+    assert 'publish_error' not in state

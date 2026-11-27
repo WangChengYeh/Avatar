@@ -13,7 +13,7 @@ python body3d/next_step.py --workspace ~/avatar/gemini/<avatar_NNN>
 **照它印出的指令做，做完再跑一次，在同一個回覆／同一輪裡一直做下去。只有狀態是 DONE 才可以停下來；WAITING（等 Claude）時照它印的 `next_step.py … --wait` 一直跑：程式自己每分鐘檢查 GitHub，等不到會在沙盒逾時之前回來，再跑一次繼續等；不要停下來問人要不要繼續。每次停下來時，最後貼出 avatar 資料夾裡的 `next_step.md`。**
 
 - 程式更新了就一定重跑：每份結果記錄是哪一版程式跑的，舊程式跑的結果 next_step 會叫你用新程式重跑。
-- 不用自己記得去 GitHub 抓新的 SOP：next_step 每次都會先 `git fetch`，main 有新的就給 UPDATE（`git pull`、重跑）。
+- 不用自己記得去 GitHub 抓新的 SOP：next_step 每次都會先 `git fetch`，main 有新的就給 UPDATE（`git pull`，再跑一次 next_step；重建或檢查的程式有變才需要重跑，它會告訴你）。
 - 你的 avatar 工作區在 `~/avatar/gemini/avatar_NNN/`，每一輪一個版本 `vNNN/photos`、`vNNN/output`（docs/Agent-Runbook.md）。每個版本做完，照 `next_step.md` 的「雲端硬碟」用 Google Drive 連結器把結果放到 `avatar/gemini/avatar_NNN/vNNN/`。照片不放 GitHub（repo 是公開的）。
 - 角色與升級規則：[docs/Project-Loop.md](docs/Project-Loop.md)。SOP 由 Claude 維護；你不改 SOP、門檻或檢查來讓自己過關。
 - 程式改動開 PR 給 Claude review（`.github/pull_request_template.md`），不直接推 main。

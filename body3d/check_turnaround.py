@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.48.0（2026-11-27）
+版本 1.48.1（2026-11-28）
 
 版本紀錄:
+  1.48.1 「頭部特寫相鄰一致」8 組裡有 5 組以上不一致時，要重畫的清單是整圈 8 張（原本只列出現在兩組裡的特寫：R55 6 組
+         FAIL 只點名 4 張，修了三輪仍有 3–7 組 FAIL）。
   1.48.0 第 11e 項擴大到四組相對的頭部特寫（0/180、45/225、90/270、135/315：正交投影下相差 180° 的輪廓互為鏡像，完美照片
          四組 0.999–1.000）；項目名稱改為「頭部特寫鏡像」。ChatGPT R54 135/315 0.893、45/225 0.932，只查 90/270 時放過。
   1.47.0 新增第 11e 項「頭部側面特寫鏡像」：head_090 和左右鏡像的 head_270 輪廓重合度（頭頂下 22 cm，先對齊左右位置），
@@ -301,7 +303,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.48.0'
+__version__ = '1.48.1'
 import numpy as np
 import cv2
 
@@ -2430,6 +2432,9 @@ def report_face_reconstruction(work, cameras, landmarks, photo_height):
 HEAD_PAIR_PASS, HEAD_PAIR_FAIL, HEAD_PAIR_MIN = 6.0, 8.0, 300
 
 
+HEAD_PAIR_RING = 5               # this many of the 8 neighbouring pairs disagree: the ring, not one or two close-ups
+
+
 def head_pair_advice(n_redo):
     """how to redraw the close-ups that disagree: one or two -> match the neighbours; most of the ring -> the whole
     ring at once from one reference (R54: three redrawn one by one, every pair still 8-13)"""
@@ -2486,6 +2491,8 @@ def report_head_pairs(folder, work, cameras):
             count[a] = count.get(a, 0) + 1; count[b] = count.get(b, 0) + 1
         shared = [a for a in sorted(count) if count[a] >= 2]      # in two disagreeing pairs: this one is off
         redo = [f'head_{a:03d}deg' for a in (shared or sorted(count))]
+        if len(worst) >= HEAD_PAIR_RING:                          # R55 (#79): 6 pairs failed, 4 close-ups were named,
+            redo = [f'head_{a:03d}deg' for a in range(0, 360, 45)]   # three rounds of patching, 3-7 pairs still fail
         print(f'  → 要重畫的頭部特寫：{"、".join(redo)}。{head_pair_advice(len(redo))}')
     return failed
 

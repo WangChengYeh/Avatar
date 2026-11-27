@@ -286,3 +286,15 @@ def test_fit_pass_has_no_leaves(tmp_path):
     import diagnose
     assert diagnose.diagnose_fit(str(_fit_out(tmp_path, [(0.05, 1, 1)] * 8, 'PASS'))) == []
     assert diagnose.diagnose_fit(str(tmp_path / 'missing')) == []
+
+
+def test_six_disagreeing_pairs_are_the_whole_ring():
+    """R55 (#79): 6 of the 8 neighbouring pairs failed, but only the 4 close-ups in two pairs were named; three rounds
+    of patching later 3-7 pairs still failed. Five pairs or more: all eight at once"""
+    import diagnose
+    fails = [f'頭部特寫相鄰一致 head_{a:03d}deg / head_{b:03d}deg：同一塊皮膚的亮度差中位數 11.0 / 255'
+             for a, b in ((0, 45), (45, 90), (90, 135), (180, 225), (225, 270), (270, 315))]
+    leaf, = diagnose.head_pair_leaves(fails)
+    assert leaf['action'].count('head_') >= 8 and '整組 8 張一次重畫' in leaf['action'], leaf
+    two, = diagnose.head_pair_leaves(fails[:2])
+    assert 'head_045deg' in two['action'] and '整組' not in two['action']
