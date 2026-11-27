@@ -27,3 +27,4 @@
 - 照片與結果包：雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`，用 Google Drive 連結器讀（連結器在 session 開始時載入，剛設定好的要開新 session）。
 - 問題與討論：GitHub issue（目前開著的是 #65、#79、#84）；用 label `agent:<名字>` 篩選誰做的。
 - 跑流程：本機 Blender 要裝 MPFB 擴充才能跑 `--template makehuman`；Python 套件照 `requirements.txt`。
+- 專案總覽（每個 avatar、每一版、四關 FAIL／WARN／PASS、最終結果圖）：`dashboard/` 的 Google Apps Script，部署在使用者的 Google 帳號，直接讀雲端硬碟（安裝步驟見 `dashboard/README.md`）。
