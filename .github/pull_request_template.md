@@ -26,4 +26,5 @@
 - [ ] 兩組完美照片從頭跑 `run_all.py`：四道關卡全部 0 FAIL／0 WARN、可交付
 - [ ] 相關測試通過；新檢查有測試（壞的情況 FAIL、完美照片 PASS）
 - [ ] CHANGELOG、docs/Diagnosis-Tree.md（新分支或規則）已更新
+- [ ] 技術報告（docs/papers/，Claude 的持續任務）：<!-- 更新了第 N 篇／新增一篇／這次不需要，因為… -->
 - [ ] 另一個 avatar：<!-- 共用的檢查或門檻改了嗎？會不會多出 FAIL？ -->
