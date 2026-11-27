@@ -11,7 +11,7 @@
 - **持續任務：技術報告**（https://wangchengyeh.github.io/Avatar/，原始檔 `docs/papers/`）。踩過的雷每個難題一篇，只要專案還在跑就持續寫（[docs/Project-Loop.md#claude-的持續任務技術報告](docs/Project-Loop.md#claude-的持續任務技術報告)）：
   - 合併了會改變程式行為的 PR → 同一天更新對應那一篇（這顆雷的四段：原先的演算法、遇到的問題、新的做法、結果），或加一篇。
   - 沒有 issue、PR 要處理 → 做 [交接清單](docs/Handoff.md#持續任務技術報告)裡排最前面的那一篇。
-  - 先白話、再式子，配示意圖；數字要在 CHANGELOG、issue 或 PR 查得到；不放照片與雲端硬碟連結。
+  - 圖要多（一篇約 6 張以上），圖和白話要能單獨看懂；式子只當補充、放在圖後面（人的回饋：圖看得懂，公式不一定）；數字要在 CHANGELOG、issue 或 PR 查得到；不放照片與雲端硬碟連結。
   - 一次一篇：合併、確認網站上線後停下來等人看，人說可以才做下一篇。已經給人看過的篇，之後更新數字不用等。
   - 改完跑 `python -m pytest -q tests/test_papers.py`。
 - 各 avatar 目前的狀態在 [docs/File-List.md](docs/File-List.md) 第 4 節；處理完 issue／PR 或看過新的結果就更新。
