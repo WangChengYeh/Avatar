@@ -461,6 +461,15 @@ def test_all_view_hull_coverage(broken):
     rc, out = check(broken)
     cut = [l for l in lines(out, 'FAIL') if '外殼切割' in l]
     assert sorted(l.split()[1] for l in cut) == ['el30_090deg', 'el30_270deg'], cut
+    # 1.46: a short coverage at 90° names the tilted views at 90° and 270° (Gemini v009: its worst final views).
+    # The all-view hull tolerates two misses: a third side view off lowers it
+    f = broken / 'low20_090deg.jpg'
+    im = cv2.imread(str(f)); h, w = im.shape[:2]
+    cv2.imwrite(str(f), cv2.warpAffine(im, np.float32([[1, 0, -60], [0, 1, 0]]), (w, h), borderValue=(255, 255, 255)),
+                [cv2.IMWRITE_JPEG_QUALITY, 95])
+    rc, out = check(broken)
+    side = [l for l in lines(out, 'FAIL') + lines(out, 'WARN') if '全視角外殼覆蓋' in l and l.split()[1] == '90°']
+    assert side and 'el30_090deg' in side[0] and 'low20_270deg' in side[0], side
 
 
 def _hull_render(folder, ring, a, vs=0.01):
