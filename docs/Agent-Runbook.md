@@ -33,7 +33,7 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 
 | 狀態 | 你做什麼 | 可以停嗎 |
 | --- | --- | --- |
-| UPDATE | GitHub 上的 main 有新的 SOP／程式：`git pull`，用目前的照片從頭重跑（新的輸出資料夾） | 不行 |
+| UPDATE | GitHub 上的 main 有新的 SOP／程式：`git pull`，再跑一次 next_step。重建或檢查的程式有變才需要重跑（next_step 會回 RUN：用目前的照片在新的版本從頭重跑）；只改文件或 next_step 本身就照原來的狀態繼續 | 不行 |
 | START | 照生圖規格生 33 張照片放進 `v001/photos`，跑 `run_all.py`（輸出到 `v001/output`） | 不行，做完回第 1 步 |
 | RUN | 跑它給的 `run_all.py`（可能先 `git pull`） | 不行 |
 | RETOUCH | 把 AI 修圖單交給生圖（你自己的生圖工具），重畫指定的照片；開下一個版本 `v(N+1)/photos`，複製整組再覆蓋重畫的，跑 `run_all.py` | 不行 |
@@ -44,8 +44,8 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 
 ## 規則
 
-- **程式更新了就一定重跑**：每份結果都記錄是哪一版程式跑的（程式內容的指紋，加上 git commit）。最新的結果如果是舊程式跑的（之後 `body3d/` 改過，不管是 next_step 的 UPDATE、你手動 pull、還是別的工具更新的），next_step 一律給 RUN：同一組照片用新程式重跑。只改文件不會重跑。
-- **不用自己記得去 GitHub 抓新的**：next_step 每次都先 `git fetch`，main 比本機新就給 UPDATE（pull、重跑）。Claude 合併的修正（不管是不是為你的 avatar），你下一次跑 next_step 就會拿到。抓不到 GitHub（沒網路）時它照本機的版本繼續，並在 `avatar_state.json` 的 `update_check` 寫原因。
+- **程式更新了就一定重跑**：每份結果都記錄是哪一版程式跑的（程式內容的指紋，加上 git commit）。最新的結果如果是舊程式跑的（之後 `body3d/` 改過，不管是 next_step 的 UPDATE、你手動 pull、還是別的工具更新的），next_step 一律給 RUN：同一組照片用新程式重跑。只改文件、或只改決定下一步的程式（`next_step.py`、`escalate.py`、`data_repo.py`：不產生任何結果）不會重跑。
+- **不用自己記得去 GitHub 抓新的**：next_step 每次都先 `git fetch`，main 比本機新就給 UPDATE（pull，再跑一次 next_step）。Claude 合併的修正（不管是不是為你的 avatar），你下一次跑 next_step 就會拿到。抓不到 GitHub（沒網路）時它照本機的版本繼續，並在 `avatar_state.json` 的 `update_check` 寫原因。
 
 - 只有 **DONE** 可以停下來。等 Claude 的 **WAITING** 一直跑 `--wait`（見上表）；其他狀態一律照做、再跑 next_step。
 - **`--wait` 一次等多久**：沒有哪個執行環境公布一個指令能跑多久，所以程式自己量。第一次等 5 分鐘；每次順利等完，下一次加長 1.5 倍，最多 20 分鐘；如果某一次等到一半被沙盒砍掉（沒有寫下「完成」），之後每次只等它撐過時間的 70%。也可以自己指定：`--wait 3`（分鐘）。記錄在 avatar 資料夾的 `wait_heartbeat.json` 與 `avatar_state.json` 的 `wait`。

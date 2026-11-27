@@ -38,7 +38,7 @@ FULL = {0: '01_000deg_front', 45: '02_045deg_front_left', 315: '08_315deg_front_
 
 def classify(line):
     """(kind, angle) for a FAIL line the code can fix, else (None, label)"""
-    label = line.split(':', 1)[0].strip()
+    label = re.split(r'[:：]', line, 1)[0].strip()
     m = re.match(r'head (\d+)° 臉部位置$', label)
     if m and int(m.group(1)) in (45, 315) and 'facepos' in PROVEN:
         return 'facepos', int(m.group(1))

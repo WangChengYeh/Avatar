@@ -42,7 +42,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.25.0'
+__version__ = '2.26.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
@@ -97,14 +97,21 @@ def code_version():
                 hash=code_hash())
 
 
-def code_hash(root=HERE):
-    """fingerprint of the code itself (every .py / .json under body3d/, committed or not): next_step reruns an output
-    whose code_hash differs from the code now, and only then (uncommitted edits while fixing code are the same code)"""
+CONTROL_FILES = ('next_step.py', 'escalate.py', 'data_repo.py')    # decide what to do next; make no result
+
+
+def code_hash(root=HERE, control=False):
+    """fingerprint of the code that makes the results (every .py / .json under body3d/, committed or not, except
+    CONTROL_FILES): next_step reruns an output whose code_hash differs from the code now, and only then (uncommitted
+    edits while fixing code are the same code). A change to next_step.py alone changes no number, so it forces no
+    rerun. control=True: all of it (a wait on Claude ends when anything changed)."""
     import hashlib
     h = hashlib.sha256()
     for d, dirs, files in sorted(os.walk(root)):
         dirs[:] = sorted(x for x in dirs if x != '__pycache__')
         for f in sorted(files):
+            if not control and d == root and f in CONTROL_FILES:
+                continue
             if f.endswith(('.py', '.json')):
                 p = os.path.join(d, f)
                 h.update(os.path.relpath(p, root).encode()); h.update(open(p, 'rb').read())

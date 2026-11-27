@@ -78,7 +78,9 @@ def fail_items(out):
     if not os.path.exists(log):
         return []
     text = open(log, encoding='utf-8', errors='replace').read()
-    return sorted({m.split(':', 1)[0].strip() for m in re.findall(r'^\s*\[FAIL\]\s*(.*)$', text, re.M)})
+    # the label ends at the first colon, ASCII or full-width: the pre-bake lines use '：' (R55-R61, #79: with ':' only
+    # the "label" kept the measured value, no item was ever the same in two runs, and nothing was ever stuck)
+    return sorted({re.split(r'[:：]', m, 1)[0].strip() for m in re.findall(r'^\s*\[FAIL\]\s*(.*)$', text, re.M)})
 
 
 def reached(gates):
@@ -170,7 +172,8 @@ def auto_publish(ws, state):
     # opt-in only: the data repo is public and the photos are of a person; results are exchanged on the Drive
     if (state.get('offline') or os.environ.get('NEXT_STEP_OFFLINE') or os.environ.get('NEXT_STEP_NO_PUBLISH')
             or os.environ.get('AVATAR_DATA_PUBLISH') != '1'):
-        return
+        state.pop('publish_error', None)               # not publishing: an old failure is not news (Gemini: "v003 沒有上傳"
+        return                                         # in every next_step.md since v003)
     vs = versions(ws)
     if not vs:
         return
@@ -236,9 +239,10 @@ def wait_slice(check, budget, hb_path, poll=WAIT_POLL, clock=time.time, sleep=ti
 
 
 def current_code():
+    """the fingerprint of all of body3d/, next_step itself included: a wait on Claude ends when any of it changes"""
     sys.path.insert(0, HERE)
     import run_all
-    return run_all.code_hash()
+    return run_all.code_hash(control=True)
 
 
 def wait_answered(w, state):
@@ -305,13 +309,13 @@ def decide(ws, avatar, agent, name, template, state):
             w = state.get('waiting')
             if w and gh(w['kind'], 'view', str(w['number']), '--json', 'state', '--jq', '.state') in ('CLOSED', 'MERGED'):
                 state['waiting'] = None                    # Claude's fix is in this update: one rerun covers both
-            steps = [f'cd {shlex.quote(REPO)} && git pull origin main   # {n_behind} 個新的 commit：' + '；'.join(info[:3])]
-            if photos and out:
-                steps += next_version_steps(ws, cn + 1, photos, name, template, '新的 SOP 可能改了檢查：同一組照片從頭重跑')
-            elif photos:
-                steps.append(run_cmd(photos, os.path.join(cur, 'output'), name, template))
-            steps.append(me)
-            return dict(state='UPDATE', why=f'GitHub 上的 main 比本機新 {n_behind} 個 commit（Claude 合併了新的 SOP／程式）',
+            # pull, then ask again: whether the photos must be rerun is decided after the pull, from the code that
+            # makes the results (run_all.code_hash). Every merge used to force a rerun in a new version, docs and
+            # next_step-only changes included (Gemini v014 -> v015, ChatGPT v061 -> v062: the same photos, the same
+            # numbers).
+            steps = [f'cd {shlex.quote(REPO)} && git pull origin main   # {n_behind} 個新的 commit：' + '；'.join(info[:3]), me]
+            return dict(state='UPDATE', why=f'GitHub 上的 main 比本機新 {n_behind} 個 commit（Claude 合併了新的 SOP／程式）：'
+                                            '先 pull，再跑一次 next_step；重建或檢查的程式有變才需要重跑',
                         steps=steps)
     if not photos:
         target = cur if cur and not out else vdir(ws, cn + 1)
