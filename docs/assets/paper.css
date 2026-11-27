@@ -129,7 +129,7 @@ td:first-child, th:first-child { padding-left: 0.1rem; }
 .chart .legend li { margin: 0; display: flex; align-items: center; gap: 0.4rem; }
 .chart .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .chart .rows { border-left: 1px solid var(--grid); margin-left: 9.5rem; }
-.chart .row { display: grid; grid-template-columns: 9.5rem 1fr 5.2rem; align-items: center; margin-left: -9.5rem; }
+.chart .row { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr) 6.5rem; align-items: center; margin-left: -9.5rem; }
 .chart .row:hover .lab, .chart .row:hover .val { color: var(--ink); font-weight: 650; }
 .chart .grp { margin: 0.55rem 0 0.1rem -9.5rem; font-weight: 650; color: var(--ink); }
 .chart .lab { padding-right: 0.7rem; text-align: right; color: var(--ink-2); overflow-wrap: anywhere; }
@@ -154,7 +154,7 @@ td:first-child, th:first-child { padding-left: 0.1rem; }
   body { font-size: 16px; }
   h1, .paper-head h1 { font-size: 1.6rem; }
   .chart .rows { margin-left: 0; border-left: 0; }
-  .chart .row { grid-template-columns: 1fr 4.6rem; margin-left: 0; padding: 0.2rem 0; }
+  .chart .row { grid-template-columns: minmax(0, 1fr) 6.2rem; margin-left: 0; padding: 0.2rem 0; }
   .chart .lab { grid-column: 1 / -1; text-align: left; }
   .chart .track { border-left: 1px solid var(--grid); }
   .chart .grp { margin-left: 0; }

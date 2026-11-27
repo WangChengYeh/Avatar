@@ -31,7 +31,7 @@ charts:
     rows:
       - {group: 繞一圈的直立表面, label: "8 張，每 45° 一張", value: 0.92, kind: ref}
       - {label: "4 張，每 90° 一張", value: 0.71, kind: ai}
-      - {label: "3 張：0°、90°、180°", value: 0.0, text: "0（另一側完全沒有）", kind: ai}
+      - {label: "3 張：0°、90°、180°（270° 那一側沒有）", value: 0.0, text: "0", kind: ai}
       - {group: "朝上的面（肩膀上方、頭頂）", label: "有俯角環與俯視", value: 1.0, text: "1.00", kind: ref}
       - {label: "只有水平環", value: 0.0, text: "0", kind: ai}
       - {group: "朝下的面（下巴下方）", label: "有仰角 20° 環", value: 0.34, kind: ref}
