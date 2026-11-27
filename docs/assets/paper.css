@@ -227,3 +227,19 @@ dl.glossary dd.where { font-family: var(--sans); font-size: 0.8rem; color: var(-
 .dg-box { fill: var(--wash); stroke: var(--ink); stroke-width: 1.5; }
 .dg-box-ref { fill: var(--surface-1); stroke: var(--series-ref); stroke-width: 2; }
 .dg-box-ai { fill: var(--surface-1); stroke: var(--series-ai); stroke-width: 2; }
+.dg-arc-ref { fill: none; stroke: var(--series-ref); stroke-width: 3; }
+.dg-arc-ai { fill: none; stroke: var(--series-ai); stroke-width: 3; }
+.dg-arc-fix { fill: none; stroke: var(--series-fix); stroke-width: 7; stroke-linecap: round; }
+.dg-ovl-a { fill: var(--series-ref); fill-opacity: 0.3; stroke: var(--ink); stroke-width: 1.5; }
+.dg-ovl-b { fill: var(--series-ai); fill-opacity: 0.3; stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.dg-ovl-solid { fill: var(--series-ref); fill-opacity: 0.18; stroke: var(--ink); stroke-width: 2; }
+.dg-ovl-dash { fill: none; stroke: var(--series-ai); stroke-width: 2; stroke-dasharray: 5 4; }
+.dg-node { fill: var(--surface-1); stroke: var(--ink); stroke-width: 2; }
+.dg-arc-ref { fill: none; stroke: var(--series-ref); stroke-width: 3; }
+.dg-arc-ai { fill: none; stroke: var(--series-ai); stroke-width: 3; }
+.dg-arc-fix { fill: none; stroke: var(--series-fix); stroke-width: 7; stroke-linecap: round; }
+.dg-ovl-a { fill: var(--series-ref); fill-opacity: 0.3; stroke: var(--ink); stroke-width: 1.5; }
+.dg-ovl-b { fill: var(--series-ai); fill-opacity: 0.3; stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.dg-ovl-solid { fill: var(--series-ref); fill-opacity: 0.18; stroke: var(--ink); stroke-width: 2; }
+.dg-ovl-dash { fill: none; stroke: var(--series-ai); stroke-width: 2; stroke-dasharray: 5 4; }
+.dg-node { fill: var(--surface-1); stroke: var(--ink); stroke-width: 2; }
