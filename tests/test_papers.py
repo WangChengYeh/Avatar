@@ -25,7 +25,7 @@ def top(front, key):
 
 def test_there_are_papers_and_a_site():
     assert len(PAPERS) >= 10
-    for f in ('_config.yml', 'index.md', '_layouts/default.html', '_layouts/paper.html',
+    for f in ('_config.yml', 'index.md', 'glossary.md', '_layouts/default.html', '_layouts/paper.html',
               '_includes/chart.html', 'assets/paper.css'):
         assert (DOCS / f).is_file(), f
 
@@ -69,6 +69,9 @@ def test_revised_papers_follow_the_format():
         counts = [len(re.findall(rf'^### {part}\s*$', body, re.M)) for part in PARTS]
         assert counts[0] >= 1 and len(set(counts)) == 1, f'{p.name}: 每一顆雷都要有四段 {PARTS}，現在是 {counts}'
         assert re.search(r'\{%\s*include figs/', body), f'{p.name}: 要有示意圖'
+        front = split(p)[0]
+        learn = re.search(r'^learn:\n((?:  - .+\n)+)', front + '\n', re.M)
+        assert learn and len(learn.group(1).strip().splitlines()) >= 3, f'{p.name}: 要有「看完會知道」（learn，至少 3 條）'
         assert re.search(r'^## 還沒解決的', body, re.M), f'{p.name}: 要有「還沒解決的」'
         assert re.search(r'^## 參考', body, re.M), f'{p.name}: 要有「參考」'
 

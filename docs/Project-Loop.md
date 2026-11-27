@@ -136,7 +136,11 @@ gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file i
 
 ## Claude 的持續任務：技術報告
 
-網站：https://wangchengyeh.github.io/Avatar/（原始檔 `docs/papers/`，GitHub Pages 從 main 的 `/docs` 建置）。專案踩過的雷，每個難題一篇。這不是一次性的文件：只要專案還在跑，Claude 就持續寫、持續更新。進度記在[交接清單](Handoff.md#持續任務技術報告)。
+網站：https://wangchengyeh.github.io/Avatar/（原始檔 `docs/papers/`，GitHub Pages 從 main 的 `/docs` 建置）。專案踩過的雷，每個難題一篇。
+
+**目標（人在 2026-11-28 定的）：建立這個技術的關鍵知識，讓不是做影像處理、不是做 3D 建模、不是做遊戲、也不是專業攝影的人都看得懂，讀完學到東西。** 所以每一篇都當成寫給外行人的教材：先講這件事為什麼難、背後的道理是什麼，再講我們怎麼踩到、怎麼改。
+
+這不是一次性的文件：只要專案還在跑，Claude 就持續寫、持續更新。進度記在[交接清單](Handoff.md#持續任務技術報告)。
 
 ### 什麼時候寫
 
@@ -150,6 +154,7 @@ gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file i
 
 ### 每一篇怎麼寫
 
+0. **寫給外行人。** 假設讀者沒學過影像處理、3D、遊戲或攝影。每個專有名詞第一次出現時用一句白話解釋，並收進[名詞小辭典](https://wangchengyeh.github.io/Avatar/glossary.html)（`docs/glossary.md`）；程式裡的名稱（檔名、參數、第幾項檢查）放在括號或表格裡，不當主詞。每篇開頭有「看完會知道」（front matter 的 `learn`，3–5 條讀者帶得走的知識，不是我們做了什麼）。
 1. **每一顆雷四段**：原先的演算法、遇到的問題、新的做法、結果。一篇可以有好幾顆雷，照時間排。範例：[第 5 篇](https://wangchengyeh.github.io/Avatar/papers/05-face-relief.html)。
 2. **圖和白話要能單獨看懂。** 人看得懂圖，式子不一定（2026-11-28 的回饋：「圖都看得懂，公式就不一定，圖多一點」）。所以每一個道理先用圖和一兩句白話講完，跳過式子也要讀得下去；式子放在後面當補充，一篇裡留最必要的幾條。
 3. **圖要多。** 每一個道理、每一顆雷的「遇到的問題」和「新的做法」都配圖，一篇大約 6 張以上。線條圖放在 `docs/_includes/figs/NN-名稱.html`（SVG，樣式用 `paper.css` 的 `dg-*`）；數字的比較用 front matter 的 `charts`（`_includes/chart.html`）。示意圖要在說明裡寫明是示意、不是量測。
