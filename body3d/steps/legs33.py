@@ -1,4 +1,5 @@
-"""Strict carving of the legs with the level main-ring views (ankle .. 12 cm above the crotch).
+"""Strict carving of the legs with the level main-ring views (ankle .. 12 cm above the crotch), and of the torso's
+depth with the two level side views.
 
 Why: the hull keeps a voxel unless at least 4 of the 25 body views see it as empty ("tolerate 3 disagreeing views",
 needed because AI photos are never perfectly consistent). The gap between the two legs, though, is only visible
@@ -74,6 +75,31 @@ for j in range(j0, j1):
     for i in range(1, n):
         if st[i, 4] < 15:
             res[:, j, :][lb == i] = False
+# The torso's depth (front to back) with the two level side views. Only six views see it: the level 90° / 270° and
+# the four tilted side views. The hull keeps a voxel unless 4 views see it empty, so when the tilted side views are
+# drawn a little thicker (they usually are: each is its own drawing), the level side views are outvoted and the
+# torso keeps the depth of the thickest drawing. Gemini avatar_001 v010: level side photos 23.5 / 23.8 cm at the
+# bust, hull 26.4 cm (perfect photos: 25.1 cm and 26.4 cm). A voxel of the torso that BOTH level side views see
+# outside their outline goes: the torso is never thinner than either level side photo, and no deeper than the
+# deeper one. The arms (|x| > TORSO_X) and the head (above TORSO_HI, trimmed by headsil33) are left alone.
+TORSO_HI, TORSO_X, TORSO_MARGIN = 1.36, 0.20, 2.0
+side = [n for n, c in cams.items() if c.get('kind') == 'main' and abs((c['phi'] % 180) - 90) < 15]
+if len(side) == 2:
+    k0, k1 = j1, int(np.searchsorted(ys, TORSO_HI))
+    xi = np.flatnonzero(np.abs(xs) < TORSO_X)
+    sub = res[xi[0]:xi[-1] + 1, k0:k1, :]
+    I2, J2, K2 = np.nonzero(sub)
+    P2 = np.c_[xs[I2 + xi[0]], ys[J2 + k0], zs[K2]]
+    both = np.ones(len(P2), bool)
+    for n in side:
+        m = (cv2.imread(f'mask_{n}.png', 0) > 0).astype(np.uint8)
+        dist = cv2.distanceTransform(1 - m, cv2.DIST_L2, 5)
+        u, v = project(P2, cams[n])
+        ui = np.clip(np.round(u).astype(int), 0, m.shape[1] - 1); vi = np.clip(np.round(v).astype(int), 0, m.shape[0] - 1)
+        both &= dist[vi, ui] > TORSO_MARGIN
+    res[I2[both] + xi[0], J2[both] + k0, K2[both]] = False
+    print(f'legs33: torso {ys[k0]:.3f}..{TORSO_HI:.2f} m, removed {int(both.sum())} voxels outside both level side views '
+          f'({100 * both.sum() / max(1, len(P2)):.1f}% of the torso volume)')
 print(f'legs33: crotch y={ys[crotch]:.3f} m, legs {Y_LO:.2f}..{ys[j1]:.3f} m, removed {int(remove.sum())} voxels '
       f'({100 * remove.sum() / max(1, len(P)):.1f}% of leg volume)')
 print('  per view: ' + ', '.join(f'{k[:6]} {v}' for k, v in sorted(per_view.items())))
