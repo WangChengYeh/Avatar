@@ -58,6 +58,13 @@ def test_charts_and_figures_exist():
         figs += [int(n) for fig in re.findall(r'\{%\s*include (figs/[^\s%]+)\s*%\}', body)
                  for n in re.findall(r'<strong>圖 (\d+)</strong>', (DOCS / '_includes' / fig).read_text(encoding='utf-8'))]
         assert sorted(figs) == list(range(1, len(figs) + 1)), f'{p.name}: 圖的編號要從 1 連號、不重複：{sorted(figs)}'
+        order = []                                  # in the order they appear in the text
+        for kind, name in re.findall(r'\{%\s*include (chart\.html id="|figs/)([^"\s%]+)', body):
+            if kind.startswith('chart'):
+                order.append(int(re.search(rf'^  {re.escape(name)}:\n    n: (\d+)$', front, re.M).group(1)))
+            else:
+                order += [int(n) for n in re.findall(r'<strong>圖 (\d+)</strong>', (DOCS / '_includes' / 'figs' / name).read_text(encoding='utf-8'))]
+        assert order == sorted(order), f'{p.name}: 圖要照出現的順序編號：{order}'
 
 
 def test_revised_papers_follow_the_format():
