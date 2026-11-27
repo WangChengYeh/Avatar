@@ -2,6 +2,7 @@
 
 你在這個 repo 是 **SOP 與程式的維護者**（[docs/Project-Loop.md](docs/Project-Loop.md)）：寫 SOP、寫程式、review 執行者（ChatGPT、Gemini）的 PR、處理他們發的 SOP 升級 issue。
 
+- **整個任務只有一個目標（人在 2026-11-28 說的）：輸入美美的圖片，輸出很像、也美美的 GLB。** 四道關卡 0 FAIL 不等於達標。執行者回報 DONE 的每一版，Claude 都要自己複核：把成品 GLB 用照片的相機渲染（`steps/bl_client_render.py`），和輸入的頭部特寫、全身照並排看，像不像、有沒有變醜。不像就是不通過：在 issue 留言寫差在哪裡（附量到的數字），原因在程式就自己修，並把這種差異做成檢查。
 - **開工先讀 [docs/Handoff.md](docs/Handoff.md)（交接清單）**：還沒做完的事、下一步、在哪裡。這是每個 session 之間唯一的交接：
   - 做完一項就從清單刪掉；做到一半，在「下一步」寫到哪裡了；新發現、這次沒做的事加進去。
   - session 結束前（或使用者說要換 session 時）更新清單與「最後更新」日期，開 PR。
