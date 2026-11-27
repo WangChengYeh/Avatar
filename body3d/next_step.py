@@ -223,7 +223,10 @@ def drive_files(ws):
         return None
     d = os.path.join(out, 'deliver')
     files = sorted(f for f in os.listdir(d) if f.endswith('.zip')) if os.path.isdir(d) else []
-    return drive_dir(ws, n), files + ['gates.json', 'next_step.md']
+    # the unlit GLB on its own too, so anyone can download a version's model from the Drive without unpacking the
+    # 10-28 MB stage 3 pack
+    glb = sorted(f for f in os.listdir(out) if f.endswith('_rigged.glb'))
+    return drive_dir(ws, n), files + glb + ['gates.json', 'next_step.md']
 
 
 def decide(ws, avatar, agent, name, template, state):

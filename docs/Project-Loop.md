@@ -12,7 +12,7 @@
 
 | 誰 | 用 GitHub 做什麼 | 用雲端硬碟做什麼 | 什麼時候停 |
 | --- | --- | --- | --- |
-| **ChatGPT／Gemini**（執行者） | `git pull` main（next_step 自動檢查）；處理不掉時**自己發 issue**；程式改動開 PR；在 issue 回報重跑結果 | 每一版跑完，把結果包、`gates.json`、`next_step.md` 放到 `avatar/<自己>/<avatar_NNN>/vNNN/`（`next_step.md` 最後一段列出來） | 只有 DONE 和 WAITING |
+| **ChatGPT／Gemini**（執行者） | `git pull` main（next_step 自動檢查）；處理不掉時**自己發 issue**；程式改動開 PR；在 issue 回報重跑結果 | 每一版跑完，把結果包、無光照 GLB、`gates.json`、`next_step.md` 放到 `avatar/<自己>/<avatar_NNN>/vNNN/`（`next_step.md` 最後一段列出來） | 只有 DONE 和 WAITING |
 | **Claude**（維護者） | 看 issue、PR；修 SOP／程式、開 PR（`Fixes #N`）；新功能的 PR 人說合併才合併，只改文件或測試的自己合併；回覆 issue；更新 [交接清單](Handoff.md) 與 [File-List](File-List.md) | 讀執行者的結果包重現問題（依路徑或檔名找） | 每個 session 結束前更新交接清單 |
 | **人** | 看 issue；看新功能的 PR，說「合併」 | 看 `next_step.md`、客戶頁；準備 `avatar/` 資料夾與連結器權限 | — |
 
@@ -137,7 +137,7 @@ gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file i
 照片與結果放兩個地方：
 
 - **執行者自己的機器**：工作區，每個執行者一個資料夾、每個 avatar 一個資料夾、每一輪一個版本（下圖）。
-- **雲端硬碟** `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`：每個版本做完，執行者用 Google Drive 連結器放上四個階段的結果包、`gates.json`、`next_step.md`（`next_step.md` 的「雲端硬碟」一段會列出來）。這是三個 agent 之間交換照片與結果的地方，所有人都用連結器讀寫。GitHub repo 是公開的：照片不放 GitHub、不附在 issue。
+- **雲端硬碟** `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`：每個版本做完，執行者用 Google Drive 連結器放上四個階段的結果包、無光照 GLB（`<name>_rigged.glb`，可以直接下載）、`gates.json`、`next_step.md`（`next_step.md` 的「雲端硬碟」一段會列出來）。這是三個 agent 之間交換照片與結果的地方，所有人都用連結器讀寫。GitHub repo 是公開的：照片不放 GitHub、不附在 issue。
 
 
 ```

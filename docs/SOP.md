@@ -29,7 +29,7 @@ SOP、程式、問題、程式改動在 GitHub；照片與結果包在雲端硬�
 **雲端硬碟的規則**
 
 - 位置：`avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`，對應執行者機器上的 `~/avatar/<agent>/<avatar>/v<NNN>/`；每個執行者的 avatar 各自從 `avatar_001` 編號。
-- 每一版放：四個階段的結果包（好或 `_FAIL`）、`gates.json`、`next_step.md`（`next_step.md` 最後一段「雲端硬碟」會列出來）。新的一輪一律是新的版本資料夾，不覆蓋舊的。
+- 每一版放：四個階段的結果包（好或 `_FAIL`）、無光照 GLB（`<name>_rigged.glb`，有跑到第 3 關才有，讓人直接下載模型）、`gates.json`、`next_step.md`（`next_step.md` 最後一段「雲端硬碟」會列出來）。新的一輪一律是新的版本資料夾，不覆蓋舊的。
 - 照片與 GLB 不 commit 進 git、不附在 GitHub issue：GitHub repo 是公開的，照片是人物照片。
 - GitHub 資料 repo `WangChengYeh/avatar_data` 的 Release 只在設 `AVATAR_DATA_PUBLISH=1` 時上傳（它也是公開的，預設不用）。
 
