@@ -27,7 +27,14 @@ import camera
 
 IMG = sys.argv[1]
 SIDE = ('head_045deg', 'head_315deg')
-MAX_T = 0.025                       # largest depth correction (m)
+# How far a landmark may move and how well it must fit. Both were tuned on one face (25 mm, 3 mm): on perfect photos
+# of luna 412 of 432 interior landmarks pass and the nose rises 19 mm. On Gemini avatar_001 v015 the 3/4 close-ups
+# read 5-7 % differently from the frontal one (a WARN): the nose tip needed +30.6 mm and was cut at the limit, the
+# fit error is 4.9 mm in the median, and only 63 landmarks were left, none on the nose. The face stayed a flat plate
+# (nose tip 1.6 mm in front of the bridge, luna 14.0; cheeks 8 mm behind it, luna 25), wide and flat from 45°.
+# With 40 mm / 8 mm 363 landmarks pass there (nose 13.1 mm, cheeks 24.5 mm); luna is unchanged (432, 14.0 mm).
+MAX_T = 0.040                       # largest depth correction (m)
+FIT_ERR = 0.008                     # a landmark the 3/4 close-ups place farther than this from the fit is left out (m)
 FADE = 0.015                        # fade-in width inside the landmark outline: no movement on the outline (m)
 if not os.path.exists('face_lm33.npy'):
     print('face33: no face_lm33.npy (no face in head_000deg; run the face step)', file=sys.stderr); sys.exit(2)
@@ -170,7 +177,7 @@ for n in names:
     col, row = camera.project((P[idx] + t[:, None] * f0)[m], cs[n])
     e = np.full(nL, 0.0); e[m] = np.hypot(col - L[idx[m], 0], row - L[idx[m], 1]) / cs[n]['s']
     fit_err = np.maximum(fit_err, e)
-inner = ~np.isin(idx, oval) & (fit_err < 0.003) & (np.abs(t) < MAX_T - 1e-4)
+inner = ~np.isin(idx, oval) & (fit_err < FIT_ERR) & (np.abs(t) < MAX_T - 1e-4)
 uv_all = np.c_[camera.project(P[idx], c0)] / c0['s']                 # landmark positions in metres (image plane)
 outline = np.isin(idx, oval)
 pts = np.r_[uv_all[inner], uv_all[outline]]; val = np.r_[t[inner], np.zeros(outline.sum())]
