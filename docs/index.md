@@ -8,7 +8,9 @@ summary: 從 33 張 AI 生成的照片重建可動的 3D 人物：每個難題�
 
 Avatar 把一個虛擬人物的 33 張 AI 生成照片，重建成可以擺姿勢的 3D 模型（無光照 GLB）。照片由 AI 畫，重建由程式做，三個 AI（Claude、ChatGPT、Gemini）輪流修到四道驗收關卡都通過。
 
-做的過程中有十個問題花了最多力氣。這裡每個問題一篇：問題怎麼出現、背後的理論、程式怎麼處理、量到的數字，以及還沒解決的部分。
+做的過程中踩過的雷，整理成十個難題，每個一篇。每一顆雷都寫四件事：**原先的演算法**、**遇到的問題**、**新的做法**、**結果**，附理論與量到的數字。
+
+目前第 5 篇是這個格式；其餘九篇是較早的寫法（摘要、問題、理論、方法、數據），會一篇一篇改寫。
 
 <ul class="toc">
 {%- assign papers = site.pages | where: "layout", "paper" | sort: "number" -%}
@@ -16,7 +18,7 @@ Avatar 把一個虛擬人物的 33 張 AI 生成照片，重建成可以擺姿�
 <li>
   <span class="num">{{ p.number }}</span>
   <div>
-    <h3><a href="{{ p.url | relative_url }}">{{ p.title }}</a><span class="status status-{{ p.state }}">{{ site.state_names[p.state] }}</span></h3>
+    <h3><a href="{{ p.url | relative_url }}">{{ p.title }}</a><span class="status status-{{ p.state }}">{{ site.state_names[p.state] }}</span>{% unless p.revised %}<span class="status status-draft">舊格式，待改寫</span>{% endunless %}</h3>
     <p>{{ p.summary }}</p>
   </div>
 </li>

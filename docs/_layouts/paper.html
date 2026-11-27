@@ -19,6 +19,9 @@ layout: default
     {{ page.abstract | markdownify }}
   </section>
 </header>
+{%- unless page.revised %}
+<p class="draft-note">這一篇還是較早的寫法，會改寫成「原先的演算法、遇到的問題、新的做法、結果」的格式（範例見<a href="{{ '/papers/05-face-relief.html' | relative_url }}">第 5 篇</a>）。內容與數字仍然有效。</p>
+{%- endunless %}
 {{ content }}
 <nav class="pager">
   {%- if prev_i >= 0 %}{% assign p = papers[prev_i] %}

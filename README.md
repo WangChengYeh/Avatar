@@ -2,6 +2,8 @@
 
 用 33 張環繞照片重建人物，輸出帶骨架及 4K 貼圖的 GLB（預設外殼流程 22 根骨頭；`--template makehuman` 52 根，含手指）。預設輸出無光照與 PBR 兩個版本。
 
+**技術報告（踩過的雷，每個難題一篇，含理論與量測）：<https://wangchengyeh.github.io/Avatar/>**
+
 **找檔案先看[重要檔案清單](docs/File-List.md)**：SOP、程式入口、每一輪的結果包、各 avatar 目前的狀態。
 
 ## 快速開始
