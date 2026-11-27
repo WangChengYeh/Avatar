@@ -13,7 +13,7 @@
 | 誰 | 用 GitHub 做什麼 | 用雲端硬碟做什麼 | 什麼時候停 |
 | --- | --- | --- | --- |
 | **ChatGPT／Gemini**（執行者） | `git pull` main（next_step 自動檢查）；處理不掉時**自己發 issue**；程式改動開 PR；在 issue 回報重跑結果 | 每一版跑完，把結果包、無光照 GLB、`gates.json`、`next_step.md` 放到 `avatar/<自己>/<avatar_NNN>/vNNN/`（`next_step.md` 最後一段列出來） | 只有 DONE（等 Claude 時一直跑 `--wait`） |
-| **Claude**（維護者） | 看 issue、PR；修 SOP／程式、開 PR（`Fixes #N`）；新功能的 PR 人說合併才合併，只改文件或測試的自己合併；回覆 issue；更新 [交接清單](Handoff.md) 與 [File-List](File-List.md) | 讀執行者的結果包重現問題（依路徑或檔名找） | 每個 session 結束前更新交接清單 |
+| **Claude**（維護者） | 看 issue、PR；修 SOP／程式、開 PR（`Fixes #N`）；新功能的 PR 人說合併才合併，只改文件或測試的自己合併；回覆 issue；更新 [交接清單](Handoff.md) 與 [File-List](File-List.md)；**持續寫[技術報告](#claude-的持續任務技術報告)** | 讀執行者的結果包重現問題（依路徑或檔名找） | 每個 session 結束前更新交接清單 |
 | **人** | 看 issue；看新功能的 PR，說「合併」 | 看 `next_step.md`、客戶頁；準備 `avatar/` 資料夾與連結器權限 | — |
 
 ### 誰做的
@@ -44,7 +44,9 @@ next_step 產生的 issue 已經帶好標題前綴、label 與第一行。人在
 1. 開工讀 [交接清單](Handoff.md)，`gh issue list`／`gh pr list` 看有沒有新的。
 2. 有 issue：用 Drive 連結器拿 issue 寫的路徑裡的結果包，照[診斷 SOP](Diagnosis-Tree.md#診斷-sop) 找原因、補檢查或修程式，開 PR 寫 `Fixes #N`；改程式行為的等人說合併，只改文件或測試的自己合併（CLAUDE.md）。
 3. 合併後在 issue 回覆：改了什麼、最低版本、執行者怎麼繼續；執行者回報解決才關閉。
-4. 結束前更新交接清單與 File-List 的狀態，開 PR。
+4. 合併了會改變程式行為的 PR：同一天更新對應的[技術報告](#claude-的持續任務技術報告)（或加一篇）。
+5. 沒有 issue、PR 要處理時：做交接清單「持續任務」裡排在最前面的那一篇。
+6. 結束前更新交接清單與 File-List 的狀態，開 PR。
 
 ## 角色
 
@@ -131,6 +133,37 @@ gh issue create --title "[SOP] ChatGPT／avatar_001：<一句話>" --body-file i
 - 兩組完美照片從頭跑，四道關卡全部 0 FAIL／0 WARN、可交付。
 - 相關測試通過；新檢查有測試。
 - 不影響另一個 avatar：改了共用的檢查或門檻時，PR 寫清楚另一個 avatar 會不會因此多出 FAIL（Claude 會在 issue 或 PR 裡通知另一個執行者）。
+
+## Claude 的持續任務：技術報告
+
+網站：https://wangchengyeh.github.io/Avatar/（原始檔 `docs/papers/`，GitHub Pages 從 main 的 `/docs` 建置）。專案踩過的雷，每個難題一篇。這不是一次性的文件：只要專案還在跑，Claude 就持續寫、持續更新。進度記在[交接清單](Handoff.md#持續任務技術報告)。
+
+### 什麼時候寫
+
+| 發生什麼 | 做什麼 |
+| --- | --- |
+| 合併了會改變程式行為的 PR（修了一顆雷） | 在對應那一篇加一節或改寫：這顆雷的四段，更新 front matter 的 `state`、`status`、`version` |
+| 發現一個新的難題，現有十篇都放不進去 | 加一篇（`docs/papers/NN-名稱.md`，`number` 接著編） |
+| 一個結論被推翻（例：第 5 篇撤回的量測） | 改那一篇，寫明原本的結論、為什麼錯 |
+| 「還沒解決的」有一項解決了 | 從那一節移到對應的那顆雷，補上結果 |
+| 沒有 issue、PR 要處理 | 把交接清單裡排最前面的舊格式那一篇改寫成新格式 |
+
+### 每一篇怎麼寫
+
+1. **每一顆雷四段**：原先的演算法、遇到的問題、新的做法、結果。一篇可以有好幾顆雷，照時間排。範例：[第 5 篇](https://wangchengyeh.github.io/Avatar/papers/05-face-relief.html)。
+2. **先白話、再式子。** 每個式子之前用一兩句話講它在說什麼；只有式子，人跟不上。
+3. **配示意圖。** 每一個不直覺的道理配一張線條圖（`docs/_includes/figs/NN-名稱.html` 的 SVG，樣式用 `paper.css` 的 `dg-*`）；數字的比較用 front matter 的 `charts`（`_includes/chart.html`）。示意圖要在說明裡寫明是示意、不是量測。
+4. **數字要查得到。** 每個數字出自 CHANGELOG、issue 或 PR，旁邊寫量測條件（哪一版程式、哪一組照片）。自己的推導與估計要標明。
+5. **不放人物照片、不放雲端硬碟連結。**
+6. 最後有「這顆雷教的事」「還沒解決的」「重現」「參考」。
+
+### 怎麼交
+
+- **一次一篇。** 改寫舊格式的一篇、或新增一篇：開 PR、合併（只改文件，Claude 自己合併）、確認網站建置成功並在瀏覽器看過，然後**停下來等人看**；人說可以，才做下一篇。人有意見就先改這一篇。
+- 已經給人看過的那幾篇，之後因為程式修正而更新數字或加一顆雷：不用等，自己合併，事後告訴人改了哪一篇。
+- 圖先在本機預覽，確認文字沒有重疊再上線。
+- `tests/test_papers.py` 檢查格式（front matter、四段齊全、圖表與示意圖存在、沒有照片與雲端硬碟連結、交接清單列了每一篇）；改報告後要通過。
+- 會改變程式行為的 PR，模板的驗收清單有一格「技術報告」：寫更新了哪一篇，或為什麼不需要。
 
 ## avatar 放在哪裡
 
