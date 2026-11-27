@@ -243,3 +243,6 @@ dl.glossary dd.where { font-family: var(--sans); font-size: 0.8rem; color: var(-
 .dg-ovl-solid { fill: var(--series-ref); fill-opacity: 0.18; stroke: var(--ink); stroke-width: 2; }
 .dg-ovl-dash { fill: none; stroke: var(--series-ai); stroke-width: 2; stroke-dasharray: 5 4; }
 .dg-node { fill: var(--surface-1); stroke: var(--ink); stroke-width: 2; }
+.dg-ref-ai { fill: none; stroke: #e08a00; stroke-width: 3; }
+.diagram text.dg-c-ai2 { fill: #b56f00; font-weight: 650; }
+@media (prefers-color-scheme: dark) { .dg-ref-ai { stroke: #f0a530; } .diagram text.dg-c-ai2 { fill: #f0a530; } }

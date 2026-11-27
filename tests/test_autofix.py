@@ -143,3 +143,20 @@ def test_photo_items_have_rules_and_name_their_photo():
         assert d['confidence'] == '高' and d['cause'] != '未分類', line
         assert ai_request.photos_of(d) == photos, (line, ai_request.photos_of(d))
     assert '亮度' in diagnose.diagnose_photo_fails(['0° 明暗方向: 15%'])[0]['cause']   # not the angle rule
+
+
+def test_coverage_short_at_the_feet_goes_to_the_feet():
+    """the cause of a short hull coverage is in what the line measured: the feet (R63-R72), the arms' edges, or the
+    tilted views' framing. Each sends the AI somewhere else, with only the photos the line names"""
+    import diagnose
+    feet = ('45° 全視角外殼覆蓋: 外殼蓋住照片人物的 93.9%。少掉的部分（佔人物面積的 %）：手臂的高度 2.1、腳 1.9 → 少掉的主要是腳：'
+            '各張全身照的腳畫得不一樣。腳和參考位置差最多的照片：low20_270deg（超出 9%）、el30_315deg（超出 6%）。只修這幾張的腳')
+    feet2 = feet.replace('45°', '90°').replace('93.9', '93.8')
+    arms = '135° 全視角外殼覆蓋: 外殼蓋住照片人物的 94.4% → 少掉的主要在手臂的上下緣：各張水平照的手臂高度或粗細差了 1–2 cm。'
+    tilt = '0° 全視角外殼覆蓋: 外殼蓋住照片人物的 90% → 俯角／仰角的照片和水平環對不上。切最多的：el30_090deg（切掉 9.0%）。'
+    d = diagnose.diagnose_photo_fails([feet, feet2, arms, tilt])
+    assert len(d) == 3                                                   # the two feet lines are one finding
+    assert '腳' in d[0]['cause'] and '「腳的位置」參考圖' in d[0]['action'] and d[0]['evidence']['count'] == 2
+    assert d[0]['action'].endswith('low20_270deg、el30_315deg') and '相機距離與構圖都不要動' in d[0]['action']
+    assert '手臂' in d[1]['cause'] and 'el30' not in d[1]['action']
+    assert '俯角／仰角的照片和水平環對不上' in d[2]['cause'] and d[2]['action'].endswith('el30_090deg')
