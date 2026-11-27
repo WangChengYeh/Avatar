@@ -13,10 +13,13 @@
 
 | 項目 | 下一步 | 在哪裡 |
 | --- | --- | --- |
-| Gemini avatar_001 v003／v006：四關 0 FAIL，但**不能交付** | 頭部側面糊掉、最終剪影 9.9%（接近 FAIL 線）。PR #92 收緊頭部特寫門檻（v003 的 10–17 現在會 FAIL）；已在 #84 請 pull 後加 `--force` 重跑、照修圖單重畫。等回報 | issue #84 |
-| ChatGPT avatar_001：R54 卡第 4 關（15.4%）、側面頭部仍糊 | PR #92：最終剪影 FAIL 也出修圖單（R54 乾跑：重畫 el30_135、low20_135、low20_045、el30_315、el30_225、el30_045），頭部特寫 > 8 判 FAIL、整組 8 張一次重畫。已在 #79 請 pull 後加 `--force` 重跑。等回報 | issue #79、PR #92 |
-| 照片檢查（第 1 關）沒抓到 R54 斜角照和水平環對不上 | R54 第 1 關 0 FAIL，最終剪影斜角 21–27%。PR #92 讓第 4 關出修圖單繞過去，但第 1 關的缺口還在：找出第 10 系列（輪廓上限、斜角照手臂）為什麼放過這些照片，補檢查 | `check_turnaround.py` 第 10 項、`r54` 的 fit_report |
-| Gemini avatar_001 v010：四關 0 FAIL、9.8%，品質仍不夠（側臉糊、腳只剩一截、側面太厚） | 分析與四個程式修正見 CHANGELOG「Gemini v010 品質分析」。照片要修的（head_090／head_270 是同一顆頭、統一站姿、側面照手臂正對鏡頭）已在 #84 通知，等 Gemini 重畫。還沒處理：側面照的手掌烘焙到肩膀上；第 1 關 FAIL 後頭部相機逐張對位會對歪（v010 的 45° 特寫） | #84、`headsil33.py`、`headreg33.py`、`bake33.py` |
+| Gemini avatar_001：v010 四關 0 FAIL、9.8%，模型仍不對；v013 第 1 關 FAIL（head_090／head_270 鏡像 0.891） | 照片要修的已在 #84 通知：head_090 與 head_270 一起重畫（一張以另一張的鏡像為準）、全身圖統一站姿、側面照手臂正對鏡頭。等 Gemini 重畫後回報。分析見 CHANGELOG「Gemini v010 品質分析」 | issue #84 |
+| **Gemini v012 第 3 關 FAIL：擺姿勢網格連續性**（6 條三角形邊超過 8 cm 和原長 4 倍，body3d 2.22.0，外殼流程） | 照片過了第 1、2 關，是程式的問題：從雲端硬碟拿 v012 的照片重現，查骨架權重（`rig.py`、`joints.py`）與 `verify_glb.py` 的門檻 | `avatar/gemini/avatar_001/v012/`、`verify_glb.py` |
+| ChatGPT avatar_001：v060 停在第 2 關（頭部特寫相鄰一致），用 `--template makehuman` | 自己照修圖單重畫中（#95：有進步就不發 issue）。R54 的照片在新門檻下第 1 關 FAIL 12 項；135／315 的特寫鏡像 0.893（1.48.0 起會 FAIL）。等回報 | issue #79 |
+| 側面全身照的手臂沒有正對鏡頭：手掌烘焙到肩膀上 | 沒有檢查（Gemini v010）。補照片檢查：90°／270° 全身圖的手臂只該剩手掌端面 | `check_turnaround.py`、`bake33.py` |
+| 雙腳站姿每張不同卻通過第 1 關 | v010 腳的體積 73% 至少被一張照片判成不是身體（完美照片 22–50%）；第 7b／7c 項沒抓到。補檢查 | `check_turnaround.py` 第 7b 項 |
+| 照片檢查未通過（`--force`）時頭部相機逐張對位會對歪 | v010：特寫尺度 3800–4000（規格 4199），45° 特寫對歪，第 2 關多 5 個 FAIL。只影響診斷用的重跑 | `headreg33.py`、`camera.py` |
+| `--wait` 還沒在執行者的環境實跑過 | 第一次用到時看 `wait_heartbeat.json` 與 `avatar_state.json` 的 `wait`：有沒有被砍、學到的時限 | `next_step.py` |
 | #65 還開著（R31 系列的 MakeHuman 臉部接縫） | MakeHuman 已在 #69 修好；本機 MPFB 已重裝、R52 MakeHuman 跑通。等 ChatGPT 在照片過第 1 關後用 `--template makehuman` 跑完四關回報，再關閉。#79 處理同一個 avatar 的照片問題 | issue #65 |
 | synth 完美照片用 MakeHuman，第 2 關右臉頰 1 個 WARN | P90 22.4／20（外殼流程 18.0）；查肩頸在 315° 的遮擋 | `check_turnaround.py` 頭部重疊、`mh_fit.py` |
 | 中間角度與擺姿勢後的貼圖沒有直接的自動檢查 | 目前靠臉頰亮度、五官投影間接抓（R31 的臉部接縫就是在 App 裡才看到） | 第 3／4 關 |

@@ -453,7 +453,7 @@ def test_all_view_hull_coverage(broken):
     rc, out = check(broken)
     assert len([l for l in lines(out, 'PASS') if '全視角外殼覆蓋' in l]) == 8
     assert len([l for l in lines(out, 'PASS') if '外殼切割' in l]) == 16
-    assert len([l for l in lines(out, 'PASS') if '頭部側面特寫鏡像' in l]) == 1          # 11e on the clean set
+    assert len([l for l in lines(out, 'PASS') if '頭部特寫鏡像' in l]) == 4              # 11e on the clean set
     for name, dx in (('el30_090deg.jpg', -60), ('el30_270deg.jpg', 60)):     # toward the face in both views
         f = broken / name
         im = cv2.imread(str(f)); h, w = im.shape[:2]
@@ -570,13 +570,16 @@ def test_arm_reference_shows_where_the_arms_belong(broken):
 
 
 def test_head_profile_mirror(synth_set):
-    """11e: head_090 and the mirrored head_270 are one outline (orthographic, opposite sides). Gemini avatar_001
-    v010: 0.891, each profile drawn on its own; the side of the face baked in the wrong place"""
+    """11e: two close-ups 180° apart are one outline, mirrored (orthographic). Gemini avatar_001 v010 90/270:
+    0.891, each drawn on its own; the side of the face baked in the wrong place. R54 135/315: 0.893"""
     import check_turnaround as ct
     m90 = ct.segment(cv2.imread(str(synth_set / 'head_090deg.jpg')))[0]
     m270 = ct.segment(cv2.imread(str(synth_set / 'head_270deg.jpg')))[0]
     iou, area = ct.head_profile_mirror(m90, m270)
     assert iou > 0.99 and abs(area) < 0.01, (iou, area)
+    for a in (0, 45, 135):                                                          # every opposite pair
+        ma, mb = (ct.segment(cv2.imread(str(synth_set / f'head_{x:03d}deg.jpg')))[0] for x in (a, a + 180))
+        assert ct.head_profile_mirror(ma, mb)[0] > 0.99, a
     h, w = m270.shape
     top = int(np.flatnonzero(m270.any(1))[0])
     cx = float(np.flatnonzero(m270[top:top + 400].any(0)).mean())

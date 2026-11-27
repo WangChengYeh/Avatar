@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.47.0（2026-11-27）
+版本 1.48.0（2026-11-27）
 
 版本紀錄:
+  1.48.0 第 11e 項擴大到四組相對的頭部特寫（0/180、45/225、90/270、135/315：正交投影下相差 180° 的輪廓互為鏡像，完美照片
+         四組 0.999–1.000）；項目名稱改為「頭部特寫鏡像」。ChatGPT R54 135/315 0.893、45/225 0.932，只查 90/270 時放過。
   1.47.0 新增第 11e 項「頭部側面特寫鏡像」：head_090 和左右鏡像的 head_270 輪廓重合度（頭頂下 22 cm，先對齊左右位置），
          ≥ 0.95 通過、< 0.92 FAIL（完美照片 ≥ 0.999）。Gemini avatar_001 v010 0.891、ChatGPT R54 0.921：兩張側面特寫不是
          同一顆頭，側臉貼圖貼歪，其他頭部項目都通過。
@@ -299,7 +301,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.47.0'
+__version__ = '1.48.0'
 import numpy as np
 import cv2
 
@@ -791,12 +793,15 @@ def distance_check(good, extra):
     return out
 
 
-# section 11e, the two profile close-ups are one head. head_090 and head_270 see the same outline (orthographic,
-# opposite sides), so one mirrored lies on the other; perfect photos 0.999-1.000. Each is drawn on its own by the
-# image AI: Gemini avatar_001 v010 0.891 (head_270's head 14-17 mm deeper front to back, its bun about 2 cm larger,
-# the nose about 1 cm lower), ChatGPT R54 0.921. The reconstruction has one head: trimmed to one profile, 7-9.5 % of
-# it stays outside the other, and the side of the face is baked in the wrong place (smeared cheek, jaw pushed out).
-# Every other head item passed on Gemini's set. The best shift is searched first: framing has its own items.
+# section 11e, opposite close-ups are one head. Two orthographic views 180° apart see the same outline, mirrored:
+# head_090 / head_270, and just as much 0 / 180, 45 / 225, 135 / 315 (perfect photos 0.999-1.000 in all four).
+# Each close-up is drawn on its own by the image AI: Gemini avatar_001 v010 90/270 0.891 (head_270's head 9.4 % larger
+# in area, 14-17 mm deeper front to back, its bun about 2 cm larger, the nose about 1 cm lower), the other pairs
+# 0.956-0.976;
+# ChatGPT R54 90/270 0.921, 135/315 0.893, 45/225 0.932. The reconstruction has one head: trimmed to one outline,
+# 7-9.5 % of it stays outside the other, and the side of the face is baked in the wrong place (smeared cheek, jaw
+# pushed out). Every other head item passed on Gemini's set. The best shift is searched first: framing has its
+# own items.
 PROFILE_MIRROR_PASS, PROFILE_MIRROR_FAIL = 0.95, 0.92
 PROFILE_SPAN = 0.22              # m below the head top: the head and the chin, not the shoulders
 
@@ -3883,19 +3888,23 @@ def main():
         face_results = face_check(extra)
         for lvl, lab, msg in face_results:
             report(lvl, lab, msg)
-        h90, h270 = extra['head'].get(90), extra['head'].get(270)
-        pm = head_profile_mirror(h90['m'], h270['m']) if h90 and h270 else None
-        if pm:
-            print('\n11e. 側面特寫是同一顆頭（head_090 和左右鏡像的 head_270 輪廓要重合：頭頂下 22 cm，先對齊左右位置）')
+        pairs = [(a, a + 180) for a in (0, 45, 90, 135) if extra['head'].get(a) and extra['head'].get(a + 180)]
+        if pairs:
+            print('\n11e. 相對的兩張特寫是同一顆頭（相差 180° 的兩張，一張左右鏡像後輪廓要和另一張重合：頭頂下 22 cm，先對齊左右位置）')
+        for a, b in pairs:
+            pm = head_profile_mirror(extra['head'][a]['m'], extra['head'][b]['m'])
+            if not pm:
+                continue
             iou_, da = pm
+            na, nb = f'head_{a:03d}deg', f'head_{b:03d}deg'
             lvl = PASS if iou_ >= PROFILE_MIRROR_PASS else WARN if iou_ >= PROFILE_MIRROR_FAIL else FAIL
-            msg = (f'head_090 與鏡像的 head_270 重合度 {iou_:.3f}（應 ≥ {PROFILE_MIRROR_PASS:g}，< {PROFILE_MIRROR_FAIL:g} 判 FAIL；'
-                   f'完美照片 ≥ 0.999）；head_270 的頭面積{"大" if da > 0 else "小"} {100 * abs(da):.1f}%')
+            msg = (f'{na} 與鏡像的 {nb} 重合度 {iou_:.3f}（應 ≥ {PROFILE_MIRROR_PASS:g}，< {PROFILE_MIRROR_FAIL:g} 判 FAIL；'
+                   f'完美照片 ≥ 0.999）；{nb} 的頭面積{"大" if da > 0 else "小"} {100 * abs(da):.1f}%')
             if lvl != PASS:
-                msg += (' → head_090deg 和 head_270deg 畫的不是同一顆頭（大小、後腦勺、髮髻、鼻子或下巴的位置不同）：'
-                        '重建只有一顆頭，側臉的貼圖會貼歪（臉頰糊掉、下巴突出）。兩張一起重畫：先畫好一張，另一張以它的'
+                msg += (f' → {na} 和 {nb} 畫的不是同一顆頭（大小、後腦勺、髮髻、鼻子或下巴的位置不同）：'
+                        '重建只有一顆頭，這兩個方向的貼圖會貼歪（臉頰糊掉、下巴突出）。兩張一起重畫：先畫好一張，另一張以它的'
                         '左右鏡像為準，頭的大小、髮髻的位置與大小、鼻尖與下巴的高度都相同')
-            report(lvl, '頭部側面特寫鏡像 head_090deg / head_270deg', msg)
+            report(lvl, f'頭部特寫鏡像 {na} / {nb}', msg)
         print('\n11b. 頭部朝向（0° / 45° / 315°：臉的轉向要等於檔名角度，特寫和同角度全身圖一致；需要 mediapipe）')
         for lvl, lab, msg in head_yaw_check(good, extra):
             report(lvl, lab, msg)

@@ -23,12 +23,14 @@
 
 | 檔案 | 什麼時候用 |
 | --- | --- |
-| `body3d/next_step.py --workspace <avatar 資料夾>` | 執行者每做完一步就跑；它說下一步做什麼，並更新 `next_step.md`、`avatar_state.json` |
+| `body3d/next_step.py --workspace <avatar 資料夾>` | 執行者每做完一步就跑；它說下一步做什麼，並更新 `next_step.md`、`avatar_state.json`。等 Claude 時加 `--wait`：程式自己等，在沙盒逾時之前回來 |
 | `body3d/run_all.py <photos> <output> --name <名稱>` | 整條流程（照片 → GLB），停或不停都打包各階段結果 |
 | `body3d/check_turnaround.py <photos>` | 只跑照片檢查（第 1 關） |
 | `body3d/escalate.py <output> --agent … --avatar …` | 整理發給 Claude 的 issue 內文 |
 | `body3d/data_repo.py publish／fetch／list` | GitHub 資料 repo `WangChengYeh/avatar_data` 的 Release（備用，預設不用：repo 是公開的；只在 `AVATAR_DATA_PUBLISH=1` 時上傳） |
 | `body3d/diagnose.py photos|prebake …` | 單獨看一次診斷樹 |
+| `dashboard/`（Google Apps Script） | 專案總覽網頁：每個 avatar、每一版、四關 FAIL／WARN／PASS、最終結果圖；部署在使用者的 Google 帳號，直接讀雲端硬碟（`dashboard/README.md`） |
+| `python -m pytest tests` | 全部測試（約 35 分鐘）；`tests/test_steps.py`、`test_next_step.py`、`test_escalate.py` 幾秒 |
 
 ## 3. 每一輪會產生的檔案
 
@@ -37,12 +39,14 @@
 | 位置 | 檔案 | 重要在哪 |
 | --- | --- | --- |
 | `<avatar>/next_step.md` | 下一步 | **人只要看這個**：目前狀態、原因、要做的事；最後一段「雲端硬碟」列出這一版要放到雲端硬碟的檔與位置 |
-| `<avatar>/avatar_state.json` | next_step 的紀錄 | 每一輪的 FAIL、等待中的 issue／PR |
+| `<avatar>/avatar_state.json` | next_step 的紀錄 | 每一輪的 FAIL、等待中的 issue／PR、`--wait` 學到的等待時限 |
+| `<avatar>/wait_heartbeat.json` | `--wait` 的心跳 | 上一次等待有沒有被沙盒砍掉（沒有「done」＝被砍） |
 | `<avatar>/issue.md`、`issue_title.txt` | 要發給 Claude 的 issue | ESCALATE 時才有；執行者用 gh 或 GitHub 連結器自己發 |
 | `<avatar>/vNNN/photos/` | 這一輪的 33 張照片 | 重畫只改要改的幾張，其他複製上一版 |
 | `<avatar>/vNNN/output/deliver/{name}_stage1_photos(_FAIL).zip` | 階段 1 結果包 | 照片、檢查報告、AI 修圖單（有 FAIL 時） |
 | `…/{name}_stage2_reconstruction(_FAIL).zip` | 階段 2 | 相機、網格、頭部對照圖 |
 | `…/{name}_stage3_models(_FAIL).zip` | 階段 3 | GLB（unlit／lit）與渲染圖 |
+| `<avatar>/vNNN/output/{name}_rigged.glb` | 無光照 GLB | 跑到第 3 關才有；和結果包一起放上雲端硬碟，可以直接下載 |
 | `…/{name}_stage4_acceptance(_FAIL).zip` | 階段 4 | 成品對原圖的比對、`fit_report.json` |
 | `<avatar>/vNNN/output/client/index.html` | 客戶頁 | 四個階段的進度、要做的事、結果包連結 |
 | `<avatar>/vNNN/output/ai_fix_request/AI修圖單.md` | AI 修圖單 | 照片的問題：哪幾張、怎麼改、參考圖 |
@@ -57,8 +61,8 @@
 
 | 執行者／Avatar | 雲端硬碟上的版本 | 最新結果 | 主要問題 | 相關 |
 | --- | --- | --- | --- | --- |
-| ChatGPT／avatar_001（R 系列） | v033 … v052 | v052：第 1 關 0 FAIL（手臂 46% WARN），第 4 關最終剪影 15.4% FAIL | 斜角照身形不一致（el30_135 26.8%）；頭部側面糊掉（程式問題） | issue #79、#65 |
-| Gemini／avatar_001 | v002 … v006 | v006（＝v003 同照片重跑）：四道關卡 0 FAIL（WARN 87／9／0／4） | 頭部 90°／270° 側臉糊成一塊（檢查沒抓到），最終剪影 9.9% 接近 FAIL 線；**不能交付** | issue #84、交接清單 |
+| ChatGPT／avatar_001（R 系列） | v033 … v061 | v060（`--template makehuman`）：第 1 關 0 FAIL，停在第 2 關（頭部特寫相鄰一致，修圖單：head_045、head_090）；v061 已上傳照片。R54 是最後一版跑完四關的：最終剪影 15.4% FAIL | 頭部特寫彼此不一致；R54 的照片在新門檻下第 1 關 FAIL 12 項（外殼覆蓋、外殼切割、斜角手臂），相對的特寫 135／315 鏡像 0.893 | #79、#65 |
+| Gemini／avatar_001 | v002 … v013 | v010：四關 0 FAIL、最終剪影 9.8%，但模型不對（側臉糊、腳只剩一截、側面太厚）。v012（重畫側面斜角照）：第 1、2 關 0 FAIL，第 3 關 FAIL（擺姿勢網格連續性）。v013（新程式）：第 1 關 FAIL 1 項（head_090／head_270 鏡像 0.891） | head_090 與 head_270 不是同一顆頭、雙腳站姿每張不同、側面照手臂沒有正對鏡頭；v012 的第 3 關 FAIL 要查程式 | #84 |
 
 模板：預設外殼流程；`--template makehuman` 從 body3d 2.18 起頭用外殼的、身體擬合到照片，兩組完美照片四道關卡 0 FAIL（#69）。
 
@@ -66,8 +70,8 @@
 
 ```
 avatar/                       ← 所有人用 Google Drive 連結器讀寫
-├── chatgpt/avatar_001/v033 … v047/    每一版放結果包（例：Avatar-R47_stage1_photos_FAIL.zip）
-└── gemini/avatar_001/v002 … v006/            四個階段結果包、gates.json、next_step.md
+├── chatgpt/avatar_001/v033 … v061/    每一版放結果包（例：Avatar-R60_stage2_reconstruction_FAIL.zip）、gates.json、next_step.md
+└── gemini/avatar_001/v002 … v013/     同上；body3d 2.22.0 起跑到第 3 關的版本另放無光照 GLB
 ```
 
 所有人讀雲端硬碟的方式：Google Drive 連結器（依資料夾或檔名找、讀檔、放檔）。連結器是在 session 開始時載入，剛設定好的要開新的 session 才看得到。
