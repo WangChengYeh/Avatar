@@ -22,6 +22,7 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 │       │   └── output/           ← run_all 的輸出（deliver/、client/…）
 │       ├── v002/ …               ← 重畫或重跑都開下一個版本，複製上一版的照片，不覆蓋舊的
 │       ├── avatar_state.json     ← next_step 的記錄（每一輪的 FAIL、等待中的 issue／PR）
+│       ├── stage_log.json        ← 分段畫：每張照片沒照著線的次數（連續 3 次就先放行；跨版本保留）
 │       ├── next_step.md          ← 下一步（人只要看這個）
 │       └── issue.md              ← 要發給 Claude 的 issue 內文（需要時才有；寫雲端硬碟的路徑）
 └── gemini/

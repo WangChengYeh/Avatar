@@ -155,6 +155,11 @@ def code_changed_since(commit):
         return None
 
 
+ALL33 = (['01_000deg_front', '02_045deg_front_left', '03_090deg_left', '04_135deg_back_left', '05_180deg_back',
+          '06_225deg_back_right', '07_270deg_right', '08_315deg_front_right', 'top']
+         + [f'{r}_{a:03d}deg' for r in ('el30', 'low20', 'head') for a in range(0, 360, 45)])    # = guides.ALL, without cv2
+
+
 def orders():
     """what Claude tells an avatar to do, by 'agent/avatar' (body3d/orders.json, read after every pull). The executors
     act on next_step only, not on issue comments (docs/Handoff.md), so an instruction for one avatar goes here.
@@ -168,7 +173,7 @@ def draw_step(ws, n, photos, me):
     sys.path.insert(0, HERE)
     import guides
     gdir = os.path.join(vdir(ws, n), 'guides')
-    st = guides.make(photos, gdir)
+    st = guides.make(photos, gdir, log_path=os.path.join(ws, 'stage_log.json'))    # one log for the avatar
     if not st['stage']:
         return None
     redo = st['redo']
@@ -356,9 +361,16 @@ def decide(ws, avatar, agent, name, template, state):
                                             '先 pull，再跑一次 next_step；重建或檢查的程式有變才需要重跑',
                         steps=steps)
     if not photos:
-        # a new avatar is drawn in stages (guides.py): the front photo first, every later photo from the ones before
         target = cur if cur and not out else vdir(ws, cn + 1)
         tn = int(os.path.basename(target)[1:])
+        # an empty newest version of an avatar that has photos (the copy into it did not happen): copy them, never
+        # start over. Starting over would ask for a new front photo, and the front photo is who this person is
+        prev = [d for _, d in vs[:-1] if has_photos(os.path.join(d, 'photos'))] if cur and not out else []
+        if prev:
+            return dict(state='DRAW', why=f'{os.path.basename(target)} 還沒有照片：先把 {os.path.basename(prev[-1])} 的照片複製過來'
+                                          '（不要重畫正面照：它是這個人物的定義）',
+                        steps=[f'mkdir -p {q(target + "/photos")} && cp {q(prev[-1] + "/photos")}/*.jpg {q(target + "/photos")}/', me])
+        # a new avatar is drawn in stages (guides.py): the front photo first, every later photo from the ones before
         state['staged'] = dict(order=(state.get('staged') or {}).get('order'), version=tn)
         os.makedirs(os.path.join(target, 'photos'), exist_ok=True)
         return draw_step(ws, tn, os.path.join(target, 'photos'), me)
@@ -394,7 +406,7 @@ def decide(ws, avatar, agent, name, template, state):
             '等不到也會在沙盒逾時之前回來，再跑一次同一個指令繼續等'])
     if not out or not (os.path.exists(os.path.join(out, 'gates.json')) or os.path.exists(os.path.join(out, 'progress.json'))):
         # drawn in stages: this version is run only when its six stages are drawn and follow their lines
-        n_spec = sum(f.lower().endswith('.jpg') for f in os.listdir(photos))
+        n_spec = sum(os.path.isfile(os.path.join(photos, n_ + '.jpg')) for n_ in ALL33)   # the 33 of the spec, by name
         if state.get('staged') or n_spec < 33:
             state.setdefault('staged', dict(order=None, version=cn))
             d = draw_step(ws, cn, photos, me)

@@ -11,7 +11,7 @@
 | 誰 | 做什麼 |
 | --- | --- |
 | **人** | 1. **準備輸入**：人物的參考圖或設定（給 AI 生圖用），以及雲端硬碟的 `avatar/` 資料夾（見[專案迴圈](Project-Loop.md#avatar-放在哪裡)）。<br>2. **提供 token**：AI 生圖、AI 寫程式所需的 API key 與額度；Google Drive 連結器（每個 agent 都要能讀寫 `avatar/`）；每個 agent 都要有 GitHub（`gh auth login` 或 GitHub 連結器），能在 `WangChengYeh/Avatar` 開 issue／PR、留言。<br>其他都不用動手：不改圖、不改程式、不手動修中間檔。 |
-| **AI 生圖** | 依[生圖規格](Workflow-and-Validation.md#生圖規格)生 33 張照片；收到 **AI 修圖單**（`ai_fix_request/`）就照單重畫那幾張。 |
+| **AI 生圖** | 依[生圖規格](Workflow-and-Validation.md#生圖規格)生 33 張照片：**分六段畫**，每一段照 `next_step` 給的輪廓圖（[分段畫](Workflow-and-Validation.md#分段畫先給輪廓再畫)）；收到 **AI 修圖單**（`ai_fix_request/`）就照單重畫那幾張。 |
 | **AI 寫程式**（Claude Code、Codex 等） | 照[執行者 runbook](Agent-Runbook.md) 反覆跑 `next_step.py`（它會跑 `run_all.py`、自動抓新的 SOP，每一版跑完照它說的用連結器把結果放到雲端硬碟）、讀客戶頁與診斷；照片有問題就把 AI 修圖單交給 AI 生圖；程式有問題就照 **AI 改 code 單**（`ai_code_request/`）補檢查、改程式、驗收、開 PR；逐項看需複核（WARN）並記在 Issue；在 Yoga2 做匯入驗收。 |
 
 ## 東西放在哪裡、怎麼交換（GitHub ＋ 雲端硬碟）
@@ -46,7 +46,7 @@ SOP、程式、問題、程式改動在 GitHub；照片與結果包在雲端硬�
 
 ## 流程（AI 跑，人看）
 
-1. **AI 生圖**：33 張照片放進一個新的資料夾。規格見[輸入照片](Workflow-and-Validation.md#輸入照片)與[生圖規格](Workflow-and-Validation.md#生圖規格)。
+1. **AI 生圖**：33 張照片放進一個新的資料夾；不是一次畫完，是照 `next_step` 的 DRAW 狀態一段一段畫（正面照 → 其他水平照 → 頭部特寫 → 俯視 → 俯角仰角），每一段有輪廓圖。規格見[輸入照片](Workflow-and-Validation.md#輸入照片)與[生圖規格](Workflow-and-Validation.md#生圖規格)。
 2. **AI 執行一行指令**，輸出到一個新的資料夾：
 
    ```sh

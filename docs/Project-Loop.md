@@ -80,7 +80,7 @@ SOP 只有一份，在 main：`docs/SOP.md`、`docs/Diagnosis-Tree.md`、`docs/W
 **實際做法很簡單：照 [執行者 runbook](Agent-Runbook.md) 反覆跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它說的做，只有 DONE 或 WAITING 才停。**（操作摘要見上面「三個角色怎麼操作」） 下面是 next_step 背後的規則。AGENTS.md（ChatGPT／Codex）、GEMINI.md（Gemini）會自動讀到這些指示。
 
 1. `git pull` main（next_step 每次都會自動檢查，main 比本機新就給 UPDATE：pull、再跑一次 next_step），記下 SOP 版本：`python body3d/run_all.py --version` 與 `python body3d/check_turnaround.py --version`，以及 commit。
-2. 照 [SOP](SOP.md) 做：生圖 → `run_all.py`（新的輸出資料夾）→ 看客戶頁。
+2. 照 [SOP](SOP.md) 做：生圖（分六段，照 `next_step` 的 DRAW 給的輪廓圖）→ `run_all.py`（新的輸出資料夾）→ 看客戶頁。
 3. 有 FAIL：照[診斷 SOP](Diagnosis-Tree.md#診斷-sop)：照順序（前面階段先修、信心高先修），照片就照 AI 修圖單重畫，程式就照 AI 改 code 單改程式、**開 PR 給 Claude review**（不直接推 main）。
 4. 符合下面「什麼時候發 issue」任何一條 → 發 issue，這個 avatar 停在原地等 Claude；可以同時做別的、但不要繞過問題。
 5. Claude 合併修正後：`git pull` main，**用新的輸出資料夾從頭重跑**，在 issue 回報結果（解決就請 Claude 關閉；沒解決就留言附新的診斷）。

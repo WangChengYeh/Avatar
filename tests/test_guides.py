@@ -163,3 +163,50 @@ def test_claudes_order_moves_an_avatar_to_stages(synth_set, tmp_path, monkeypatc
     shutil.copyfile(os.path.join(str(synth_set), 'head_090deg.jpg'), ws / 'v002' / 'photos' / 'head_090deg.jpg')
     r = go()
     assert r['state'] == 'RUN' and 'v002/output' in r['steps'][0]
+
+
+def test_an_empty_newest_version_is_filled_from_the_last_one_never_started_over(synth_set, tmp_path):
+    """the copy into the new version did not happen (v002/photos is empty): asking for "the front photo" again would
+    make a new person; the photos are copied from v001"""
+    import json
+    ws = tmp_path / 'avatar' / 'gemini' / 'avatar_001'; v1 = ws / 'v001'
+    some(synth_set, str(v1 / 'photos')); (v1 / 'output').mkdir()
+    json.dump(dict(gates={'4 最終驗收': dict(FAIL=7, WARN=0, PASS=9)}, deliverable=False, code=dict(commit='abc1234')),
+              open(v1 / 'output' / 'gates.json', 'w'))
+    (ws / 'v002' / 'photos').mkdir(parents=True)
+    state = dict(staged=dict(order='t1', version=2))
+    r = ns.decide(str(ws), 'avatar_001', 'Gemini', 'avatar_001', None, state)
+    assert r['state'] == 'DRAW' and 'cp ' in r['steps'][0] and 'v001/photos' in r['steps'][0] and 'v002/photos' in r['steps'][0]
+    assert '第 1 段' not in r['why'] and '01_000deg_front' not in r['steps'][0]
+
+
+def test_a_photo_let_through_stays_let_through_in_the_next_version(synth_set, tmp_path):
+    """a retouch round opens a new version with the photos copied: the three tries do not start again"""
+    ws = tmp_path / 'avatar' / 'gemini' / 'avatar_009'
+    p1 = some(synth_set, str(ws / 'v001' / 'photos')); bad = os.path.join(p1, g.FULL[225] + '.jpg')
+    for dx in (45, 50, 55):
+        shutil.copyfile(os.path.join(str(synth_set), g.FULL[225] + '.jpg'), bad); moved(bad, dx=dx)
+        ns.draw_step(str(ws), 1, p1, 'me')
+    p2 = some(p1, str(ws / 'v002' / 'photos'))
+    r = ns.draw_step(str(ws), 2, p2, 'me')
+    assert r is None or g.FULL[225] not in r['steps'][0], r                       # not asked for again
+    assert os.path.exists(ws / 'stage_log.json') and not os.path.exists(ws / 'v002' / 'guides' / 'stage_log.json')
+
+
+def test_the_arm_is_the_first_run_from_the_top_of_a_column(synth_set):
+    """a hip or thigh that reaches under the arm in a diagonal view is not the arm's lower edge"""
+    P = g.Photos(str(synth_set)); L = g.front_lines(P.mask(g.FULL[0]))
+    m = P.mask(g.FULL[45]).copy(); c = np.cos(np.radians(45))
+    clean = g.arm_band(m, L, c)
+    a, b = int(L['cx'] + 0.22 * L['s'] * c), int(L['cx'] + 0.60 * L['s'] * c)
+    m[int(clean[1] + 0.05 * L['s']):L['floor'], a:b] = True                       # a block under one arm, 5 cm below it
+    assert np.allclose(g.arm_band(m, L, c), clean, atol=1.0)
+
+
+def test_the_33_are_counted_by_name(synth_set, tmp_path):
+    assert set(ns.ALL33) == set(g.ALL) and len(ns.ALL33) == 33
+    ws = tmp_path / 'avatar' / 'gemini' / 'avatar_009'
+    photos = some(synth_set, str(ws / 'v001' / 'photos'), [n for n in g.ALL if n != 'top'])
+    shutil.copyfile(os.path.join(photos, g.FULL[0] + '.jpg'), os.path.join(photos, 'extra.jpg'))   # 33 files, 32 of the spec
+    r = ns.decide(str(ws), 'avatar_009', 'Gemini', 'avatar_009', None, {})
+    assert r['state'] == 'DRAW' and '第 5 段' in r['why'] and 'top' in r['steps'][0]
