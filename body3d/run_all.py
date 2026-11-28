@@ -42,12 +42,45 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.33.0'
+__version__ = '2.34.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
 STEPS = ['check', 'cams', 'refine', 'arms', 'round', 'legs', 'mesh', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export',
          'joints', 'rig', 'unlit', 'verify', 'fit']
+
+
+MPFB_PROBE = ("import addon_utils; "
+              "print('MPFB_FOUND' if any(m.__name__.split('.')[-1] == 'mpfb' for m in addon_utils.modules(refresh=True)) "
+              "else 'MPFB_MISSING')")
+
+
+def has_mpfb(blender):
+    """is the MPFB extension (MakeHuman for Blender) installed in this Blender? mh_prep.py needs it"""
+    if not blender:
+        return False
+    try:
+        r = subprocess.run([blender, '-b', '--factory-startup', '--python-expr', MPFB_PROBE],
+                           capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return 'MPFB_FOUND' in r.stdout
+
+
+def pick_template(asked, blender, work, resuming, probe=has_mpfb):
+    """(template, why) for --template auto: the template this output folder was built with when resuming, else
+    MakeHuman when Blender has MPFB, else the hull"""
+    if asked != 'auto':
+        return asked, ''
+    note = os.path.join(work, 'template.txt')
+    if resuming and os.path.exists(note):
+        t = open(note).read().strip()
+        if t in ('makehuman', 'hull'):
+            return t, '接續這個輸出資料夾原本用的模板'
+    if probe(blender):
+        return 'makehuman', 'Blender 有 MPFB 擴充'
+    return 'hull', ('Blender 沒有 MPFB 擴充（MakeHuman for Blender）。裝法：blender --command extension install -s -e mpfb；'
+                    '裝了之後預設會改用 MakeHuman 模板（52 根骨頭，含手指）')
 
 
 def find_blender(given):
@@ -128,9 +161,10 @@ def main(argv=None):
     ap.add_argument('--from', dest='start', choices=STEPS, default='check')
     ap.add_argument('--only', choices=STEPS)
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
-    ap.add_argument('--template', choices=['hull', 'makehuman'], default='hull',
-                    help='hull：剪影外殼網格＋自動權重（原流程）；makehuman：把 MakeHuman 人體擬合到外殼，'
-                         '用它的拓樸、Mixamo 骨架（含手指）與權重（需在 Blender 安裝 MPFB 擴充）')
+    ap.add_argument('--template', choices=['auto', 'makehuman', 'hull'], default='auto',
+                    help='makehuman：把 MakeHuman 人體擬合到外殼，用它的拓樸、Mixamo 骨架（52 根，含手指）與權重，'
+                         '頭用外殼的（需在 Blender 安裝 MPFB 擴充）；hull：剪影外殼網格＋自動權重（22 根骨頭）；'
+                         'auto（預設）：Blender 有 MPFB 就用 makehuman，沒有就用 hull，並在開頭印出用了哪一個')
     ap.add_argument('--version', action='version', version=f'body3d {__version__}')
     a = ap.parse_args(argv)
 
@@ -142,6 +176,17 @@ def main(argv=None):
     py = sys.executable
     S = lambda f: os.path.join(STEPS_DIR, f)
     blender = find_blender(a.blender)
+    todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
+    mpfb = None                    # does this machine's Blender have the MakeHuman extension? None = not asked
+    if any(STEPS.index(step) >= STEPS.index('uv') for step in todo):      # the steps before 'uv' are the same for both
+        mpfb = has_mpfb(blender)                                          # recorded with every run (gates.json)
+        a.template, why = pick_template(a.template, blender, work, a.start != 'check' or bool(a.only),
+                                        probe=lambda _b: mpfb)
+        print(f'模板：{a.template}' + (f'（{why}）' if why else '') + f'；這台機器的 Blender {"有" if mpfb else "沒有"} MakeHuman 擴充（MPFB）')
+        open(os.path.join(work, 'template.txt'), 'w').write(a.template + '\n')
+    elif a.template == 'auto':
+        a.template = 'hull'                                               # not used by these steps
+    made_with = dict(template=a.template, mpfb=mpfb)
     glb_tex = os.path.join(work, 'textured.glb')
     lit = os.path.join(out, f'{a.name}_rigged_lit.glb'); unlit = os.path.join(out, f'{a.name}_rigged.glb')
 
@@ -205,7 +250,7 @@ def main(argv=None):
         g = {k: v for k, v in gates.items() if int(k[0]) <= stage}
         dg = [d for d in diagnosis if d['gate'] <= stage]
         z, ok = deliver.pack(out, a.name, stage, stage_files(stage), g, [l for k in g for l in fails.get(k, [])],
-                             extra=dict(diagnosis=dg) if dg else None,
+                             extra=dict(made_with, **(dict(diagnosis=dg) if dg else {})),
                              stopped=stopped)
         packed.add(stage)
         print(f'     階段 {stage} 成果' + ('（好，可交付）：' if ok else '（不好，標 _FAIL）：') + z)
@@ -245,7 +290,7 @@ def main(argv=None):
         print(f'  可交付: {"是" if deliverable else "否"}' + ('' if deliverable else
               '（有 FAIL）' if any(f for f, _, _ in gates.values()) else '（沒有從頭跑完四道關卡）'))
         json.dump(dict(gates={g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
-                       deliverable=deliverable, code=code),
+                       deliverable=deliverable, code=code, **made_with),
                   open(os.path.join(out, 'gates.json'), 'w'), ensure_ascii=False, indent=1)
 
     def client_report(quick=False):
