@@ -1,6 +1,6 @@
 # Avatar · body3d
 
-用 33 張環繞照片重建人物，輸出帶骨架及 4K 貼圖的 GLB（預設用 MakeHuman 模板：52 根骨頭，含手指；Blender 沒裝 MPFB 擴充時自動改用外殼流程，22 根）。預設輸出無光照與 PBR 兩個版本。
+用 33 張環繞照片重建人物，輸出帶骨架及 4K 貼圖的 GLB（預設用 MakeHuman 模板：52 根骨頭，含手指；Blender 沒有 MakeHuman 擴充時會自動安裝，裝不了才改用外殼流程，22 根）。預設輸出無光照與 PBR 兩個版本。
 
 **技術報告（踩過的雷，每個難題一篇，含理論與量測）：<https://wangchengyeh.github.io/Avatar/>**
 
@@ -49,8 +49,9 @@ python body3d/verify_glb.py ./output/body_rigged.glb --expect-unlit --renders ./
 # 將重建網格投影回輸入視角，檢查身體剪影
 python body3d/fit_report.py ./output/work --region body
 
-# 模板：預設 auto（Blender 有 MPFB 擴充就用 MakeHuman：乾淨拓樸、含手指的 Mixamo 骨架；沒有就用外殼）。
-# 要指定：--template makehuman（沒有 MPFB 會失敗）或 --template hull
+# 模板：預設是 MakeHuman（乾淨拓樸、含手指的 Mixamo 骨架）。Blender 沒有 MakeHuman 擴充（MPFB）時流程會自動安裝，
+# 裝不了才退回外殼流程並寫明原因。
+# 要指定：--template makehuman（裝不了就停，不退回）或 --template hull
 python body3d/run_all.py ./photos ./output --name body --template hull
 
 # 跑測試；提供 33 張照片可加跑端到端

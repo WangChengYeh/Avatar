@@ -74,9 +74,20 @@ python body3d/run_all.py ./photos ./output --only uv
 
 預設貼圖解析度為 4096 × 4096，可用 `BODY3D_TEX=2048` 跑 2K 診斷。重跑時確認 `work/` 來自同一組照片與相容的上游步驟。
 
-### MakeHuman 模板（預設；`--template auto`）
+### MakeHuman 模板（預設）
 
-剪影外殼的網格沒有關節拓樸、手指，骨架權重是自動算的，手臂放下時肩膀會變形。所以 body3d 2.34.0 起預設用 MakeHuman 模板：`--template auto` 會問 Blender 有沒有 MPFB 擴充，有就用 `makehuman`，沒有就用 `hull`（外殼流程）並印出原因；接續舊的輸出資料夾（`--from`、`--only`）時沿用它原本的模板（`work/template.txt`）。MakeHuman 模板從第 11 步起改用 MakeHuman 人體：
+剪影外殼的網格沒有關節拓樸、手指，骨架權重是自動算的，手臂放下時肩膀會變形。所以預設用 MakeHuman 模板（2.34.0 起有擴充就用，2.36.0 起沒有擴充會自動安裝）：
+
+| 情況 | 用哪個模板 |
+| --- | --- |
+| Blender 有 MakeHuman 擴充（MPFB） | MakeHuman |
+| 沒有擴充 | 流程自己安裝（`blender --online-mode --command extension install -s -e mpfb`，從 Blender 官方擴充庫下載），裝好就用 MakeHuman |
+| 沒有擴充、也裝不了（沒有網路等） | 退回外殼流程，開頭印出原因，`gates.json` 記 `template: hull`、`mpfb_install: failed…`；`next_step.md` 會告訴執行者 |
+| 寫明 `--template makehuman` 而裝不了 | 停下來，不退回 |
+| 寫明 `--template hull` | 外殼流程 |
+| 接續舊的輸出資料夾（`--from`、`--only`） | 沿用它原本的模板 |
+
+設 `BODY3D_NO_INSTALL=1` 可以不讓流程安裝任何東西。MakeHuman 模板從第 11 步起改用 MakeHuman 人體：
 
 1. `mh33.py` 在 `body33s.ply` 上量手腕、膝蓋、腳踝的中心，`mh_prep.py`（Blender）建立女性 MakeHuman 人體與 Mixamo 骨架（52 根骨頭，含手指），把四肢擺到這些點。
 2. `mh_fit.py` 把模板擬合到照片：
@@ -106,7 +117,7 @@ python body3d/run_all.py ./photos ./output --only uv
 MakeHuman 的身體是把通用體型拉到外殼上，所以最終 `fit`（成品與照片的剪影差異）比外殼流程多 0.5–1.3 個百分點；換來的是可以動的手指、自然的肩膀與乾淨的佈線。臉、頭髮與貼圖兩種模板相同。已知問題：synth 右臉頰的 WARN；兩種模板的肩帶附近都有貼圖色塊、兩腿內側有一條暗線（照片與烘焙的問題，不是模板）。
 
 ```sh
-python body3d/run_all.py ./photos ./output --name body                    # auto：有 MPFB 就是 MakeHuman
+python body3d/run_all.py ./photos ./output --name body                    # 預設：MakeHuman
 python body3d/run_all.py ./photos ./output --name body --template hull   # 指定外殼流程
 ```
 

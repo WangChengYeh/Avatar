@@ -43,7 +43,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.35.0'
+__version__ = '2.36.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
@@ -68,26 +68,63 @@ def has_mpfb(blender):
     return 'MPFB_FOUND' in r.stdout
 
 
-def pick_template(asked, blender, work, resuming, probe=has_mpfb):
-    """(template, why) for --template auto: the template this output folder was built with when resuming, else
-    MakeHuman when Blender has MPFB, else the hull"""
-    if asked != 'auto':
-        return asked, ''
-    note = os.path.join(work, 'template.txt')
-    if resuming and os.path.exists(note):
-        t = open(note).read().strip()
-        if t in ('makehuman', 'hull'):
-            return t, '接續這個輸出資料夾原本用的模板'
-    if resuming and os.path.exists(os.path.join(work, 'uvmesh.npz')):
-        # a folder built before 2.34.0 has no note: its files say which template it was (the MakeHuman path leaves
-        # body_mh.ply). Without this a hull folder resumed on a machine with MPFB was taken for MakeHuman and the
-        # last step looked for a mesh that was never made
-        t = 'makehuman' if os.path.exists(os.path.join(work, 'body_mh.ply')) else 'hull'
-        return t, '接續這個輸出資料夾原本用的模板（依資料夾裡的檔案判斷）'
-    if probe(blender):
-        return 'makehuman', 'Blender 有 MPFB 擴充'
-    return 'hull', ('Blender 沒有 MPFB 擴充（MakeHuman for Blender）。裝法：blender --command extension install -s -e mpfb；'
-                    '裝了之後預設會改用 MakeHuman 模板（52 根骨頭，含手指）')
+def install_mpfb(blender, timeout=300):
+    """have Blender install the MakeHuman extension from its own extension repository (extensions.blender.org):
+    blender --online-mode --command extension install -s -e mpfb. (installed, what happened)"""
+    if not blender:
+        return False, '找不到 Blender'
+    try:
+        r = subprocess.run([blender, '--online-mode', '--command', 'extension', 'install', '-s', '-e', 'mpfb'],
+                           capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, f'安裝超過 {timeout} 秒沒有完成（多半是連不到 extensions.blender.org）'
+    except OSError as error:
+        return False, f'Blender 無法執行（{error}）'
+    if has_mpfb(blender):
+        return True, '已從 Blender 官方擴充庫安裝'
+    said = [l.strip() for l in (r.stderr + '\n' + r.stdout).splitlines() if l.strip()]
+    return False, f'安裝沒有成功（結束碼 {r.returncode}' + (f'：{said[-1][:160]}' if said else '') + '）'
+
+
+INSTALL_HINT = 'blender --online-mode --command extension install -s -e mpfb'
+
+
+def pick_template(asked, blender, work, resuming, probe=has_mpfb, install=install_mpfb):
+    """(template, why, {'mpfb': Blender has the MakeHuman extension, 'mpfb_install': what an install attempt did}).
+    The default is the MakeHuman template (asked None or 'auto'). Without the extension it is installed; only when
+    that fails is the hull used instead, and the reason is kept with the run. A resumed output folder keeps the
+    template it was built with. Asked for by name: 'hull' is the hull; 'makehuman' without the extension, when it
+    cannot be installed either, is an error"""
+    info = dict(mpfb=None, mpfb_install=None)
+    if asked == 'hull':
+        return 'hull', '', info
+    if asked in (None, 'auto') and resuming:
+        note = os.path.join(work, 'template.txt')
+        if os.path.exists(note):
+            t = open(note).read().strip()
+            if t in ('makehuman', 'hull'):
+                return t, '接續這個輸出資料夾原本用的模板', info
+        if os.path.exists(os.path.join(work, 'uvmesh.npz')):
+            # a folder built before 2.34.0 has no note: its files say which template it was (the MakeHuman path
+            # leaves body_mh.ply). Without this a hull folder resumed on a machine with MPFB was taken for
+            # MakeHuman and the last step looked for a mesh that was never made
+            t = 'makehuman' if os.path.exists(os.path.join(work, 'body_mh.ply')) else 'hull'
+            return t, '接續這個輸出資料夾原本用的模板（依資料夾裡的檔案判斷）', info
+    info['mpfb'] = bool(probe(blender))
+    if info['mpfb']:
+        return 'makehuman', '預設' if asked in (None, 'auto') else '', info
+    if os.environ.get('BODY3D_NO_INSTALL'):
+        ok, what = False, '沒有嘗試安裝（BODY3D_NO_INSTALL）'
+    else:
+        print(f'模板：這台機器的 Blender 沒有 MakeHuman 擴充（MPFB），自動安裝：{INSTALL_HINT}')
+        ok, what = install(blender)
+    info['mpfb'] = bool(ok); info['mpfb_install'] = ('installed: ' if ok else 'failed: ') + what
+    if ok:
+        return 'makehuman', f'預設；MakeHuman 擴充原本沒有，{what}', info
+    if asked == 'makehuman':
+        raise RuntimeError(f'--template makehuman 需要 Blender 的 MakeHuman 擴充（MPFB），{what}。手動安裝：{INSTALL_HINT}')
+    return 'hull', (f'預設是 MakeHuman，但這台機器的 Blender 沒有 MakeHuman 擴充（MPFB），{what}，所以這一次退回外殼流程'
+                    f'（22 根骨頭、手是一塊）。手動安裝：{INSTALL_HINT}'), info
 
 
 def find_blender(given):
@@ -168,10 +205,11 @@ def main(argv=None):
     ap.add_argument('--from', dest='start', choices=STEPS, default='check')
     ap.add_argument('--only', choices=STEPS)
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
-    ap.add_argument('--template', choices=['auto', 'makehuman', 'hull'], default='auto',
-                    help='makehuman：把 MakeHuman 人體擬合到外殼，用它的拓樸、Mixamo 骨架（52 根，含手指）與權重，'
-                         '頭用外殼的（需在 Blender 安裝 MPFB 擴充）；hull：剪影外殼網格＋自動權重（22 根骨頭）；'
-                         'auto（預設）：Blender 有 MPFB 就用 makehuman，沒有就用 hull，並在開頭印出用了哪一個')
+    ap.add_argument('--template', choices=['makehuman', 'hull', 'auto'], default=None,
+                    help='預設是 makehuman：把 MakeHuman 人體擬合到外殼，用它的拓樸、Mixamo 骨架（52 根，含手指）與權重，'
+                         '頭用外殼的。Blender 沒有 MakeHuman 擴充（MPFB）時會自動安裝；裝不了才退回 hull 並寫明原因'
+                         '（寫出 --template makehuman 時裝不了就停）。hull：剪影外殼網格＋自動權重（22 根骨頭）。'
+                         'auto 和不寫一樣（舊的寫法）')
     ap.add_argument('--version', action='version', version=f'body3d {__version__}')
     a = ap.parse_args(argv)
 
@@ -184,16 +222,18 @@ def main(argv=None):
     S = lambda f: os.path.join(STEPS_DIR, f)
     blender = find_blender(a.blender)
     todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
-    mpfb = None                    # does this machine's Blender have the MakeHuman extension? None = not asked
+    made_with = dict(template='hull', mpfb=None, mpfb_install=None)      # recorded with every run (gates.json)
     if any(STEPS.index(step) >= STEPS.index('uv') for step in todo):      # the steps before 'uv' are the same for both
-        mpfb = has_mpfb(blender)                                          # recorded with every run (gates.json)
-        a.template, why = pick_template(a.template, blender, work, a.start != 'check' or bool(a.only),
-                                        probe=lambda _b: mpfb)
-        print(f'模板：{a.template}' + (f'（{why}）' if why else '') + f'；這台機器的 Blender {"有" if mpfb else "沒有"} MakeHuman 擴充（MPFB）')
+        a.template, why, info = pick_template(a.template, blender, work, a.start != 'check' or bool(a.only))
+        if info['mpfb'] is None:                                          # resumed or the hull by name: still recorded
+            info['mpfb'] = has_mpfb(blender)
+        print(f'模板：{a.template}' + (f'（{why}）' if why else '')
+              + f'；這台機器的 Blender {"有" if info["mpfb"] else "沒有"} MakeHuman 擴充（MPFB）')
         open(os.path.join(work, 'template.txt'), 'w').write(a.template + '\n')
-    elif a.template == 'auto':
+        made_with = dict(template=a.template, **info)
+    else:
         a.template = 'hull'                                               # not used by these steps
-    made_with = dict(template=a.template, mpfb=mpfb)
+        made_with['template'] = None
     glb_tex = os.path.join(work, 'textured.glb')
     lit = os.path.join(out, f'{a.name}_rigged_lit.glb'); unlit = os.path.join(out, f'{a.name}_rigged.glb')
 

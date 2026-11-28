@@ -153,7 +153,7 @@ def code_changed_since(commit):
 
 
 def run_cmd(photos, out, name, template):
-    t = f' --template {template}' if template != 'auto' else ''
+    t = f' --template {template}' if template not in (None, 'auto') else ''
     q = shlex.quote
     return f'{q(sys.executable)} {q(os.path.join(REPO, "body3d", "run_all.py"))} {q(photos)} {q(out)} --name {q(name)}{t}'
 
@@ -431,8 +431,8 @@ def main(argv=None):
     ap.add_argument('--avatar', help='預設：資料夾名稱（avatar_NNN）')
     ap.add_argument('--agent', help='預設：上一層資料夾名稱（chatgpt／gemini）')
     ap.add_argument('--name', help='GLB 名稱，預設：avatar 名稱')
-    ap.add_argument('--template', default='auto', choices=['auto', 'makehuman', 'hull'],
-                    help='預設 auto：run_all 在 Blender 有 MPFB 時用 MakeHuman 模板，沒有就用外殼')
+    ap.add_argument('--template', default=None, choices=['makehuman', 'hull', 'auto'],
+                    help='不寫就是 run_all 的預設：MakeHuman 模板（沒有 MakeHuman 擴充時 run_all 會自動安裝，裝不了才退回外殼）')
     ap.add_argument('--waiting-issue', type=int); ap.add_argument('--waiting-pr', type=int)
     ap.add_argument('--wait', type=float, nargs='?', const=0, default=None, metavar='分鐘',
                     help='WAITING（等 Claude）時不馬上結束：每分鐘檢查一次，最多等這麼久就回來；不給數字就自己學沙盒的時限')
@@ -475,9 +475,11 @@ def main(argv=None):
     made = (load(os.path.join(vs_[-1][1], 'output', 'gates.json'), {}) or {}) if vs_ else {}
     if made.get('template'):                            # which template this version was built with, and why
         text += ['', '**模板**：' + ('MakeHuman（含手指的 52 根骨頭）' if made['template'] == 'makehuman' else '外殼流程（22 根骨頭）')
-                 + ('；這台機器的 Blender 沒有 MakeHuman 擴充（MPFB），所以用外殼流程。裝法：'
-                    '`blender --command extension install -s -e mpfb`，裝好後下一版會自動改用 MakeHuman'
-                    if made.get('mpfb') is False else '')]
+                 + ('；MakeHuman 擴充是這一次自動安裝的' if str(made.get('mpfb_install') or '').startswith('installed') else '')
+                 + ('；預設是 MakeHuman，但這台機器的 Blender 沒有 MakeHuman 擴充（MPFB），自動安裝也沒有成功（'
+                    + str(made.get('mpfb_install') or '沒有嘗試')[:200] + '），所以退回外殼流程。能連網時手動安裝：'
+                    '`blender --online-mode --command extension install -s -e mpfb`，裝好後下一版就是 MakeHuman'
+                    if made['template'] == 'hull' and made.get('mpfb') is False else '')]
     df = drive_files(ws)
     if df:
         text += ['', f'**雲端硬碟**：用 Google Drive 連結器把這一版的 {"、".join(df[1])} 放到 `{df[0]}/`（已經放過就略過）']
