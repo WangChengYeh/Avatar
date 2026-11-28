@@ -16,7 +16,8 @@
   - 紀錄多一欄 `mpfb_install`（`installed: …`／`failed: …`），和 `template`、`mpfb` 一起寫進 `gates.json` 與結果包；`next_step.md` 的「模板」那一行會說是自動安裝的，或沒裝成功所以退回。
   - `next_step.py --template` 不寫時不再往 `run_all` 的指令裡加旗標。
 - **驗證**：新增兩個測試：模板的選擇（有擴充、裝得起來、裝不起來、寫明名字、接續、不准安裝）；用一個假的 Blender 測安裝（它照指令留下記號，之後才回報有擴充；模擬沒有網路時回報失敗）。本機（已有擴充）不寫 `--template` 從頭跑 luna：開頭印「模板：makehuman（預設）」，四道關卡 0 FAIL／0 WARN（第 4 關 41 項），可交付；`gates.json` 是 `template: makehuman`、`mpfb: true`、`mpfb_install: null`。
-- **沒有驗證的**：真的缺擴充的機器上的安裝（本機已經裝了，沒有為了測試把它移除）。Gemini 的沙盒能不能連到擴充庫不知道；連不到時會照上面退回外殼，`gates.json` 看得出來。
+- **真的安裝**：讓 Blender 用一個空白的使用者資料夾（`BLENDER_USER_RESOURCES` 指到空目錄，等於剛裝好 Blender 的機器；原本的擴充沒有動），不寫 `--template` 從頭跑 luna：先印「沒有 MakeHuman 擴充，自動安裝」，9 秒裝好（下載約 84 MB），接著用 MakeHuman 做完，四道關卡 0 FAIL／0 WARN，可交付（5.2 分鐘）；`gates.json` 是 `mpfb_install: installed…`。完整測試 175 passed、2 skipped。
+- **沒有驗證的**：只在一台 macOS、Blender 5.1.1 上測過安裝。Gemini 的沙盒能不能連到擴充庫不知道；連不到時會照上面退回外殼，`gates.json` 看得出來。
 
 ## 第 4 關：全身做差異，再依關節分區（body3d 2.35.0、fit_report 1.1.0）
 
