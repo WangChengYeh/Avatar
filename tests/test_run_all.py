@@ -181,6 +181,10 @@ def test_template_auto_is_makehuman_when_blender_has_the_extension(tmp_path):
     assert run_all.pick_template('auto', 'blender', str(work), True, probe=yes)[0] == 'hull'        # resuming
     assert run_all.pick_template('auto', 'blender', str(work), False, probe=yes)[0] == 'makehuman'  # from the start
     assert run_all.has_mpfb(None) is False and run_all.has_mpfb(str(tmp_path / 'no-such-blender')) is False
+    old = tmp_path / 'old'; old.mkdir(); (old / 'uvmesh.npz').write_bytes(b'x')     # built before 2.34.0: no note
+    assert run_all.pick_template('auto', 'blender', str(old), True, probe=yes)[0] == 'hull'
+    (old / 'body_mh.ply').write_bytes(b'x')
+    assert run_all.pick_template('auto', 'blender', str(old), True, probe=no)[0] == 'makehuman'
 
 
 @pytest.mark.slow

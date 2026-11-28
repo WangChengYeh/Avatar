@@ -27,7 +27,8 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
   15 rig       Blender 建 22 根骨頭、自動權重、匯出（rig.py）；makehuman 版跳過 14、15，第 13 步直接匯出含骨架 GLB
   16 unlit     材質標為 KHR_materials_unlit（glb_unlit.py）
   17 verify    verify_glb.py 驗證兩個 GLB（有 FAIL 時結束碼 1）
-  18 fit       最終驗收：成品網格以最終相機投影回 24 張全身原圖，剪影平均不一致 > 10% 判 FAIL（fit_report.py --accept）
+  18 fit       最終驗收：成品網格以最終相機投影回 24 張全身原圖，剪影平均不一致 > 10% 判 FAIL（fit_report.py --accept）；
+               再把成品 GLB 和 8 張水平全身圖、8 張頭部特寫做差異，依關節分區（part_compare.py）
 
 輸出（OUT_DIR）:
     {name}_rigged.glb        無光照材質（照片已含光影，建議用這個）
@@ -42,7 +43,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.34.0'
+__version__ = '2.35.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
@@ -77,6 +78,12 @@ def pick_template(asked, blender, work, resuming, probe=has_mpfb):
         t = open(note).read().strip()
         if t in ('makehuman', 'hull'):
             return t, '接續這個輸出資料夾原本用的模板'
+    if resuming and os.path.exists(os.path.join(work, 'uvmesh.npz')):
+        # a folder built before 2.34.0 has no note: its files say which template it was (the MakeHuman path leaves
+        # body_mh.ply). Without this a hull folder resumed on a machine with MPFB was taken for MakeHuman and the
+        # last step looked for a mesh that was never made
+        t = 'makehuman' if os.path.exists(os.path.join(work, 'body_mh.ply')) else 'hull'
+        return t, '接續這個輸出資料夾原本用的模板（依資料夾裡的檔案判斷）'
     if probe(blender):
         return 'makehuman', 'Blender 有 MPFB 擴充'
     return 'hull', ('Blender 沒有 MPFB 擴充（MakeHuman for Blender）。裝法：blender --command extension install -s -e mpfb；'
@@ -240,6 +247,8 @@ def main(argv=None):
                     **{f: os.path.join(out, f) for f in sorted(os.listdir(out)) if f.startswith('v2_') and f.endswith('.png')}}
         cdir = os.path.join(out, 'client')
         return {'fit_report.json': os.path.join(out, 'fit_report.json'), 'gates.json': os.path.join(out, 'gates.json'),
+                **({'parts_compare.jpg': os.path.join(out, 'parts_compare.jpg')}
+                   if os.path.exists(os.path.join(out, 'parts_compare.jpg')) else {}),
                 '04_body_compare.jpg': os.path.join(cdir, '04_body_compare.jpg'),
                 '05_head_compare.jpg': os.path.join(cdir, '05_head_compare.jpg')}
 
@@ -442,17 +451,19 @@ def main(argv=None):
 
     def step_fit():
         mesh = ['--mesh', 'body_mh.ply'] if mh else []
-        rc = run([py, os.path.join(HERE, 'fit_report.py'), work, '--accept', '--json', os.path.join(out, 'fit_report.json')] + mesh,
-                 out, log, ok_codes=(0, 1))
+        parts = (['--glb', unlit, '--photos', img, '--parts-picture', os.path.join(out, 'parts_compare.jpg')]
+                 if os.path.exists(unlit) else [])           # part by part: the finished model beside every photo
+        rc = run([py, os.path.join(HERE, 'fit_report.py'), work, '--accept', '--json', os.path.join(out, 'fit_report.json')]
+                 + mesh + parts, out, log, ok_codes=(0, 1))
         tally('4 最終驗收')
         txt = open(log, errors='replace').read().split('\n$ ')[-1]
-        print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]', '總結'))))
+        print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]', '總結', '  →'))))
         if rc:                                       # the worst views go on the AI retouch request (R54 escalated without one)
             diagnose(4)
         if rc and not go_on:
-            raise RuntimeError('成品與原圖剪影差異太大（見 fit_report.json）：先修正照片（第 10 / 10d / 10e 項）')
+            raise RuntimeError('成品和原圖對不上（剪影或依關節分區的差異，見 fit_report.json、parts_compare.jpg）')
         if rc:
-            print('     成品與原圖剪影差異太大，--force 繼續：成果標 _FAIL')
+            print('     成品和原圖對不上，--force 繼續：成果標 _FAIL')
 
     def step_headreg():
         # register the head close-ups on the untrimmed hull, then trim the head to their outlines (headsil33)

@@ -18,7 +18,7 @@ import argparse, json, os, sys
 import cv2
 import numpy as np
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'steps'))
@@ -80,6 +80,9 @@ def main():
     ap.add_argument('--accept', action='store_true',
                     help='最終驗收：全身剪影平均不一致 ≤ 8%% PASS、> 10%% FAIL（結束碼 1），單張 > 12%% WARN')
     ap.add_argument('--json', help='另存每張結果與驗收結論')
+    ap.add_argument('--glb', help='成品 GLB（無光照）：和 --photos 一起給，驗收時加做「全身差異依關節分區」（part_compare.py）')
+    ap.add_argument('--photos', help='原始照片的資料夾')
+    ap.add_argument('--parts-picture', help='差異對照圖（最差的幾個角度）存到這裡')
     a = ap.parse_args()
     if a.accept:
         a.region = 'body'
@@ -98,10 +101,26 @@ def main():
             print(f'[WARN] {v}: 不一致 {100 * x:.1f}%（單張應 ≤ {100 * VIEW_WARN:.0f}%）→ 先看這張照片的第 10 / 10d / 10e 項')
         nf, nw = int(level == 'FAIL'), int(level == 'WARN') + len(worst)
         npass = int(level == 'PASS') + len(rows) - len(worst)          # every full-body view counted as one item
+        parts = None
+        if a.glb and a.photos:                       # the same model, part by part: hair, skin, each garment
+            import part_compare
+            print('\n成品與原圖的差異，依關節分區（先對整個人物做差異，再看差異落在頭、軀幹、上臂、前臂、手、大腿、小腿、腳的哪一區）')
+            try:
+                parts = part_compare.compare(a.work, a.photos, a.glb, a.parts_picture)
+            except Exception as error:               # a model the comparison cannot read is a finding, not a pass
+                print(f'[WARN] 分區差異: 沒有做成（{error}）')
+                nw += 1
+            else:
+                for line in part_compare.lines(parts):
+                    print(line)
+                if parts.get('first'):               # not everything at once: the few that differ most
+                    print('  → 這一輪先修（差最多的幾個）：' + '、'.join(parts['first']) + '；修完重跑，再看其餘的')
+                nf += sum(r['level'] == 'FAIL' for r in parts['views']); nw += sum(r['level'] == 'WARN' for r in parts['views'])
+                npass += sum(r['level'] == 'PASS' for r in parts['views'])
         print(f'\n總結: {nf} 個 FAIL, {nw} 個 WARN, {npass} 個 PASS，共 {nf + nw + npass} 項')
         if a.json:
-            json.dump(dict(level=level, mean=mean, rows=rows), open(a.json, 'w'), indent=1)
-        sys.exit(1 if level == 'FAIL' else 0)
+            json.dump(dict(level=level, mean=mean, rows=rows, parts=parts), open(a.json, 'w'), indent=1, ensure_ascii=False)
+        sys.exit(1 if nf else 0)
     if a.json:
         json.dump(dict(rows=rows), open(a.json, 'w'), indent=1)
     sys.exit(1 if me > a.max_extra else 0)
