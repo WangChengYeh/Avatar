@@ -1,0 +1,17 @@
+<figure class="viz-root diagram">
+<svg viewBox="0 0 560 230" role="img" aria-label="兩種輪廓：左邊給的是比身體大的上限，AI 把它填滿，多出四個角；右邊給的是準確的輪廓，填滿就是對的">
+<text x="140" y="26" text-anchor="middle" class="dg-c-ai">給的是「上限」，AI 把它填滿</text>
+<rect class="dg-lost" x="60" y="56" width="160" height="110"/>
+<ellipse class="dg-body" cx="140" cy="111" rx="80" ry="55"/>
+<rect class="dg-hull" x="60" y="56" width="160" height="110"/>
+<text x="140" y="116" text-anchor="middle" class="dg-s">真正的身體</text>
+<text x="140" y="192" text-anchor="middle" class="dg-s">虛線：外殼（只保證身體在裡面）</text>
+<text x="140" y="212" text-anchor="middle" class="dg-c-ai">橘色：多畫出來的四個角</text>
+<text x="420" y="26" text-anchor="middle" class="dg-c-fix">給的是準確的輪廓，填滿就對了</text>
+<ellipse class="dg-body" cx="420" cy="111" rx="80" ry="55"/>
+<ellipse class="dg-new" cx="420" cy="111" rx="80" ry="55"/>
+<text x="420" y="116" text-anchor="middle" class="dg-s">真正的身體</text>
+<text x="420" y="192" text-anchor="middle" class="dg-s">綠色虛線：輪廓本身就是答案</text>
+</svg>
+<figcaption><strong>圖 3</strong>　同樣是「給 AI 一條線」，結果差很多。左：線是上限（外殼只保證身體在它裡面，本身比身體胖），AI 把線填滿，就多畫了四個角。右：線是準確的輪廓，填滿正好就是對的。AI 很會照著線畫；問題在我們給的是哪一種線。</figcaption>
+</figure>

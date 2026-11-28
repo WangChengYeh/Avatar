@@ -1,0 +1,15 @@
+{
+  "name": "synth1",
+  "file": "body_rigged.glb",
+  "sha256": "eaa49229747f00ced2e8512a4e6a7a3cea363d1547bec0a42a75039ec12d76b6",
+  "bytes": 10629848,
+  "origin": "An early result of this pipeline: a model rebuilt from AI-drawn photos, kept as the first test model.",
+  "what_it_is_good_for": "Photos rendered from it (tests/render_synth.py) agree with each other exactly, so every photo check must pass; the reconstruction can be compared with the model itself (tests/face_truth.py).",
+  "known_traits": [
+    "The face is flat: nose tip -0.3 mm from the bridge (luna 11.5 mm), because the pipeline that made it had no face relief yet.",
+    "Its texture shows a face with a nose, so MediaPipe marks a nose 13 mm high on a flat surface: a good test of that bias, not a typical face.",
+    "The arms and head are a silhouette hull: slab-like arms, no ears."
+  ],
+  "naming": "Sets rendered from this pipeline's own results are numbered in the order they were frozen: synth1 (this file), synth2, ... A new one is added when the pipeline's results change in kind (e.g. a face with real relief); earlier ones stay, so numbers remain comparable. In code and older text 'synth' means synth1.",
+  "caution": "A model made by this pipeline carries the pipeline's own mistakes. Thresholds calibrated only on it fit those mistakes; luna (an independent model, luna-source.json) is the reference for what a person looks like."
+}
