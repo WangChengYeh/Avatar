@@ -168,8 +168,23 @@ python body3d/check_turnaround.py ./photos \
 
 第 18 步 `fit` 把成品網格用最終相機投影回 24 張全身原圖（`fit_report.py --accept`），量每張的剪影不一致比例，結果存在 `output/fit_report.json`。平均 ≤ 8% 通過、> 10% 失敗（流程停止、結束碼 1，成果打包成 `_FAIL.zip`），單張 > 12% 另列 WARN。門檻依相機已知的完美合成照片校準：平均 5.6–6.6%，單張最高 9.3%。單張偏高時，先看那張照片在第 10、10d、10e 項的結果。
 
+**分塊比對（body3d 2.32.0 起）。** 剪影只看得到全身的外輪廓：頭只佔幾個百分點，輪廓以內的東西（頭髮和臉的交界、貼錯顏色的一塊）完全看不到。Gemini avatar_001 v018 就是四關全過、成品卻不像輸入。所以同一步再做一件事（`part_compare.py`）：
+
+1. 把成品 GLB 用每張照片對位後的相機畫出來（貼圖原色、不打光），8 張水平全身圖與 8 張頭部特寫各一張。
+2. 把這個人物的顏色歸成幾種東西：頭髮、皮膚、每件衣物。同一種東西的亮部與暗部算同一塊；深色頭髮和淺色皮膚即使色相接近也分開。
+3. 照片和成品各自分塊，一塊一塊比：這一塊在一張圖裡有、另一張圖裡（容許 4 個像素）沒有的面積，佔照片裡人物的比例。
+
+| 每一塊的差（最大的那一塊） | 全身圖 | 頭部特寫 |
+| --- | --- | --- |
+| 門檻 | ≤ 2.5% 通過、> 4% FAIL | ≤ 5% 通過、> 8% FAIL |
+| 完美照片（luna、synth，兩種模板） | 0.7–1.1% | 2.6–3.1% |
+| Gemini avatar_001 v015／v018 | 5.0–6.0% | 9.2–10.1% |
+
+報告一張照片一行，寫出每一塊的數字；不通過時指出是哪一塊、成品比照片大還是小。對照圖 `output/parts_compare.jpg` 列出差最多的 6 個角度：照片、照片的分塊、成品、成品的分塊，對不上的地方塗紅。這一項不通過時，前三關多半都過了，`next_step` 會照「後面才 FAIL、前面沒抓到」發 issue 給 Claude：是照片不一致還是重建做不出來，由 Claude 判斷。
+
 ```sh
-python body3d/fit_report.py ./output/work --accept
+python body3d/fit_report.py ./output/work --accept --glb ./output/body_rigged.glb --photos ./photos --parts-picture parts.jpg
+python body3d/part_compare.py ./output/work ./photos ./output/body_rigged.glb --out parts.jpg     # 只做分塊比對
 ```
 
 ## GLB 與動作驗證
