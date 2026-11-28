@@ -132,3 +132,107 @@ def test_face_owner_mask_without_the_468_point_mesh():
     lm = np.c_[1024 + 300 * np.cos(ang), 1000 + 346 * np.sin(ang)]
     m = facemask.owner_mask(lm, (2048, 2048), 17)
     assert m[1000, 1024] > 0.999 and m[1000, 1024 + 305] == 0 and 0.05 < m[1000, 1024 + 200] < 0.95
+
+
+def _head_with_an_earring(scale=4199.0):
+    """a close-up's head mask (2048 px): an ellipse, an ear joined along its long side, and an earring on a thread"""
+    m = np.zeros((2048, 2048), np.uint8)
+    cv2.ellipse(m, (1024, 1000), (330, 420), 0, 0, 360, 1, -1)
+    ear = np.zeros_like(m); cv2.ellipse(ear, (1024 + 335, 1000), (38, 110), 0, 0, 360, 1, -1)       # 9 mm out, 52 mm tall
+    ring = np.zeros_like(m)
+    cv2.line(ring, (1024 + 340, 1100), (1024 + 350, 1290), 1, int(round(0.002 * scale)))            # thread, 2 mm
+    cv2.ellipse(ring, (1024 + 352, 1330), (int(0.004 * scale), int(0.011 * scale)), 0, 0, 360, 1, -1)   # drop, 8 mm wide
+    return m, ear, ring
+
+
+def test_head_outline_drops_what_hangs_by_a_thin_neck():
+    """headsil33 carves the head to the close-ups' outlines. An earring in the outline is carved into the jaw: Gemini
+    avatar_001 v015's frontal close-up was 157 mm wide at the jaw with its earrings, 131 mm without"""
+    import facemask
+    head, ear, ring = _head_with_an_earring()
+    full = head | ear | ring
+    out = facemask.trunk(full, 4199.0)
+    assert out.dtype == np.uint8 and set(np.unique(out)) <= {0, 1}
+    assert not (out & ~full.astype(bool)).any(), 'the outline only loses pixels'
+    hang = (ring > 0) & (head == 0) & (ear == 0)
+    below_ear = hang & (np.arange(2048)[:, None] > 1125)                         # clear of where the thread leaves the ear
+    assert out[below_ear].mean() < 0.02, f'{out[below_ear].mean():.0%} of the earring is still part of the head'
+    assert out[head > 0].mean() > 0.999, 'the head itself was cut'
+    assert out[(ear > 0) & (head == 0) & (ring == 0)].mean() > 0.97, 'the ear was cut: it joins the head along its long side'
+    row = 1330                                                                   # the drop's row: the jaw is the head's width again
+    assert np.flatnonzero(out[row]).max() == np.flatnonzero(head[row]).max()
+
+
+def test_head_outline_keeps_a_nose_tip():
+    """a profile: the tip of the nose is rounder than a strand of hair and stays within 1 mm"""
+    import facemask
+    m = np.zeros((2048, 2048), np.uint8)
+    cv2.ellipse(m, (1100, 1000), (380, 430), 0, 0, 360, 1, -1)
+    tip = (1100 - 380 - 95, 1060)                                                # a nose 23 mm out, tip radius 6 mm
+    cv2.fillConvexPoly(m, np.array([(1100 - 360, 930), (1100 - 360, 1130), (tip[0] + 20, tip[1] + 22), (tip[0] + 20, tip[1] - 22)]), 1)
+    cv2.circle(m, (tip[0] + 25, tip[1]), 25, 1, -1)
+    out = facemask.trunk(m, 4199.0)
+    lost = (np.flatnonzero(out[tip[1]]).min() - np.flatnonzero(m[tip[1]]).min()) / 4.199
+    assert lost < 1.0, f'the nose tip lost {lost:.1f} mm'
+
+
+def _ball_head(bump=0.0):
+    import trimesh
+    ball = trimesh.creation.icosphere(subdivisions=5, radius=0.09)      # edges of 3 mm, as on the head
+    V = np.asarray(ball.vertices, float); n = V / 0.09
+    V = V + np.array([0, 0, 1.0]) * (bump * np.clip((n[:, 2] - 0.6) / 0.4, 0, 1) ** 2)[:, None]    # a bulge on the face
+    return V + np.array([0, 1.55, 0.0]), np.asarray(ball.faces)
+
+
+def _ball_cams(size=512, s=1000.0):
+    cams, sdf = {}, {}
+    for a in range(0, 360, 45):
+        r, u, _ = camera.axes(float(a), 0.0); c0 = np.array([0, 1.55, 0.0])
+        cams[f'head_{a:03d}deg'] = dict(phi=float(a), th=0.0, s=s, cu=size / 2 - s * (c0 @ r), cv=size / 2 + s * (c0 @ u), kind='head')
+        m = np.zeros((size, size), np.uint8); cv2.circle(m, (size // 2, size // 2), int(0.09 * s), 1, -1)
+        sdf[f'head_{a:03d}deg'] = (cv2.distanceTransform(1 - m, cv2.DIST_L2, 5) - cv2.distanceTransform(m, cv2.DIST_L2, 5)).astype(np.float32)
+    return cams, sdf
+
+
+def test_trim_brings_a_head_that_stands_out_of_the_side_outlines_back():
+    """headsil33: where the hull is fuller than the close-ups' outlines it is moved inside them. A ball with a 15 mm
+    bulge on its front, outlines of the ball alone"""
+    import headsil33
+    V, F = _ball_head(bump=0.015)
+    cams, sdf = _ball_cams()
+    front = lambda X: (X[:, 2].max() - 0.09) * 1000                             # mm in front of the ball, seen from the side
+    assert 14 < front(V) < 16
+    X = headsil33.trim(V, F, cams, sdf, tag='test')
+    assert front(X) < 4.0, f'the bulge still stands {front(X):.1f} mm in front of the side outlines'
+    back = V[:, 2] < 0
+    assert np.linalg.norm(X - V, axis=1)[back].max() < 0.004, 'the back of the head moved with the face'
+    assert (np.linalg.norm(X - np.array([0, 1.55, 0]), axis=1) > 0.080).all(), 'trimmed far inside the outlines'
+
+
+def test_trim_leaves_a_head_inside_its_outlines_alone():
+    import headsil33
+    V, F = _ball_head()
+    cams, sdf = _ball_cams()
+    X = headsil33.trim(V, F, cams, sdf, tag='test')
+    assert np.linalg.norm(X - V, axis=1).max() < 0.001
+
+
+def test_close_up_gives_no_colour_where_an_earring_hangs():
+    """bake33: a pale, colourless patch at the outline (an earring, the matte's white fringe) is not the head's
+    colour. Baked, the frontal close-up's earrings landed on the jaw as white patches (Gemini avatar_001 v018).
+    Teeth and the whites of the eyes are pale too, but not next to the background, and stay"""
+    import facemask
+    head, ear, ring = _head_with_an_earring()
+    drop = np.zeros_like(head); cv2.ellipse(drop, (1024 + 345, 1250), (30, 90), 0, 0, 360, 1, -1)     # a tassel, 14 mm wide
+    m = head | ear | drop
+    im = np.full((2048, 2048, 3), 255, np.uint8)
+    im[m > 0] = (140, 170, 215)                                                # skin (BGR)
+    im[(drop > 0) & (head == 0)] = (236, 238, 240)                             # the tassel: nearly white
+    teeth = np.zeros_like(head); cv2.ellipse(teeth, (1024, 1180), (60, 14), 0, 0, 360, 1, -1)
+    im[teeth > 0] = (232, 236, 240)
+    out = facemask.solid(m, im, 4199.0)
+    tassel = (drop > 0) & (head == 0) & (ear == 0)
+    assert out[tassel].mean() < 0.05, f'{out[tassel].mean():.0%} of the earring still gives colour'
+    assert out[teeth > 0].all(), 'the teeth were taken for an earring'
+    inner = cv2.erode(head, np.ones((61, 61), np.uint8)) > 0
+    assert out[inner].all(), 'skin inside the head was dropped'

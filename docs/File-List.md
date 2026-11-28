@@ -32,6 +32,7 @@
 | `body3d/diagnose.py photos|prebake …` | 單獨看一次診斷樹 |
 | `dashboard/`（Google Apps Script） | 專案總覽網頁：每個 avatar、每一版、四關 FAIL／WARN／PASS、最終結果圖；部署在使用者的 Google 帳號，直接讀雲端硬碟（`dashboard/README.md`） |
 | `python -m pytest tests` | 全部測試（約 35 分鐘）；`tests/test_steps.py`、`test_next_step.py`、`test_escalate.py` 幾秒 |
+| `python tests/face_truth.py <真實模型.glb> <work>` | 量具，不是測試：完美照片重建出來的臉和渲染它的模型差多少（468 個特徵點的深度誤差）。改臉或頭的形狀之前先跑（`tests/data/luna-v1.glb`、`tests/data/body_rigged.glb`） |
 
 ## 3. 每一輪會產生的檔案
 

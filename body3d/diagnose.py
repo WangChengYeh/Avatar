@@ -219,11 +219,25 @@ def head_pair_leaves(fail_lines):
                  '高', {'pairs': ['/'.join(p) for p in pairs]})]
 
 
+def front_oblique_leaves(fail_lines):
+    """'正面／斜面一致性 head_045deg' FAILs: after the face relief the frontal close-up's features still do not land on
+    this 3/4 close-up's. The 3/4 close-up is the one to redraw."""
+    names = list(dict.fromkeys(n for l in fail_lines if '正面／斜面一致性' in l for n in re.findall(r'head_\d{3}deg', l)[:1]))
+    if not names:
+        return []
+    mm = [float(v) for l in fail_lines if '正面／斜面一致性' in l for v in re.findall(r'→ ([\d.]+) mm', l)[:1]]
+    return [leaf('正面／斜面一致性', ['關卡 2 烘焙前檢查', '正面特寫的五官搬到斜面特寫上對不到',
+                 '臉的起伏已經照特徵點補過，剩下的差是照片之間的差'],
+                 '斜面特寫把臉畫得和正面特寫不一樣（大小、長度或五官高度），湊不成同一張臉', '照片',
+                 '重畫：' + '、'.join(names) + '。' + ct.front_oblique_advice(), '中',
+                 {'photos': names, 'median_mm': mm})]
+
+
 def diagnose_prebake(photos, work, fail_lines=None):
     """fail_lines: the pre-bake check's [FAIL] lines; None = the head / body consistency tree only (older callers)"""
     photos, work = Path(photos), Path(work)
-    pair = head_pair_leaves(fail_lines or [])
-    if fail_lines is not None and all('頭部特寫相鄰一致' in l for l in fail_lines):
+    pair = head_pair_leaves(fail_lines or []) + front_oblique_leaves(fail_lines or [])
+    if fail_lines is not None and all('頭部特寫相鄰一致' in l or '正面／斜面一致性' in l for l in fail_lines):
         return pair                                   # nothing else failed: no face-residual tree
     res, cams = face_residuals(photos, work)
     out = list(pair)
