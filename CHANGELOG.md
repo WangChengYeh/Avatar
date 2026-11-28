@@ -4,6 +4,21 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## MakeHuman 就是預設：沒有擴充時自動安裝，裝不了才退回外殼（body3d 2.36.0）
+
+人在 2026-11-28 說：讓 MakeHuman default。2.34.0 的預設是 `auto`（Blender 有 MakeHuman 擴充就用，沒有就安靜地退回外殼流程）；在沒有擴充的機器上，預設其實還是外殼。問過人之後選的做法：沒有擴充時自動安裝，裝不了才退回。
+- **修改**：
+  - `--template` 不寫就是 MakeHuman。Blender 沒有 MakeHuman 擴充（MPFB）時，`run_all` 自己執行 `blender --online-mode --command extension install -s -e mpfb`（從 Blender 官方擴充庫 extensions.blender.org 下載；擴充的程式碼是 GPL-3，不隨本 repo 散布），再確認一次。
+  - 裝好：用 MakeHuman，開頭印「MakeHuman 擴充原本沒有，已從 Blender 官方擴充庫安裝」。
+  - 裝不了（沒有網路、逾時 300 秒、Blender 回報錯誤）：這一次退回外殼流程，開頭印出原因與手動安裝的指令。不讓執行者卡住。
+  - 寫明 `--template makehuman` 而裝不了：停下來（寫出名字就是要它，不安靜地換掉）。`--template hull`：外殼流程。`auto` 仍然可以寫，和不寫一樣。
+  - 接續舊的輸出資料夾時沿用原本的模板，不安裝任何東西。`BODY3D_NO_INSTALL=1`：不安裝。
+  - 紀錄多一欄 `mpfb_install`（`installed: …`／`failed: …`），和 `template`、`mpfb` 一起寫進 `gates.json` 與結果包；`next_step.md` 的「模板」那一行會說是自動安裝的，或沒裝成功所以退回。
+  - `next_step.py --template` 不寫時不再往 `run_all` 的指令裡加旗標。
+- **驗證**：新增兩個測試：模板的選擇（有擴充、裝得起來、裝不起來、寫明名字、接續、不准安裝）；用一個假的 Blender 測安裝（它照指令留下記號，之後才回報有擴充；模擬沒有網路時回報失敗）。本機（已有擴充）不寫 `--template` 從頭跑 luna：開頭印「模板：makehuman（預設）」，四道關卡 0 FAIL／0 WARN（第 4 關 41 項），可交付；`gates.json` 是 `template: makehuman`、`mpfb: true`、`mpfb_install: null`。
+- **真的安裝**：讓 Blender 用一個空白的使用者資料夾（`BLENDER_USER_RESOURCES` 指到空目錄，等於剛裝好 Blender 的機器；原本的擴充沒有動），不寫 `--template` 從頭跑 luna：先印「沒有 MakeHuman 擴充，自動安裝」，9 秒裝好（下載約 84 MB），接著用 MakeHuman 做完，四道關卡 0 FAIL／0 WARN，可交付（5.2 分鐘）；`gates.json` 是 `mpfb_install: installed…`。完整測試 175 passed、2 skipped。
+- **沒有驗證的**：只在一台 macOS、Blender 5.1.1 上測過安裝。Gemini 的沙盒能不能連到擴充庫不知道；連不到時會照上面退回外殼，`gates.json` 看得出來。
+
 ## 第 4 關：全身做差異，再依關節分區（body3d 2.35.0、fit_report 1.1.0）
 
 人在 2026-11-28 說：第 4 關只比輪廓、而且只比全身照，不夠；全身做差異，把差異的部分根據關節分區；每次修幾個明顯差很多的。起因是 Gemini avatar_001 v018：四道關卡 0 FAIL、DONE，成品卻不像輸入（下巴寬、髮髻成尖錐、側面的臉凸出），這些都在輪廓以內，或只佔全身輪廓的一點點。

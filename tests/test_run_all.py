@@ -165,26 +165,69 @@ def test_makehuman_template_option():
     assert rc == 0 and '--template' in out and 'makehuman' in out and 'auto' in out
 
 
-def test_template_auto_is_makehuman_when_blender_has_the_extension(tmp_path):
-    """2.34.0: the MakeHuman template is the default where it can run (Blender with MPFB); without MPFB the run
-    still works with the hull and says so. A resumed run keeps the template its folder was built with"""
+def test_makehuman_is_the_default_and_the_extension_is_installed_when_missing(tmp_path, monkeypatch):
+    """2.36.0 (the user: make MakeHuman the default; without the extension install it, fall back only when that
+    fails). The hull is used only when asked for by name or when the install fails, and the run keeps the reason.
+    A resumed output folder keeps the template it was built with"""
     sys.path.insert(0, PKG)
     import run_all
     work = tmp_path / 'work'; work.mkdir()
     yes, no = (lambda blender: True), (lambda blender: False)
-    assert run_all.pick_template('auto', 'blender', str(work), False, probe=yes)[0] == 'makehuman'
-    t, why = run_all.pick_template('auto', 'blender', str(work), False, probe=no)
-    assert t == 'hull' and 'MPFB' in why
-    assert run_all.pick_template('hull', 'blender', str(work), False, probe=yes) == ('hull', '')
-    assert run_all.pick_template('makehuman', 'blender', str(work), False, probe=no) == ('makehuman', '')
+    never = lambda blender: (_ for _ in ()).throw(AssertionError('no install wanted here'))
+    for asked in (None, 'auto', 'makehuman'):                                    # the extension is there
+        t, why, info = run_all.pick_template(asked, 'blender', str(work), False, probe=yes, install=never)
+        assert t == 'makehuman' and info == dict(mpfb=True, mpfb_install=None)
+    assert run_all.pick_template('hull', 'blender', str(work), False, probe=yes, install=never)[0] == 'hull'
+    # missing: installed, and MakeHuman after all
+    t, why, info = run_all.pick_template(None, 'blender', str(work), False, probe=no, install=lambda b: (True, '已安裝'))
+    assert t == 'makehuman' and info['mpfb'] is True and info['mpfb_install'].startswith('installed') and '已安裝' in why
+    # missing and it cannot be installed: the hull, with the reason and the command to install it by hand
+    t, why, info = run_all.pick_template(None, 'blender', str(work), False, probe=no, install=lambda b: (False, '連不到'))
+    assert t == 'hull' and info['mpfb'] is False and info['mpfb_install'] == 'failed: 連不到'
+    assert '退回外殼流程' in why and 'extension install -s -e mpfb' in why
+    with pytest.raises(RuntimeError, match='MPFB'):                               # asked for by name: no silent hull
+        run_all.pick_template('makehuman', 'blender', str(work), False, probe=no, install=lambda b: (False, '連不到'))
+    monkeypatch.setenv('BODY3D_NO_INSTALL', '1')
+    t, why, info = run_all.pick_template(None, 'blender', str(work), False, probe=no, install=never)
+    assert t == 'hull' and 'BODY3D_NO_INSTALL' in info['mpfb_install']
+    monkeypatch.delenv('BODY3D_NO_INSTALL')
+    # resuming keeps the folder's template and installs nothing
     (work / 'template.txt').write_text('hull\n')
-    assert run_all.pick_template('auto', 'blender', str(work), True, probe=yes)[0] == 'hull'        # resuming
-    assert run_all.pick_template('auto', 'blender', str(work), False, probe=yes)[0] == 'makehuman'  # from the start
+    assert run_all.pick_template(None, 'blender', str(work), True, probe=yes, install=never)[0] == 'hull'
+    assert run_all.pick_template(None, 'blender', str(work), False, probe=yes, install=never)[0] == 'makehuman'   # from the start
     assert run_all.has_mpfb(None) is False and run_all.has_mpfb(str(tmp_path / 'no-such-blender')) is False
     old = tmp_path / 'old'; old.mkdir(); (old / 'uvmesh.npz').write_bytes(b'x')     # built before 2.34.0: no note
-    assert run_all.pick_template('auto', 'blender', str(old), True, probe=yes)[0] == 'hull'
+    assert run_all.pick_template(None, 'blender', str(old), True, probe=yes, install=never)[0] == 'hull'
     (old / 'body_mh.ply').write_bytes(b'x')
-    assert run_all.pick_template('auto', 'blender', str(old), True, probe=no)[0] == 'makehuman'
+    assert run_all.pick_template(None, 'blender', str(old), True, probe=no, install=never)[0] == 'makehuman'
+
+
+def test_install_asks_blender_for_the_extension(tmp_path):
+    """install_mpfb runs Blender's own extension command, online, and believes only what the probe then finds. A
+    stand-in Blender: it 'installs' by leaving a note, and reports the extension once the note is there"""
+    sys.path.insert(0, PKG)
+    import run_all
+    note = tmp_path / 'installed'; calls = tmp_path / 'calls'
+    fake = tmp_path / 'blender'
+    fake.write_text(f"""#!/bin/sh
+echo "$@" >> {calls}
+case "$*" in
+  *"extension install"*) [ -z "$FAKE_OFFLINE" ] && touch {note}; [ -n "$FAKE_OFFLINE" ] && echo "Error: no network" >&2 && exit 1; exit 0;;
+  *) [ -f {note} ] && echo MPFB_FOUND || echo MPFB_MISSING;;
+esac
+""")
+    fake.chmod(0o755)
+    assert run_all.has_mpfb(str(fake)) is False
+    os.environ['FAKE_OFFLINE'] = '1'
+    try:
+        ok, what = run_all.install_mpfb(str(fake))
+        assert ok is False and '結束碼 1' in what and 'no network' in what
+    finally:
+        del os.environ['FAKE_OFFLINE']
+    ok, what = run_all.install_mpfb(str(fake))
+    assert ok is True and run_all.has_mpfb(str(fake)) is True
+    assert '--online-mode --command extension install -s -e mpfb' in calls.read_text()
+    assert run_all.install_mpfb(None)[0] is False
 
 
 @pytest.mark.slow
