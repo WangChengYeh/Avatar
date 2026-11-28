@@ -17,7 +17,8 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 ├── chatgpt/                      ← ChatGPT 負責的 avatar
 │   └── avatar_001/               ← 一個 avatar（工作區 WS）
 │       ├── v001/                 ← 一個版本（一輪）
-│       │   ├── photos/           ← 這一輪的 33 張照片
+│       │   ├── photos/           ← 這一輪的 33 張照片（分段畫時一段一段放進來）
+│       │   ├── guides/           ← 分段畫的輪廓圖與說明（guides.md、*_guide.png；狀態 DRAW 時 next_step 產生）
 │       │   └── output/           ← run_all 的輸出（deliver/、client/…）
 │       ├── v002/ …               ← 重畫或重跑都開下一個版本，複製上一版的照片，不覆蓋舊的
 │       ├── avatar_state.json     ← next_step 的記錄（每一輪的 FAIL、等待中的 issue／PR）
@@ -34,7 +35,7 @@ python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 | 狀態 | 你做什麼 | 可以停嗎 |
 | --- | --- | --- |
 | UPDATE | GitHub 上的 main 有新的 SOP／程式：`git pull`，再跑一次 next_step。重建或檢查的程式有變才需要重跑（next_step 會回 RUN：用目前的照片在新的版本從頭重跑）；只改文件或 next_step 本身就照原來的狀態繼續 | 不行 |
-| START | 照生圖規格生 33 張照片放進 `v001/photos`，跑 `run_all.py`（輸出到 `v001/output`） | 不行，做完回第 1 步 |
+| DRAW | **分段畫（先給輪廓再畫）**：33 張分六段，每一段照 `vNNN/guides/guides.md` 和同資料夾的輪廓圖（`*_guide.png`）畫指定的那幾張，放進 `vNNN/photos`，再跑 next_step。它會量這一段有沒有照著線：沒照著的點名重畫（同一個版本裡覆蓋），照著了就給下一段的輪廓圖；六段都畫完才是 RUN。新的 avatar 從第 1 段（正面全身照 1 張）開始；已經在做的 avatar 被 Claude 改成分段畫時，它會先叫你把照片複製到下一個版本，只重畫沒照著線的 | 不行，做完回第 1 步 |
 | RUN | 跑它給的 `run_all.py`（可能先 `git pull`） | 不行 |
 | RETOUCH | 把 AI 修圖單交給生圖（你自己的生圖工具），重畫指定的照片；開下一個版本 `v(N+1)/photos`，複製整組再覆蓋重畫的，跑 `run_all.py` | 不行 |
 | CODE | 照 AI 改 code 單改程式、開 PR 給 Claude，用 `--waiting-pr N` 登記 | 不行，登記後回第 1 步 |

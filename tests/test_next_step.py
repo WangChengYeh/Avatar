@@ -5,16 +5,23 @@ import json
 import next_step as ns
 
 
+ALL33 = (['01_000deg_front', '02_045deg_front_left', '03_090deg_left', '04_135deg_back_left', '05_180deg_back',
+          '06_225deg_back_right', '07_270deg_right', '08_315deg_front_right', 'top']
+         + [f'{r}_{a:03d}deg' for r in ('el30', 'low20', 'head') for a in range(0, 360, 45)])
+
+
 def setup_module():
     import os
     os.environ['NEXT_STEP_OFFLINE'] = '1'          # these tests do not ask GitHub
     ns.code_changed_since = lambda commit: False   # the outputs here were made by this code
+    ns.orders = lambda: {}                         # Claude's live orders (body3d/orders.json) are not part of these tests
 
 
 def version(ws, n, gates=None, fails=(), deliverable=False, photos=True):
     v = ws / f'v{n:03d}'; (v / 'photos').mkdir(parents=True)
-    if photos:
-        (v / 'photos' / '01_000deg_front.jpg').write_bytes(b'x')
+    if photos:                                     # a full set: fewer than 33 means "still being drawn in stages"
+        for n in ALL33:
+            (v / 'photos' / f'{n}.jpg').write_bytes(b'x')
     if gates is not None:
         (v / 'output').mkdir()
         json.dump(dict(gates=gates, deliverable=deliverable, code=dict(commit='abc1234')), open(v / 'output' / 'gates.json', 'w'))
@@ -34,8 +41,11 @@ G1 = {'1 照片檢查': dict(FAIL=1, WARN=0, PASS=9)}
 def test_states(tmp_path):
     ws = avatar(tmp_path); state = {}
     r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
-    assert r['state'] == 'START' and 'v001/photos' in r['steps'][0]
-    version(ws, 1)
+    assert r['state'] == 'DRAW' and '第 1 段' in r['why'] and '01_000deg_front' in r['steps'][0]   # the front photo first
+    for n in ALL33:
+        (ws / 'v001' / 'photos' / f'{n}.jpg').write_bytes(b'x')
+    state = {}                                     # an avatar drawn the old way: 33 photos, no stages
+    r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
     r = ns.decide(str(ws), 'avatar_001', 'ChatGPT', 'avatar_001', 'hull', state)
     assert r['state'] == 'RUN' and 'v001/output' in r['steps'][0]
     (ws / 'v001' / 'output').mkdir()
@@ -112,7 +122,7 @@ def test_agent_and_avatar_from_the_path(tmp_path):
     ws = avatar(tmp_path)
     assert ns.main(['--workspace', str(ws)]) == 0
     st = json.load(open(ws / 'avatar_state.json'))
-    assert st['last']['state'] == 'START' and 'next_step.py --workspace' in (ws / 'next_step.md').read_text(encoding='utf-8')
+    assert st['last']['state'] == 'DRAW' and 'next_step.py --workspace' in (ws / 'next_step.md').read_text(encoding='utf-8')
 
 
 def test_code_hash_ignores_commits_follows_content(tmp_path):

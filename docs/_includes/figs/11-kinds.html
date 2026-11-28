@@ -1,0 +1,23 @@
+<figure class="viz-root diagram">
+<svg viewBox="0 0 780 250" role="img" aria-label="三種交給 AI 的輪廓圖：左邊是對面照片翻轉的輪廓，人物要和它重合；中間是幾條線，橫線定頭頂、手臂上下緣、腳底的高度，直線定指尖；右邊是全身照的頭放大四倍的模糊底圖，只補細節">
+<rect class="dg-frame" x="10" y="26" width="240" height="180" rx="6"/>
+<path class="dg-line-fix" fill="none" d="M130 44 c-12 0 -18 10 -18 20 c0 8 4 14 8 18 l-2 8 l-62 6 l0 12 l58 4 c-4 22 -2 40 -6 60 l-4 30 l16 0 l8 -52 l4 0 l8 52 l16 0 l-4 -30 c-4 -20 -2 -38 -6 -60 l58 -4 l0 -12 l-62 -6 l-2 -8 c4 -4 8 -10 8 -18 c0 -10 -6 -20 -18 -20 z"/>
+<text x="130" y="228" text-anchor="middle" class="dg-c-fix">翻轉的輪廓：整個外形照著畫</text>
+<rect class="dg-frame" x="270" y="26" width="240" height="180" rx="6"/>
+<line class="dg-proj" x1="278" y1="46" x2="502" y2="46"/><text x="282" y="42" class="dg-s">頭頂</text>
+<line class="dg-proj" x1="278" y1="92" x2="502" y2="92"/><text x="282" y="88" class="dg-s">手臂上緣</text>
+<line class="dg-proj" x1="278" y1="108" x2="502" y2="108"/><text x="282" y="122" class="dg-s">手臂下緣</text>
+<line class="dg-proj" x1="278" y1="192" x2="502" y2="192"/><text x="282" y="188" class="dg-s">腳底</text>
+<line class="dg-proj" x1="356" y1="32" x2="356" y2="200"/><line class="dg-proj" x1="474" y1="32" x2="474" y2="200"/>
+<text x="415" y="70" text-anchor="middle" class="dg-s">指尖</text><line class="dg-ray" x1="398" y1="66" x2="361" y2="66"/><line class="dg-ray" x1="432" y1="66" x2="469" y2="66"/>
+<text x="390" y="228" text-anchor="middle" class="dg-c-fix">線：只定高度與指尖</text>
+<rect class="dg-frame" x="530" y="26" width="240" height="180" rx="6"/>
+<rect class="dg-frame" x="548" y="72" width="34" height="34" rx="2"/><circle class="dg-ovl-dash" cx="565" cy="86" r="8"/>
+<text x="565" y="124" text-anchor="middle" class="dg-s">全身照的頭</text>
+<line class="dg-ray" x1="590" y1="89" x2="622" y2="89"/><text x="606" y="80" text-anchor="middle" class="dg-s">×4</text>
+<circle class="dg-line-fix" fill="none" stroke-dasharray="3 4" cx="690" cy="92" r="42"/>
+<text x="690" y="160" text-anchor="middle" class="dg-s">模糊，位置是對的</text>
+<text x="650" y="228" text-anchor="middle" class="dg-c-fix">底圖：只補細節，不移動</text>
+</svg>
+<figcaption><strong>圖 9</strong>　交給 AI 的三種準確的輪廓圖。左：對面那張照片左右翻轉的輪廓，背面與右邊三張用它。中：正面照量到的高度（橫線）與指尖該到的位置（直線），左邊三張用它；線只定高度與指尖，身體的寬度仍由 AI 畫。右：同一個角度的全身照，把頭的部分放大 4 倍當底圖，頭部特寫用它。</figcaption>
+</figure>

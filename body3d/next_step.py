@@ -9,7 +9,10 @@ WS 是這個 avatar 的資料夾：…/avatar/<chatgpt|gemini>/<avatar_NNN>/（a
 next_step 看最新的版本，讀它的驗收結果、診斷、工作單與過去每一輪的記錄，給出**一個**狀態與要照做的指令：
 
     UPDATE    GitHub 上的 main 有新的 SOP／程式（Claude 合併了）：git pull，用目前的照片從頭重跑
-    START     還沒跑過：跑 run_all.py
+    DRAW      分段畫（先給輪廓再畫，body3d/guides.py）：這一段要畫哪幾張、照哪幾張輪廓圖，寫在 vNNN/guides/guides.md；
+              畫完放進 vNNN/photos 再跑 next_step：它量這一段有沒有照著線，沒照著的點名重畫，照著了就給下一段的輪廓圖。
+              六段都畫完才是 RUN。新的 avatar 一律分段畫；已經在做的 avatar 由 Claude 在 body3d/orders.json 指定
+    START     （不再使用：新的 avatar 從 DRAW 第 1 段開始）
     RUN       照片有了、還沒跑；或最新的結果是舊的程式跑的（body3d/ 之後改過）：跑 run_all.py
     RETOUCH   照片的問題：照 AI 修圖單重畫 → 下一個版本 v(N+1)/photos → 跑 run_all.py
     CODE      程式的問題：照 AI 改 code 單改程式 → 開 PR 給 Claude → 等合併
@@ -150,6 +153,41 @@ def code_changed_since(commit):
         return {0: False, 1: True}.get(r.returncode)
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def orders():
+    """what Claude tells an avatar to do, by 'agent/avatar' (body3d/orders.json, read after every pull). The executors
+    act on next_step only, not on issue comments (docs/Handoff.md), so an instruction for one avatar goes here.
+    {"do": "staged", "id": ..., "issue": N, "why": ...}: redraw in stages, keeping every photo that follows its
+    lines (guides.py finds the first stage that does not)"""
+    return load(os.path.join(HERE, 'orders.json'), {}) or {}
+
+
+def draw_step(ws, n, photos, me):
+    """the DRAW state for version n, or None when its six stages are drawn and measured"""
+    sys.path.insert(0, HERE)
+    import guides
+    gdir = os.path.join(vdir(ws, n), 'guides')
+    st = guides.make(photos, gdir)
+    if not st['stage']:
+        return None
+    redo = st['redo']
+    bad = {}
+    for r in st['results']:
+        if r['level'] == 'FAIL' and r['photo'] in redo:
+            bad.setdefault(r['photo'], []).append(r['item'])
+    why = f'分段畫，第 {st["stage"]} 段（共 {len(guides.STAGES)} 段）：{st["title"]}'
+    if redo:
+        why += '。沒有照著線、要重畫的：' + '；'.join(f'{k}（{"、".join(v)}）' for k, v in sorted(bad.items()))
+    if st['waived']:
+        why += f'。連續 {guides.MAX_TRIES} 次沒照著線、先放行的：{"、".join(st["waived"])}'
+    front = os.path.join(photos, guides.FULL[0] + '.jpg')
+    give = (f'把 {st["guides"]}、同一個資料夾裡的輪廓圖（{len(st["files"])} 張 *_guide.png）和正面照 {front} 交給生圖 AI，'
+            if st['files'] else f'照 {st["guides"]} ')
+    return dict(state='DRAW', why=why, steps=[
+        give + f'畫這 {len(st["draw"])} 張：{"、".join(st["draw"])}',
+        f'把畫好的照片（檔名 <名稱>.jpg，照片上不能留下輪廓圖的線）放進 {photos}' + ('（覆蓋沒照著線的那幾張）' if redo else ''),
+        me])
 
 
 def run_cmd(photos, out, name, template):
@@ -318,10 +356,25 @@ def decide(ws, avatar, agent, name, template, state):
                                             '先 pull，再跑一次 next_step；重建或檢查的程式有變才需要重跑',
                         steps=steps)
     if not photos:
+        # a new avatar is drawn in stages (guides.py): the front photo first, every later photo from the ones before
         target = cur if cur and not out else vdir(ws, cn + 1)
-        return dict(state='START', why=f'{os.path.basename(target)} 還沒有照片', steps=[
-            f'照 docs/Workflow-and-Validation.md#生圖規格 生 33 張照片，放進 {target}/photos（檔名照規格）',
-            run_cmd(f'{target}/photos', f'{target}/output', name, template), me])
+        tn = int(os.path.basename(target)[1:])
+        state['staged'] = dict(order=(state.get('staged') or {}).get('order'), version=tn)
+        os.makedirs(os.path.join(target, 'photos'), exist_ok=True)
+        return draw_step(ws, tn, os.path.join(target, 'photos'), me)
+    # Claude's order for this avatar: redraw in stages. A new version with every photo copied; guides.py then names
+    # the first stage whose photos do not follow their lines
+    order = orders().get(f'{agent.lower()}/{avatar}')
+    sg = state.get('staged') or {}
+    if order and order.get('do') == 'staged' and (sg.get('order') != order['id'] or sg.get('version', 0) > cn):
+        new = vdir(ws, cn + 1)
+        state['staged'] = dict(order=order['id'], version=cn + 1)
+        if order.get('issue'):
+            state['waiting'] = None
+            state['report_to'] = dict(kind='issue', number=order['issue'])
+        return dict(state='DRAW', why='Claude 把這個 avatar 改成分段畫（先給輪廓再畫）：' + order.get('why', '')
+                                      + f' 先把目前的照片複製到 {os.path.basename(new)}，下一步會告訴你哪幾張要照輪廓圖重畫',
+                    steps=[f'mkdir -p {q(new + "/photos")} && cp {q(photos)}/*.jpg {q(new + "/photos")}/', me])
     # waiting on Claude: an issue or a PR
     w = state.get('waiting')
     if w:
@@ -340,6 +393,13 @@ def decide(ws, avatar, agent, name, template, state):
             f'{me} --wait   # 程式自己等：每分鐘檢查一次 GitHub，Claude 的修正一合併就回來告訴你下一步；'
             '等不到也會在沙盒逾時之前回來，再跑一次同一個指令繼續等'])
     if not out or not (os.path.exists(os.path.join(out, 'gates.json')) or os.path.exists(os.path.join(out, 'progress.json'))):
+        # drawn in stages: this version is run only when its six stages are drawn and follow their lines
+        n_spec = sum(f.lower().endswith('.jpg') for f in os.listdir(photos))
+        if state.get('staged') or n_spec < 33:
+            state.setdefault('staged', dict(order=None, version=cn))
+            d = draw_step(ws, cn, photos, me)
+            if d:
+                return d
         return dict(state='RUN', why=f'{os.path.basename(cur)} 的照片還沒跑過', steps=[
             run_cmd(photos, os.path.join(cur, 'output'), name, template), me])
     gates = load(os.path.join(out, 'gates.json'), {})
