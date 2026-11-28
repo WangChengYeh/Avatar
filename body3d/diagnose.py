@@ -112,7 +112,7 @@ def photos_in_label(label):
 # before PHOTO_RULES. R63-R72: '全視角外殼覆蓋' sent the AI to the tilted views' framing for ten rounds; the feet were off
 LINE_RULES = [
     (r'全視角外殼覆蓋', '少掉的主要是腳', '各張全身照的腳畫得不一樣（腳尖的朝向、兩腳的前後或腳底的高度），一起雕會把前腳掌削掉，覆蓋率不足',
-     '只修這幾張的腳，照「腳的位置」參考圖：腳畫在橘線以內、腳尖的朝向和水平照一致、腳底踩在同一條地面線上；'
+     '只修這幾張的腳，照「腳的位置」參考圖：藍色（別張有腳、這張沒畫到）補上，紅色（超出橘線）收掉，腳尖的朝向和水平照一致、腳底踩在同一條地面線上；'
      '身體其他部位、相機距離與構圖都不要動'),
     (r'全視角外殼覆蓋', '少掉的主要在手臂的上下緣', '各張水平照的手臂高度或粗細差了 1–2 cm，一起雕會把手臂的上下緣削掉，覆蓋率不足',
      '只修手臂：水平環斜角的那幾張（45°、135°、225°、315°），手臂完全水平、高度與粗細和正面照一致；相機距離與構圖不要動'),
@@ -219,11 +219,25 @@ def head_pair_leaves(fail_lines):
                  '高', {'pairs': ['/'.join(p) for p in pairs]})]
 
 
+def front_oblique_leaves(fail_lines):
+    """'正面／斜面一致性 head_045deg' FAILs: after the face relief the frontal close-up's features still do not land on
+    this 3/4 close-up's. The 3/4 close-up is the one to redraw."""
+    names = list(dict.fromkeys(n for l in fail_lines if '正面／斜面一致性' in l for n in re.findall(r'head_\d{3}deg', l)[:1]))
+    if not names:
+        return []
+    mm = [float(v) for l in fail_lines if '正面／斜面一致性' in l for v in re.findall(r'→ ([\d.]+) mm', l)[:1]]
+    return [leaf('正面／斜面一致性', ['關卡 2 烘焙前檢查', '正面特寫的五官搬到斜面特寫上對不到',
+                 '臉的起伏已經照特徵點補過，剩下的差是照片之間的差'],
+                 '斜面特寫把臉畫得和正面特寫不一樣（大小、長度或五官高度），湊不成同一張臉', '照片',
+                 '重畫：' + '、'.join(names) + '。' + ct.front_oblique_advice(), '中',
+                 {'photos': names, 'median_mm': mm})]
+
+
 def diagnose_prebake(photos, work, fail_lines=None):
     """fail_lines: the pre-bake check's [FAIL] lines; None = the head / body consistency tree only (older callers)"""
     photos, work = Path(photos), Path(work)
-    pair = head_pair_leaves(fail_lines or [])
-    if fail_lines is not None and all('頭部特寫相鄰一致' in l for l in fail_lines):
+    pair = head_pair_leaves(fail_lines or []) + front_oblique_leaves(fail_lines or [])
+    if fail_lines is not None and all('頭部特寫相鄰一致' in l or '正面／斜面一致性' in l for l in fail_lines):
         return pair                                   # nothing else failed: no face-residual tree
     res, cams = face_residuals(photos, work)
     out = list(pair)

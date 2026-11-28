@@ -298,3 +298,19 @@ def test_six_disagreeing_pairs_are_the_whole_ring():
     assert leaf['action'].count('head_') >= 8 and '整組 8 張一次重畫' in leaf['action'], leaf
     two, = diagnose.head_pair_leaves(fails[:2])
     assert 'head_045deg' in two['action'] and '整組' not in two['action']
+
+
+def test_a_three_quarter_close_up_that_disagrees_with_the_rest_is_the_one_to_redraw():
+    """what is left of '正面／斜面一致性' after the face relief is a difference between photos. Until 1.50.0 a FAIL
+    here had no rule ("未分類"). The retouch sheet names that close-up"""
+    import diagnose
+    fails = ['[FAIL] 正面／斜面一致性 head_045deg：中位錯位 7.8 → 11.1 mm （32.9 → 46.8 px），P90 16.3 → 17.1 mm（兩階段共同可見 349/468 點）']
+    leaf, = diagnose.front_oblique_leaves(fails)
+    assert leaf['owner'] == '照片' and leaf['action'].startswith('重畫：head_045deg。')
+    assert '與正面特寫一致' in leaf['action'] and leaf['evidence'] == {'photos': ['head_045deg'], 'median_mm': [11.1]}
+    both = fails + [fails[0].replace('045', '315').replace('11.1', '10.4')]
+    leaf, = diagnose.front_oblique_leaves(both)
+    assert leaf['action'].startswith('重畫：head_045deg、head_315deg。') and leaf['evidence']['median_mm'] == [11.1, 10.4]
+    assert diagnose.front_oblique_leaves(['[FAIL] 頭部特寫相鄰一致 head_045deg / head_090deg：x']) == []
+    # nothing else failed: the tree stops here and needs no photos or work folder
+    assert diagnose.diagnose_prebake('nowhere', 'nowhere', both) == [leaf]

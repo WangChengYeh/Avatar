@@ -331,3 +331,19 @@ def test_old_publish_failure_is_dropped_when_not_publishing(tmp_path, monkeypatc
     state = dict(publish_error='v003 沒有上傳到資料 repo：HTTP 403')
     ns.auto_publish(str(avatar(tmp_path)), state)
     assert 'publish_error' not in state
+
+
+def test_next_step_says_which_template_the_version_was_built_with(tmp_path):
+    """2.34.0: every run records the template it used and whether Blender has the MakeHuman extension (gates.json,
+    the result packs, the dashboard); next_step.md tells the executor, with how to install it when it is missing"""
+    ws = tmp_path / 'avatar' / 'gemini' / 'avatar_001'
+    v = version(ws, 1, G0, deliverable=True)
+    g = json.load(open(v / 'output' / 'gates.json')); g.update(template='hull', mpfb=False)
+    json.dump(g, open(v / 'output' / 'gates.json', 'w'))
+    ns.main(['--workspace', str(ws)])
+    text = (ws / 'next_step.md').read_text(encoding='utf-8')
+    assert '**模板**：外殼流程' in text and 'extension install -s -e mpfb' in text
+    g.update(template='makehuman', mpfb=True); json.dump(g, open(v / 'output' / 'gates.json', 'w'))
+    ns.main(['--workspace', str(ws)])
+    text = (ws / 'next_step.md').read_text(encoding='utf-8')
+    assert '**模板**：MakeHuman' in text and 'extension install' not in text

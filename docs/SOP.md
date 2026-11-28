@@ -223,7 +223,7 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 | 1 照片檢查 | `check_turnaround.py PHOTOS` | 33 張照片本身：檔名、解析度、構圖、角度、相機距離、對準點、透視、光線、耳朵、臉部比例、頭部朝向、特寫與全身的臉部位置；24 張全身圖一起雕出的外殼（覆蓋、身體切割、斜角照手臂、斜角照是外殼形狀） |
 | 2 烘焙前檢查 | `check_turnaround.py PHOTOS --head-overlap-work WORK` | 重建後的相機與網格：頭部特寫相機角度與對準點、網格落地、全身與特寫的五官位置、頭部重疊區與臉頰亮度、相鄰頭部特寫是否一致 |
 | 3 GLB 驗證 | `verify_glb.py OUT/*.glb` | GLB 結構、骨架與蒙皮、身高、無光照材質、頭部貼圖條紋（unlit／lit 兩個檔各驗一次） |
-| 4 最終驗收 | `fit_report.py WORK --accept --glb … --photos …` | ① 成品網格投影回 24 張全身原圖的剪影不一致：平均 ≤ 8% PASS、> 10% FAIL；單張 > 12% WARN。② 分塊比對（body3d 2.32.0 起）：成品 GLB 用照片的相機畫出來，和 8 張水平全身圖、8 張頭部特寫各自分成頭髮、皮膚、每件衣物，一塊一塊比；每一塊對不上的面積佔人物的比例，全身圖 ≤ 2.5% PASS、> 4% FAIL，頭部特寫 ≤ 5% PASS、> 8% FAIL。對照圖 `parts_compare.jpg` |
+| 4 最終驗收 | `fit_report.py WORK --accept --glb … --photos …` | ① 成品網格投影回 24 張全身原圖的剪影不一致：平均 ≤ 8% PASS、> 10% FAIL；單張 > 12% WARN。② 分塊比對（body3d 2.35.0 起）：成品 GLB 用照片的相機畫出來，和 8 張水平全身圖、8 張頭部特寫各自分成頭髮、皮膚、每件衣物，一塊一塊比；每一塊對不上的面積佔人物的比例，全身圖 ≤ 2.5% PASS、> 4% FAIL，頭部特寫 ≤ 5% PASS、> 8% FAIL。對照圖 `parts_compare.jpg` |
 
 每道關卡最後都印：`總結: N 個 FAIL, N 個 WARN, N 個 PASS，共 N 項`。各項門檻見[流程與驗收](Workflow-and-Validation.md)。
 
@@ -250,7 +250,7 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 
 ### 已知限制
 
-- MakeHuman 模板（`--template makehuman`）：身體、手指、骨架來自 MakeHuman，頭來自外殼（body3d 2.18 起；之前用 MakeHuman 的通用臉，0°–45° 之間有接縫，R31）。兩組完美照片四道關卡 0 FAIL；四道關卡都 0 FAIL 時可交付。預設仍是外殼流程。
+- 模板：預設 `auto`（body3d 2.34.0 起）。Blender 有 MPFB 擴充時用 MakeHuman 模板：身體、手指、骨架來自 MakeHuman，頭來自外殼（2.18 起；之前用 MakeHuman 的通用臉，0°–45° 之間有接縫，R31）。沒有 MPFB 時用外殼流程（22 根骨頭、手是一塊），`run_all` 開頭會印出原因。兩種模板四道關卡都 0 FAIL 時都可交付；臉、頭髮、貼圖兩者相同，差在身體的佈線、手指與肩膀。執行者的環境裝 MPFB：`blender --command extension install -s -e mpfb`（要能連到 extensions.blender.org；裝不了就照外殼流程跑，不用停）。
 - 檢查還沒涵蓋照片之間的中間角度（例如 0° 與 45° 之間）與擺姿勢後的貼圖：R31 的臉部接縫是在 App 裡才看到的，現在靠烘焙前的臉頰亮度、五官投影與相鄰頭部特寫一致間接抓。
 - 檢查還沒涵蓋網格自我穿插；Yoga2 看到斑點或摺痕時，先用 Blender 實際渲染確認（`verify_glb --renders` 的頭部圖用點去畫，會冒出假的小點）。
 - Yoga2 的站姿、抬手截圖還沒自動化：由 AI 用瀏覽器開 Yoga2 匯入 GLB 後截圖。

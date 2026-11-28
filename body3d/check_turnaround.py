@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.49.0（2026-11-28）
+版本 1.51.0（2026-11-28）
 
 版本紀錄:
+  1.51.0 第 10j 項「雙腳的位置」多量一個方向：「缺」（別張有腳、這張沒畫到；這張削掉的腳佔水平環的腳的 %，> 2% 提醒，
+         完美照片 ≤ 1.2%）。原本只量「超出」，腳畫短、畫窄的照片量不到：ChatGPT R77（#117）的 el30_090deg 超出 1.5% 通過，
+         卻削掉 5.0% 的腳。「斜角照手臂」改和重建的手臂比（正面照定高度、俯視照定前後，也就是修圖單的橘色區域）：
+         原本和水平環外殼的手臂比，兩者不一致，R77 的 el30_315deg 照橘色區域修了反而更差（45 → 48%）；改了之後它是 15%
+         （通過），真正差最多的是 el30_135deg（49%）。沒有俯視照時仍用原本的量。外殼覆蓋不足、少的是腳時，點名的照片改依「缺」與「超出」排序。
+  1.50.0 「正面／斜面一致性」判 FAIL 時多印一行「→」：要重畫的是那張斜面特寫，以及照什麼畫（五官的高度與彼此的距離、
+         臉相對頭髮的大小和正面特寫一致）。這一項原本沒有建議，診斷也沒有規則（列為未分類）。門檻不變。
   1.49.0 第 10i 項「全視角外殼覆蓋」寫出少在哪個部位（頭、手臂的高度、軀幹、腿、腳，佔人物面積的 %），少的主要是腳時改叫
          人修腳並點名照片；新增第 10j 項「雙腳的位置」（只報 WARN）：正面、背面、左右側面四張水平照決定的腳，每張全身照的腳
          超出它多少（完美照片 ≤ 2.6%，> 4% 提醒）。ChatGPT R63–R72 十輪停在覆蓋率 94%：訊息叫它修斜角照的相機距離與對準，
@@ -307,7 +314,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.49.0'
+__version__ = '1.51.0'
 import numpy as np
 import cv2
 
@@ -517,6 +524,13 @@ HULL_CUT_PASS, HULL_CUT_FAIL = 0.03, 0.045
 # and 8 rounds of "redraw the views that cut most" never named the arms.
 # 1.46: FAIL tightened from 0.50: R54's worst final views cut 44-48 % of the arms (WARN; arm cut vs final 0.72)
 ARM_CUT_PASS, ARM_CUT_FAIL = 0.40, 0.45
+# 1.51: measured against the arms the rebuild makes (arms33: height from the front photo, depth from the top photo),
+# the same arms the retouch sheet draws in orange, when there is a top photo. The level-ring hull's arms are bent
+# by the level ring's own diagonal photos, so the two disagreed: ChatGPT R77 (#117) el30_315deg cut 45 % of the hull's
+# arms (FAIL), moved its arms onto the orange picture and got 48 %. Against the rebuilt arms it misses 15 %, and
+# el30_135deg, a WARN at 43 %, misses 49 %. Share of the rebuilt arms the photo does not show: perfect photos
+# 0-22 % (the model's ellipse is rounder than an arm seen from above), Gemini v015 0-9 %, R77 0-49 %.
+ARM_MISS_PASS, ARM_MISS_FAIL = 0.30, 0.40
 # ... and a floor: a real body seen from +30° / -20° is always thinner than the level-ring hull somewhere (arms are
 # round, not the slabs the level ring carves; the torso corners), so every tilted view cuts a little (perfect photos
 # synth 2.2-6.4 %, luna-v1 2.6-6.6 %). A view that cuts almost nothing has the hull's own outline: it was drawn by
@@ -536,6 +550,14 @@ LOST_NAMED = 1.0                 # a band this many points over its perfect valu
 FOOT_ZONE = 0.12                 # m above the floor: toes, heel and the base of the ankle
 FOOT_MARGIN = 0.015              # m: a foot drawn this far outside the reference feet still counts as inside
 FOOT_OUT_WARN = 0.04             # share of the reference feet's area (perfect: luna <= 2.6 %, synth <= 1.6 %)
+# 1.51: the other half. A foot drawn outside the reference is one way to lose the feet; a foot drawn shorter or
+# narrower than the others' is the other, and the "outside" number does not see it (ChatGPT R77, #117: el30_090deg
+# 1.5 % outside, a PASS, yet it removes 5.0 % of the feet). So each photo is also given its share of the feet the
+# level ring agrees on and the all-view hull loses: a lost piece is shared between the photos that do not show it.
+# Perfect photos: at most 1.2 % per photo (8.8-11 % lost in all, the rounding of the toes); R77 51 % lost, ten
+# photos at 2.0-5.5 %; R72 64 %; Gemini v015 45 %.
+FOOT_CUT_WARN = 0.02             # share of the level ring's feet this photo removes
+FOOT_BAND = 0.10                 # m above the floor (1.65 m figure): the feet
 
 
 def _spec_axes(phi, th):
@@ -545,10 +567,12 @@ def _spec_axes(phi, th):
     return r, u
 
 
-def all_view_hull(good, extra, vs=0.01, miss=2):
+def all_view_hull(good, extra, vs=0.01, miss=2, feet=None):
     """(coverage {angle: fraction of the level-ring silhouette the all-view hull covers}, cut {photo name: share of
     the level-ring hull this tilted photo removes}, arm_cut, lost {angle: {'bands': {part: % of the figure the hull
-    does not cover there}, 'mask': those pixels at 1/4 size}}) with the spec cameras"""
+    does not cover there}, 'mask': those pixels at 1/4 size}}) with the spec cameras.
+    feet: a dict to fill with {(ring, angle): (share of the level ring's feet this photo removes, mask of the feet
+    it does not show, in its own image)}: who carves the feet away"""
     k = SPEC_HEIGHT / 1.65
     hs = []
     for v in good.values():
@@ -587,6 +611,20 @@ def all_view_hull(good, extra, vs=0.01, miss=2):
             cut[nm] = float((body_hull & ~inside[(ring, a)]).sum() / body_hull.sum())
             if arm_hull.any():
                 arm_cut[nm] = float((arm_hull & ~seen_arm[(ring, a)]).sum() / arm_hull.sum())
+    if feet is not None:
+        zone = main_hull & (Q[:, 1] + SPEC_HEIGHT / 2 < FOOT_BAND * k)
+        gone_ = zone & ~keep
+        if zone.any():
+            keys = list(inside)
+            rej = np.stack([~inside[q][gone_] for q in keys], 0)            # which photo does not show which lost piece
+            share = (rej / np.maximum(1, rej.sum(0))[None]).sum(1) / zone.sum()
+            idx = np.flatnonzero(gone_)
+            for i, (ring, a) in enumerate(keys):
+                col, row, ok = proj[(ring, a)]; sel = idx[rej[i]]; sel = sel[ok[sel]]
+                H_, W_ = (good[a] if ring == 'main' else extra[ring][a])['m'].shape
+                img = np.zeros((H_, W_), np.uint8); img[row[sel], col[sel]] = 1
+                n = 2 * int(np.ceil(s * vs)) + 1
+                feet[(ring, a)] = (float(share[i]), cv2.morphologyEx(img, cv2.MORPH_CLOSE, np.ones((n, n), np.uint8)))
     coverage, lost = {}, {}
     for a, v in good.items():
         col, row, ok = proj[('main', a)]; H_, W_ = v['m'].shape
@@ -608,7 +646,8 @@ def hull_short_advice(bands, feet_bad, here='', culprits=''):
     """what to say when the all-view hull falls short of a level photo: where (bands: part -> % of the figure) and,
     from that, what to redraw. The feet or the arms' edges alone: those, and the framing is left alone (R63-R72: ten
     rounds redrawing the tilted views' framing; the feet were off). Anything else: the tilted views' framing.
-    feet_bad: [(photo, share of its feet outside the reference feet)], worst first"""
+    feet_bad: [(photo, share of the level ring's feet it removes, share of its feet outside the reference feet)],
+    worst first"""
     over = {n: bands[n] - LOST_PERFECT[n] for n in bands}
     msg = ('。少掉的部分（佔人物面積的 %）：' + '、'.join(f'{n} {bands[n]:.1f}' for _, n in LOST_BANDS if bands[n] >= 0.1)
            + '（完美照片最多：' + '、'.join(f'{n} {LOST_PERFECT[n]:g}' for _, n in LOST_BANDS) + '）')
@@ -618,14 +657,67 @@ def hull_short_advice(bands, feet_bad, here='', culprits=''):
     if over['腳'] >= LOST_NAMED and rest < LOST_NAMED and feet_bad:
         # only the photos named here are in the line: the diagnosis hands exactly these to the AI
         return msg + (' → 少掉的主要是腳：各張全身照的腳畫得不一樣（腳尖的朝向、腳底的高度），一起雕會把前腳掌削掉。'
-                      '腳和參考位置差最多的照片：' + '、'.join(f'{n}（超出 {100 * f:.0f}%）' for n, f in feet_bad)
-                      + '。只修這幾張的腳，照修圖單的「腳的位置」參考圖；相機距離與構圖不要動。' + arms)
+                      '削掉最多的照片：' + '、'.join(f'{n}（缺 {100 * c:.1f}%、超出 {100 * f:.0f}%）' for n, c, f in feet_bad)
+                      + '。「缺」是別張有腳、這張沒畫到的地方（腳畫短了、窄了或位置不同），「超出」是這張畫到別張沒有的地方。'
+                        '只修這幾張的腳，照修圖單的「腳的位置」參考圖：藍色補上、紅色收掉；相機距離與構圖不要動。' + arms)
     if over['手臂的高度'] >= LOST_NAMED and rest < LOST_NAMED:
         return msg + ' → 少掉的主要在手臂的上下緣：各張水平照的手臂高度或粗細差了 1–2 cm。' + arms + '相機距離與構圖不要動'
     return msg + (' → 俯角／仰角的照片和水平環對不上（對準高度、距離、俯仰角各差一點），一起雕會把身體切瘦，成品會比照片小。'
                   + (f'這個角度和對面角度的俯角／仰角照：{here}。' if here else '')
                   + (f'切最多的（身體部分，完美照片每張最多切 2.1%）：{culprits}。' if culprits else '')
                   + '重新生成這些照片：同一個相機距離與構圖、身體中心在畫面正中央、正交投影')
+
+
+def rebuilt_arms(front, top, step=0.004):
+    """the arms as arms33 rebuilds them: past ARM_X from the axis, their height from the front photo and their depth
+    from the top photo, elliptical in cross-section. Masks in, (points (N, 3) relative to the body centre, px per m)
+    out, or None. The retouch sheet draws them in orange (ai_request.arm_mask)"""
+    mf, mt = np.asarray(front) > 0, np.asarray(top) > 0
+    H, W = mf.shape
+    rows = np.flatnonzero(mf.any(1)); tc, fc = np.flatnonzero(mt.any(0)), np.flatnonzero(mf.any(0))
+    if not len(rows) or not len(tc) or not len(fc):
+        return None
+    s = (rows[-1] - rows[0]) / SPEC_HEIGHT                         # px per m, front view
+    st = (tc[-1] - tc[0]) / ((fc[-1] - fc[0]) / s)                  # px per m, top view (same arm span)
+    tcx = (tc[-1] + tc[0]) / 2
+    tr = np.flatnonzero(mt[:, int(tcx - 0.10 * st):int(tcx + 0.10 * st)].any(1))
+    if not len(tr):
+        return None
+    trc = (tr[0] + tr[-1]) / 2                                     # the torso's depth centre (front toward the bottom)
+    arm_x = ARM_X * SPEC_HEIGHT / 1.65
+    P = []
+    for x in np.arange(-1.0, 1.0, step):
+        if abs(x) < arm_x:
+            continue
+        c, ctp = int(round(W / 2 + s * x)), int(round(tcx + st * x))
+        if not (0 <= c < W and 0 <= ctp < mt.shape[1]) or not mf[:, c].any() or not mt[:, ctp].any():
+            continue
+        r = np.flatnonzero(mf[:, c])
+        y0, y1 = (H / 2 - r[-1]) / s, (H / 2 - r[0]) / s           # relative to the body centre
+        if y1 - y0 > 0.25:                                         # a body column, not an arm
+            continue
+        zr = np.flatnonzero(mt[:, ctp])
+        zc, zh = ((zr[0] + zr[-1]) / 2 - trc) / st, (zr[-1] - zr[0]) / 2 / st
+        for t in np.linspace(0, 2 * np.pi, 48, endpoint=False):
+            P.append((x, (y0 + y1) / 2 + (y1 - y0) / 2 * np.sin(t), zc + zh * np.cos(t)))
+    return (np.array(P), float(s)) if P else None
+
+
+def arms_seen(P, s, a, th, shape):
+    """the rebuilt arms (rebuilt_arms) seen by the spec camera (azimuth a, tilt th), as a mask"""
+    H, W = shape
+    r_, u_ = _spec_axes(a, th)
+    col = np.round(W / 2 + s * (P @ r_)).astype(int); row = np.round(H / 2 - s * (P @ u_)).astype(int)
+    ok = (col >= 0) & (col < W) & (row >= 0) & (row < H)
+    arm = np.zeros((H, W), np.uint8); arm[row[ok], col[ok]] = 1
+    return cv2.morphologyEx(arm, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8)) > 0
+
+
+def arm_missing(m, P, s, a, th):
+    """share of the rebuilt arms this photo does not show (its outline grown by 4 px)"""
+    arm = arms_seen(P, s, a, th, m.shape)
+    seen = cv2.dilate((np.asarray(m) > 0).astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    return float((arm & ~seen).sum() / max(1, arm.sum()))
 
 
 def feet_reference(good, vs=0.005):
@@ -2453,6 +2545,14 @@ def report_face_depth(frontal, scale, depth_change):
               f'最大絕對位移 {np.max(np.abs(depths)):.1f} mm（{len(depths)} 點）')
 
 
+def front_oblique_advice():
+    """what to do when the frontal close-up's features do not land on a 3/4 close-up's (median > 2 % of the photo
+    height after the face relief): that close-up draws another face. Until 1.50.0 this FAIL had no advice"""
+    return ('這張斜面特寫的五官位置和正面特寫湊不成同一張臉（常見：AI 把斜面特寫的臉畫得比正面大、長，或五官高度不同）；'
+            '重畫這張：照同角度全身圖頭部的 4 倍放大，眼睛、鼻子、嘴巴的高度和彼此的距離與正面特寫一致，'
+            '臉相對頭髮的大小與正面特寫一致')
+
+
 def report_face_reconstruction(work, cameras, landmarks, photo_height):
     """Compare the same visible landmarks before and after face3d."""
     if len(landmarks) < 468 or cameras[FRONT].get('D'):
@@ -2516,6 +2616,8 @@ def report_face_reconstruction(work, cameras, landmarks, photo_height):
               f'（{initial_median_px:.1f} → {final_median_px:.1f} px），'
               f'P90 {np.percentile(initial_mm, 90):.1f} → {np.percentile(final_mm, 90):.1f} mm'
               f'（兩階段共同可見 {count}/468 點）')
+        if level == FAIL:
+            print(f'  → {front_oblique_advice()}')
     if assessed:
         report_face_depth(frontal, front_cam['s'], depth_change)
     return failed
@@ -3938,15 +4040,26 @@ def main():
 
     # ---- 10i. all-view hull coverage: what the full-body photos carve together
     if extra.get('el30') or extra.get('low20'):
-        cov, cut, arm_cut, lost = all_view_hull(good, extra)
-        feet = {}                                    # full-body photo -> share of its feet outside the reference feet
-        fr = feet_reference(good)
+        feet_cut = {}
+        cov, cut, arm_cut, lost = all_view_hull(good, extra, feet=feet_cut)
+        feet = {}                                    # full-body photo -> (share of the ring's feet it removes, share
+        fr = feet_reference(good)                    # of its own feet outside the reference feet)
         if fr:
             for ring_, th_, items_ in [('main', 0.0, good)] + [(r_, RING_TILT[r_], extra.get(r_, {})) for r_ in RING_TILT]:
                 for a_, v_ in items_.items():
                     nm_ = v_.get('name') or (f'{ring_}_{a_:03d}deg' if ring_ != 'main' else f'主環 {a_}°')
-                    feet[nm_.removesuffix('.jpg')] = feet_outside(v_['m'], fr[0], fr[1], a_, th_)[0]
-        feet_bad = [(n, f) for n, f in sorted(feet.items(), key=lambda kv: -kv[1]) if f > FOOT_OUT_WARN][:10]
+                    feet[nm_.removesuffix('.jpg')] = (feet_cut.get((ring_, a_), (0.0, None))[0],
+                                                      feet_outside(v_['m'], fr[0], fr[1], a_, th_)[0])
+        feet_bad = [(n, c, f) for n, (c, f) in sorted(feet.items(), key=lambda kv: -max(kv[1][0] / FOOT_CUT_WARN,
+                                                                                         kv[1][1] / FOOT_OUT_WARN))
+                    if c > FOOT_CUT_WARN or f > FOOT_OUT_WARN][:10]
+        top_ = next(iter(extra.get('top', {}).values()), None)
+        arms_ = rebuilt_arms(good[0]['m'], top_['m']) if 0 in good and top_ is not None and top_.get('m') is not None else None
+        arm_miss = {}                                # tilted photo -> share of the rebuilt arms it does not show
+        if arms_:
+            for r_ in RING_TILT:
+                for a_, v_ in extra.get(r_, {}).items():
+                    arm_miss[v_.get('name', f'{r_}_{a_:03d}deg')] = arm_missing(v_['m'], arms_[0], arms_[1], a_, RING_TILT[r_])
         worst = sorted(cut.items(), key=lambda kv: -kv[1])[:4]
         culprits = '、'.join(f'{n.removesuffix(".jpg")}（切掉 {100 * c:.1f}%）' for n, c in worst if c > HULL_CUT_CULPRIT)
         print('\n10i. 全視角外殼覆蓋（24 張全身圖用規格相機一起雕出的外殼，還蓋得住每張水平全身圖多少）')
@@ -3982,11 +4095,17 @@ def main():
                 msg += (f' → {n} 和水平環對不上（人物位置、大小或俯仰角不同），重建時會把身體切掉。'
                         '重新生成這張：和水平環同一個相機距離與構圖、身體中心在畫面正中央、正交投影')
             report(lvl, f'{n} 外殼切割', msg)
-            if ac is None:
+            am = arm_miss.get(n + '.jpg', arm_miss.get(n))
+            if am is not None:                       # the arms the rebuild makes: the same ones the sheet draws
+                lvl = PASS if am <= ARM_MISS_PASS else WARN if am <= ARM_MISS_FAIL else FAIL
+                msg = (f'重建的手臂（正面照定高度、俯視照定前後，就是修圖單的橘色區域）有 {100 * am:.0f}% 這張沒有畫到'
+                       f'（應 ≤ {100 * ARM_MISS_PASS:g}%，> {100 * ARM_MISS_FAIL:g}% 判 FAIL；完美照片 ≤ 22%）')
+            elif ac is None:
                 continue
-            lvl = PASS if ac <= ARM_CUT_PASS else WARN if ac <= ARM_CUT_FAIL else FAIL
-            msg = (f'這張的手臂切掉水平環外殼手臂部分的 {100 * ac:.0f}%（應 ≤ {100 * ARM_CUT_PASS:g}%，'
-                   f'> {100 * ARM_CUT_FAIL:g}% 判 FAIL；外殼在手臂很胖，完美照片也有 8–36%）')
+            else:                                    # no top photo: against the level ring's hull, as before 1.51
+                lvl = PASS if ac <= ARM_CUT_PASS else WARN if ac <= ARM_CUT_FAIL else FAIL
+                msg = (f'這張的手臂切掉水平環外殼手臂部分的 {100 * ac:.0f}%（應 ≤ {100 * ARM_CUT_PASS:g}%，'
+                       f'> {100 * ARM_CUT_FAIL:g}% 判 FAIL；外殼在手臂很胖，完美照片也有 8–36%）')
             if lvl != PASS:
                 msg += (f' → {n} 的手臂和水平環的手臂不一樣（抬的高度、前後角度或長短不同）：手臂只用正面與俯視照重建，'
                         '這張的手臂貼圖會貼錯位置，成品也比對不上這張照片。重新生成這張，只改手臂：T-pose 手臂完全水平、'
@@ -3994,13 +4113,17 @@ def main():
             report(lvl, f'{n} 斜角照手臂', msg)
 
         if feet:
-            print('\n10j. 雙腳的位置（正面、背面、左右側面四張水平照決定的腳，從每張全身照的角度看：這張的腳要在它的範圍內）')
-            for n, f in sorted(feet.items()):
-                msg = (f'腳超出參考位置的面積是參考位置的 {100 * f:.1f}%（應 ≤ {100 * FOOT_OUT_WARN:g}%；完美照片 ≤ 2.6%）')
-                if f > FOOT_OUT_WARN:
+            print('\n10j. 雙腳的位置（每張全身照的腳和別張比：缺 = 別張有腳、這張沒畫到，會把腳削掉；超出 = 這張畫到別張沒有的地方）')
+            for n, (c, f) in sorted(feet.items()):
+                msg = (f'缺 {100 * c:.1f}%（這張削掉的腳，佔水平環的腳；應 ≤ {100 * FOOT_CUT_WARN:g}%，完美照片 ≤ 1.2%）、'
+                       f'超出 {100 * f:.1f}%（佔參考位置；應 ≤ {100 * FOOT_OUT_WARN:g}%，完美照片 ≤ 2.6%）')
+                if c > FOOT_CUT_WARN:
+                    msg += (f' → {n} 的腳比別張短、窄，或位置不同：別張看得到的腳，這張沒有畫到，一起雕會把那一塊削掉。'
+                            '只修這張的腳：照「腳的位置」參考圖把藍色的地方補上，腳底踩在同一條地面線上')
+                elif f > FOOT_OUT_WARN:
                     msg += (f' → {n} 的腳和水平環的腳不在同一個位置（腳尖的朝向、兩腳的前後、或腳底的高度不同）：一起雕會把腳削掉。'
                             '只修這張的腳：同一個站姿、腳底踩在同一條地面線上')
-                report(WARN if f > FOOT_OUT_WARN else PASS, f'{n} 腳的位置', msg)
+                report(WARN if c > FOOT_CUT_WARN or f > FOOT_OUT_WARN else PASS, f'{n} 腳的位置', msg)
 
     # ---- 11. face consistency of the head close-ups
     if extra.get('head'):

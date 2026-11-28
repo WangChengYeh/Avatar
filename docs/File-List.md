@@ -32,6 +32,7 @@
 | `body3d/diagnose.py photos|prebake …` | 單獨看一次診斷樹 |
 | `dashboard/`（Google Apps Script） | 專案總覽網頁：每個 avatar、每一版、四關 FAIL／WARN／PASS、最終結果圖；部署在使用者的 Google 帳號，直接讀雲端硬碟（`dashboard/README.md`） |
 | `python -m pytest tests` | 全部測試（約 35 分鐘）；`tests/test_steps.py`、`test_next_step.py`、`test_escalate.py` 幾秒 |
+| `python tests/face_truth.py <真實模型.glb> <work>` | 量具，不是測試：完美照片重建出來的臉和渲染它的模型差多少（468 個特徵點的深度誤差）。改臉或頭的形狀之前先跑（`tests/data/luna-v1.glb`、`tests/data/body_rigged.glb`） |
 
 ## 3. 每一輪會產生的檔案
 
@@ -65,7 +66,7 @@
 | ChatGPT／avatar_001（R 系列） | v033 … v062 | v061（`--template makehuman`，body3d 2.21.0）：第 1 關 0 FAIL，停在第 2 關（3 項 FAIL，R58 是 7 項）；v062 是 pull 後用同一組照片重跑。R54 是最後一版跑完四關的：最終剪影 15.4% FAIL | 頭部特寫彼此不一致（相鄰一致、135／315 鏡像 0.893）；斜角全身照和水平環對不上 | #79、#65 |
 | Gemini／avatar_001 | v002 … v015 | v015（body3d 2.24.1）：四關 0 FAIL、DONE，最終剪影 9.05%；頭部四組鏡像 0.956–0.977 | 側臉貼圖仍糊、肩膀有一塊手：四關沒有比成品貼圖與原圖的檢查（見交接清單）；v012 的第 3 關 FAIL（擺姿勢網格連續性）在 v014 沒有再出現，原因未查 | #84 |
 
-模板：預設外殼流程；`--template makehuman` 從 body3d 2.18 起頭用外殼的、身體擬合到照片，兩組完美照片四道關卡 0 FAIL（#69）。
+模板：body3d 2.34.0 起預設 `auto`：Blender 有 MPFB 擴充就用 MakeHuman（身體、手指、骨架來自模板，頭用外殼的），沒有就用外殼流程；用了哪一個、那台機器的 Blender 有沒有 MakeHuman 擴充，印在 `run_all` 開頭，並寫在每一版的 `gates.json` 與結果包 `manifest.json`（`template`、`mpfb`）、`next_step.md` 與總覽網頁。兩組完美照片與 Gemini v015 的照片，兩種模板都是四道關卡 0 FAIL。
 
 ### 雲端硬碟上的資料夾（實際）
 
