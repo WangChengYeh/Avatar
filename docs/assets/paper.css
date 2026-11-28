@@ -246,3 +246,4 @@ dl.glossary dd.where { font-family: var(--sans); font-size: 0.8rem; color: var(-
 .dg-ref-ai { fill: none; stroke: #e08a00; stroke-width: 3; }
 .diagram text.dg-c-ai2 { fill: #b56f00; font-weight: 650; }
 @media (prefers-color-scheme: dark) { .dg-ref-ai { stroke: #f0a530; } .diagram text.dg-c-ai2 { fill: #f0a530; } }
+.dg-line-fix { fill: none; stroke: var(--series-fix); stroke-width: 2.5; }
