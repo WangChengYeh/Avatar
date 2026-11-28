@@ -31,7 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import check_turnaround as ct          # noqa: E402
 
-__version__ = '1.0.1'
+__version__ = '1.0.2'
 
 FULL = {0: '01_000deg_front', 45: '02_045deg_front_left', 90: '03_090deg_left', 135: '04_135deg_back_left',
         180: '05_180deg_back', 225: '06_225deg_back_right', 270: '07_270deg_right', 315: '08_315deg_front_right'}
@@ -125,6 +125,15 @@ def front_lines(m):
     return L
 
 
+def first_run(column):
+    """(first, last) row of the first run of figure from the top of a column of an outline, or None"""
+    r = np.flatnonzero(column)
+    if not len(r):
+        return None
+    gap = np.flatnonzero(np.diff(r) > 1)
+    return int(r[0]), int(r[gap[0]] if len(gap) else r[-1])
+
+
 def arm_band(m, L, c, near=0.30, far=0.55):
     """(upper row, lower row) of the arms of a level photo: the median over the columns between `near` and `far`
     metres from the axis (times c = |cos angle|: how much the arms are foreshortened), both sides; None when the
@@ -135,10 +144,9 @@ def arm_band(m, L, c, near=0.30, far=0.55):
     for side in (-1, 1):
         a, b = sorted((int(round(cx + side * near * k * s * c)), int(round(cx + side * far * k * s * c))))
         for col in range(max(0, a), min(W, b + 1)):
-            r = np.flatnonzero(m[:, col])
-            if len(r):
-                gap = np.flatnonzero(np.diff(r) > 1)
-                tops.append(r[0]); bots.append(r[gap[0]] if len(gap) else r[-1])
+            r = first_run(m[:, col])
+            if r:
+                tops.append(r[0]); bots.append(r[1])
     if len(tops) < 20:
         return None
     return float(np.median(tops)), float(np.median(bots))
@@ -233,8 +241,8 @@ def check_front(P):
         k = ct.SPEC_HEIGHT / 1.65
         mid_rows = []
         for d in (0.30, 0.55):
-            col = int(round(L['cx'] + side * d * k * s)); r = np.flatnonzero(m[:, min(W - 1, max(0, col))])
-            mid_rows.append((r[0] + r[-1]) / 2 if len(r) else np.nan)
+            col = int(round(L['cx'] + side * d * k * s)); r = first_run(m[:, min(W - 1, max(0, col))])
+            mid_rows.append((r[0] + r[1]) / 2 if r else np.nan)
         if not np.isnan(mid_rows).any():
             d = 1000 * (mid_rows[1] - mid_rows[0]) / s
             out.append(_r(name, f'手臂水平（{word}）', d, FRONT_ARM_FAIL, 'mm',
@@ -326,6 +334,16 @@ def check_stage(P, key):
                 for n in unread]
     if P.has(FULL[0]) and P.image(FULL[0]) is None:
         return []
+    if P.has(FULL[0]):
+        H0, W0 = P.image(FULL[0]).shape[:2]
+        if key == 'front' and H0 != W0:
+            return [dict(photo=FULL[0], item='大小', value=0, limit=0, unit='', level='FAIL',
+                         msg=f'正面照是 {W0} × {H0}：要是正方形（規格 2048 × 2048）')]
+        odd = [n for n in STAGES_BY_KEY[key] if P.has(n) and P.image(n).shape[:2] != (H0, W0)]
+        if odd:                       # the lines and outlines are in the front photo's pixels: nothing else to measure
+            return [dict(photo=n, item='大小', value=0, limit=0, unit='', level='FAIL',
+                         msg=f'這張是 {P.image(n).shape[1]} × {P.image(n).shape[0]}，正面照是 {W0} × {H0}：每一張都要和正面照一樣大')
+                    for n in odd]
     L = front_lines(P.mask(FULL[0])) if P.has(FULL[0]) else None
     if key == 'front':
         return check_front(P) if P.has(FULL[0]) else []
@@ -442,6 +460,17 @@ SAY = {
 # ---------------------------------------------------------------------------------------------------------------
 # which stage, and its guides
 
+def misnamed(folder, names):
+    """{name: the file in the folder that was meant to be name.jpg}: the same name with another extension or in
+    capitals (01_000deg_front.png, HEAD_000DEG.JPG). The photo was drawn; asking to draw it again goes on forever"""
+    have = {}
+    for f in (os.listdir(folder) if os.path.isdir(folder) else []):
+        stem, ext = os.path.splitext(f)
+        if ext.lower() in ('.jpg', '.jpeg', '.png', '.webp'):
+            have.setdefault(stem.lower(), f)
+    return {n: have[n.lower()] for n in names if n.lower() in have and have[n.lower()] != n + '.jpg'}
+
+
 def status(photos, log=None):
     """{'stage': 1..6 or None when all 33 are drawn and measured, 'key', 'title', 'draw': the photos to draw now,
     'results': this stage's measurements, 'waived': photos let through after MAX_TRIES}. log: {photo: [digests of
@@ -463,8 +492,9 @@ def status(photos, log=None):
             else:
                 redo.append(n)
         if missing or redo:
-            return dict(stage=i + 1, key=key, title=title, draw=missing + redo, redo=redo, results=res, waived=waived, P=P)
-    return dict(stage=None, key=None, title='33 張都畫好了', draw=[], redo=[], results=[], waived=waived, P=P)
+            return dict(stage=i + 1, key=key, title=title, draw=missing + redo, redo=redo, results=res, waived=waived, P=P,
+                        misnamed=misnamed(photos, missing))
+    return dict(stage=None, key=None, title='33 張都畫好了', draw=[], redo=[], results=[], waived=waived, P=P, misnamed={})
 
 
 def make(photos, out, log_path=None):
@@ -478,6 +508,9 @@ def make(photos, out, log_path=None):
     st = status(photos, log)
     json.dump(log, open(log_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     P = st.pop('P')
+    for f in os.listdir(out):                      # the guides of earlier stages were made from photos since redrawn
+        if f.endswith('_guide.png'):
+            os.remove(os.path.join(out, f))
     lines = [f'# 輪廓圖：第 {st["stage"]} 段（共 {len(STAGES)} 段）　{st["title"]}' if st['stage'] else '# 33 張都畫好了：跑 run_all', '']
     files = {}
     if st['stage']:
@@ -513,6 +546,9 @@ def make(photos, out, log_path=None):
         lines += ['畫的時候把輪廓圖和正面照一起給生圖模型當參考；**交出去的照片上不能留下任何線、框或文字**（那是給你看的）。'
                   '同一個人物、同樣的衣服與光線；規格其餘的部分照 `docs/Workflow-and-Validation.md#生圖規格`。',
                   f'畫好的照片放進 `{os.path.abspath(photos)}`，檔名如上，再跑一次 next_step。', '']
+    if st['misnamed']:
+        lines += ['**檔名不對的照片（已經畫了，改檔名就好，不用重畫）：**'] + [f'- `{f}` 要改成 `{n}.jpg`（JPEG 格式、小寫 .jpg）'
+                                                                    for n, f in sorted(st['misnamed'].items())] + ['']
     if st['waived']:
         lines += ['連續 {} 次沒照著線、先放行的照片（最後由四道關卡判定）：{}'.format(MAX_TRIES, '、'.join(st['waived'])), '']
     open(os.path.join(out, 'guides.md'), 'w', encoding='utf-8').write('\n'.join(lines))

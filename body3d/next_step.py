@@ -173,7 +173,21 @@ def draw_step(ws, n, photos, me):
     sys.path.insert(0, HERE)
     import guides
     gdir = os.path.join(vdir(ws, n), 'guides')
-    st = guides.make(photos, gdir, log_path=os.path.join(ws, 'stage_log.json'))    # one log for the avatar
+    try:
+        st = guides.make(photos, gdir, log_path=os.path.join(ws, 'stage_log.json'))    # one log for the avatar
+    except Exception:                                  # the measuring broke: say so, do not leave a traceback and no step
+        import traceback
+        agent = {'chatgpt': 'ChatGPT', 'gemini': 'Gemini'}.get(os.path.basename(os.path.dirname(ws)).lower(), 'executor')
+        issue, q = os.path.join(ws, 'issue.md'), shlex.quote
+        title = f'[{agent}] [SOP] {os.path.basename(ws)}：分段畫的檢查程式出錯'
+        open(issue, 'w', encoding='utf-8').write(
+            f'> 由 **{agent}** 發（執行者，{os.path.basename(ws)}）\n\n`guides.py` 在量 `{os.path.basename(vdir(ws, n))}/photos` 時出錯，'
+            '不是照片沒照著線，是程式停了。資料夾裡的照片：' + '、'.join(sorted(os.listdir(photos))) + '\n\n```\n' + traceback.format_exc() + '```\n')
+        open(os.path.join(ws, 'issue_title.txt'), 'w', encoding='utf-8').write(title)
+        return dict(state='ESCALATE', why='分段畫的檢查程式出錯：這是程式的問題，不要重畫，發 issue 給 Claude', steps=[
+            f'gh issue create --repo WangChengYeh/Avatar --title {q(title)} --body-file {q(issue)} --label {q(agent_label(agent))} --label sop-escalation   # 記下 issue 編號 N',
+            f'（沒有 gh 時用 GitHub 連結器在 WangChengYeh/Avatar 開 issue：標題是 {os.path.join(ws, "issue_title.txt")} 的內容，內文是 {issue}；記下編號 N）',
+            f'{me} --waiting-issue N   # 登記等待；Claude 修好後 next_step 會叫你 pull、繼續'])
     if not st['stage']:
         return None
     redo = st['redo']
@@ -184,6 +198,8 @@ def draw_step(ws, n, photos, me):
     why = f'分段畫，第 {st["stage"]} 段（共 {len(guides.STAGES)} 段）：{st["title"]}'
     if redo:
         why += '。沒有照著線、要重畫的：' + '；'.join(f'{k}（{"、".join(v)}）' for k, v in sorted(bad.items()))
+    if st['misnamed']:
+        why += '。檔名不對（改檔名就好，不用重畫）：' + '、'.join(f'{f} → {k}.jpg' for k, f in sorted(st['misnamed'].items()))
     if st['waived']:
         why += f'。連續 {guides.MAX_TRIES} 次沒照著線、先放行的：{"、".join(st["waived"])}'
     front = os.path.join(photos, guides.FULL[0] + '.jpg')
