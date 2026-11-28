@@ -19,7 +19,7 @@
 - **修改**：
   - `run_all.py --template` 多一個 `auto`，並成為預設：Blender 有 MPFB 擴充就用 `makehuman`，沒有就用 `hull`，開頭印「模板：…（原因）」。沒有 MPFB 時不失敗：執行者的環境不一定裝得了。指定 `--template makehuman` 而沒有 MPFB 仍然失敗。
   - 接續舊的輸出資料夾（`--from`、`--only`）時沿用它原本的模板（`work/template.txt`），不會做到一半換模板。只跑 `uv` 之前的步驟時不去問 Blender（那些步驟兩種模板相同）。
-  - `gates.json` 多一欄 `template`：實際用了哪一個。
+  - **每一版都記下來**：`gates.json` 與每個階段結果包的 `manifest.json` 多兩欄，`template`（實際用了哪個模板）與 `mpfb`（那台機器的 Blender 有沒有 MakeHuman 擴充；指定模板時也會問）。`next_step.md` 多一行「模板」，沒有擴充時附安裝指令；總覽網頁（`dashboard/`）在版本下面顯示模板，外殼流程且沒有擴充時寫明。
   - `next_step.py --template` 預設改成 `auto`（不再往 `run_all` 的指令裡加旗標）。
   - 端到端測試裡原本靠預設走外殼流程的三個，明確寫 `--template hull`；MakeHuman 的端到端測試不變；新增 `pick_template` 的單元測試。
 - **驗證**：luna 用預設（不寫 `--template`）從頭跑：開頭印「模板：makehuman（Blender 有 MPFB 擴充）」，四道關卡 0 FAIL／0 WARN，`gates.json` 的 `template` 是 `makehuman`。

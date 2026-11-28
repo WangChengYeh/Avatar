@@ -124,7 +124,7 @@ async function loadNumbers(v){
   const z=v.stages[furthest(v)];if(!z)return;const ck=z.id+'@'+z.time;
   let info=store.get(ck);
   if(!info){const m=await entries(z,['manifest\\.json$','fit_report\\.json$']);const man=json1(m,/manifest\.json$/)||{},fr=json1(m,/fit_report\.json$/);
-    info={gates:{},deliverable:!!man.deliverable,stopped:man.stopped||null,fit:fr?{level:fr.level,mean:fr.mean}:null};
+    info={gates:{},deliverable:!!man.deliverable,stopped:man.stopped||null,template:man.template||null,mpfb:man.mpfb===undefined?null:man.mpfb,fit:fr?{level:fr.level,mean:fr.mean}:null};
     for(const[g,c]of Object.entries(man.gates||{}))info.gates[g]={FAIL:c.FAIL||0,WARN:c.WARN||0,PASS:c.PASS||0};
     store.set(ck,info)}
   Object.assign(v,info,{loaded:true});
@@ -142,7 +142,7 @@ async function load(){
     for(const z of f.zips){const m=/_stage(\d)_/.exec(z.name);if(!m)continue;const n=+m[1];
       if(!stages[n]||z.modifiedTime>stages[n].time)stages[n]={id:z.id,file:z.name,fail:/_FAIL\.zip$/.test(z.name),size:z.size,time:z.modifiedTime};
       if(z.modifiedTime>time)time=z.modifiedTime}
-    return{version:f.name,folder:f.id,stages,gates:{},images:{},deliverable:false,fit:null,stopped:null,time,loaded:false}})}));
+    return{version:f.name,folder:f.id,stages,gates:{},images:{},deliverable:false,fit:null,stopped:null,template:null,mpfb:null,time,loaded:false}})}));
   DATA={avatars};render();
   const todo=[];for(const a of avatars)for(const v of a.versions)if(furthest(v))todo.push([a,v]);
   let done=0;const total=todo.length;
@@ -166,8 +166,9 @@ const stampHtml=g=>!g?'<span class="st NONE">—</span>':g.unknown?`<span class=
   :`<span class="stamp"><span class="st ${g.status}">${g.status}</span><span class="n">${g.FAIL?`<em>${g.FAIL}</em>`:'0'} · ${g.WARN} · ${g.PASS}</span></span>`;
 const fitTxt=v=>v.fit&&v.fit.mean!=null?(100*v.fit.mean).toFixed(1)+'%':'—';
 const key=(a,v)=>`${a.executor}-${v.version}`;
+const tplTxt=v=>v.template==='makehuman'?'MakeHuman 模板':v.template==='hull'?('外殼流程'+(v.mpfb===false?'（Blender 沒有 MakeHuman 擴充）':'')):'';
 const rowHtml=v=>{const r=result(v),bad=v.fit&&v.fit.mean>0.10;
-  return `<td class="ver">${esc(v.version)}</td>${GATES.map(([n])=>`<td>${stampHtml(gateOf(v,n))}</td>`).join('')}<td class="fit${bad?' bad':''}">${esc(fitTxt(v))}</td><td class="res ${r.cls}">${esc(r.t)}</td>`};
+  return `<td class="ver">${esc(v.version)}${tplTxt(v)?`<small style="display:block;font-size:.75em;opacity:.7">${esc(tplTxt(v))}</small>`:''}</td>${GATES.map(([n])=>`<td>${stampHtml(gateOf(v,n))}</td>`).join('')}<td class="fit${bad?' bad':''}">${esc(fitTxt(v))}</td><td class="res ${r.cls}">${esc(r.t)}</td>`};
 function rerow(a,v){const tr=$('row-'+key(a,v));if(tr)tr.innerHTML=rowHtml(v);if(current===key(a,v))pick(current,false)}
 function render(){
   const avs=DATA.avatars;byKey={};

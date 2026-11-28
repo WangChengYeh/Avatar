@@ -177,13 +177,16 @@ def main(argv=None):
     S = lambda f: os.path.join(STEPS_DIR, f)
     blender = find_blender(a.blender)
     todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
+    mpfb = None                    # does this machine's Blender have the MakeHuman extension? None = not asked
     if any(STEPS.index(step) >= STEPS.index('uv') for step in todo):      # the steps before 'uv' are the same for both
-        a.template, why = pick_template(a.template, blender, work, a.start != 'check' or bool(a.only))
-        if why:
-            print(f'模板：{a.template}（{why}）')
+        mpfb = has_mpfb(blender)                                          # recorded with every run (gates.json)
+        a.template, why = pick_template(a.template, blender, work, a.start != 'check' or bool(a.only),
+                                        probe=lambda _b: mpfb)
+        print(f'模板：{a.template}' + (f'（{why}）' if why else '') + f'；這台機器的 Blender {"有" if mpfb else "沒有"} MakeHuman 擴充（MPFB）')
         open(os.path.join(work, 'template.txt'), 'w').write(a.template + '\n')
     elif a.template == 'auto':
         a.template = 'hull'                                               # not used by these steps
+    made_with = dict(template=a.template, mpfb=mpfb)
     glb_tex = os.path.join(work, 'textured.glb')
     lit = os.path.join(out, f'{a.name}_rigged_lit.glb'); unlit = os.path.join(out, f'{a.name}_rigged.glb')
 
@@ -247,7 +250,7 @@ def main(argv=None):
         g = {k: v for k, v in gates.items() if int(k[0]) <= stage}
         dg = [d for d in diagnosis if d['gate'] <= stage]
         z, ok = deliver.pack(out, a.name, stage, stage_files(stage), g, [l for k in g for l in fails.get(k, [])],
-                             extra=dict(diagnosis=dg) if dg else None,
+                             extra=dict(made_with, **(dict(diagnosis=dg) if dg else {})),
                              stopped=stopped)
         packed.add(stage)
         print(f'     階段 {stage} 成果' + ('（好，可交付）：' if ok else '（不好，標 _FAIL）：') + z)
@@ -287,7 +290,7 @@ def main(argv=None):
         print(f'  可交付: {"是" if deliverable else "否"}' + ('' if deliverable else
               '（有 FAIL）' if any(f for f, _, _ in gates.values()) else '（沒有從頭跑完四道關卡）'))
         json.dump(dict(gates={g: dict(FAIL=f, WARN=w, PASS=p_, TOTAL=f + w + p_) for g, (f, w, p_) in gates.items()},
-                       deliverable=deliverable, code=code, template=a.template),
+                       deliverable=deliverable, code=code, **made_with),
                   open(os.path.join(out, 'gates.json'), 'w'), ensure_ascii=False, indent=1)
 
     def client_report(quick=False):
