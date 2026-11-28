@@ -31,7 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import check_turnaround as ct          # noqa: E402
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 FULL = {0: '01_000deg_front', 45: '02_045deg_front_left', 90: '03_090deg_left', 135: '04_135deg_back_left',
         180: '05_180deg_back', 225: '06_225deg_back_right', 270: '07_270deg_right', 315: '08_315deg_front_right'}
@@ -128,7 +128,8 @@ def front_lines(m):
 def arm_band(m, L, c, near=0.30, far=0.55):
     """(upper row, lower row) of the arms of a level photo: the median over the columns between `near` and `far`
     metres from the axis (times c = |cos angle|: how much the arms are foreshortened), both sides; None when the
-    figure has no arms there"""
+    figure has no arms there. In a column the arm is the first run of figure from the top: in a diagonal view a hip
+    or a thigh can reach under the arm, and "down to the last figure row" would then be the leg"""
     k = ct.SPEC_HEIGHT / 1.65; s = L['s']; cx = L['cx']; H, W = m.shape
     tops, bots = [], []
     for side in (-1, 1):
@@ -136,7 +137,8 @@ def arm_band(m, L, c, near=0.30, far=0.55):
         for col in range(max(0, a), min(W, b + 1)):
             r = np.flatnonzero(m[:, col])
             if len(r):
-                tops.append(r[0]); bots.append(r[-1])
+                gap = np.flatnonzero(np.diff(r) > 1)
+                tops.append(r[0]); bots.append(r[gap[0]] if len(gap) else r[-1])
     if len(tops) < 20:
         return None
     return float(np.median(tops)), float(np.median(bots))
@@ -427,7 +429,7 @@ SAY = {
     'exact': '**準確的輪廓：照著畫。** 藍線是對面那張照片左右翻轉的輪廓，人物的外形要和藍線重合（填滿淺色區域，不要超出）。'
              '虛線是正面照量到的高度：頭頂、手臂的上下緣、腳底都要落在線上。',
     'lines': '**準確的線：照著畫。** 橫的虛線是正面照量到的高度（頭頂 head top、手臂上緣／下緣、腳底 floor），每一條都要對上；'
-             '直的虛線是雙手指尖該到的位置（hand tip）與旋轉軸（axis）。橘色方框（側面照才有）：手臂正對鏡頭，'
+             '直的虛線是旋轉軸（axis）與雙手指尖該到的位置（hand tip）：兩條指尖線之間的距離是準確的，左右位置假設手臂在身體正中間的平面上，整體差 1–2 cm 沒關係。橘色方框（側面照才有）：手臂正對鏡頭，'
              '只看得到手掌的端面，落在框裡，不要畫出往前或往後伸的前臂。線只定高度與指尖，身體的寬度照這個人物畫。',
     'head': '**底圖：只補細節。** 這張是同一個角度的全身照，頭的部分放大 4 倍（所以模糊）。用它當底圖／參考圖（image-to-image），'
             '畫成清楚的頭部特寫：頭的外形、髮型的輪廓、眼睛鼻子嘴巴耳朵的位置都不要動，只把細節畫清楚。背景白色。',
@@ -465,11 +467,13 @@ def status(photos, log=None):
     return dict(stage=None, key=None, title='33 張都畫好了', draw=[], redo=[], results=[], waived=waived, P=P)
 
 
-def make(photos, out):
+def make(photos, out, log_path=None):
     """write the guides of the stage to draw now into `out` (one PNG per photo, guides.md, stage.json); returns the
-    status without the photo cache"""
+    status without the photo cache. log_path: where the failed tries of every photo are kept (default: in `out`).
+    next_step keeps one for the whole avatar: a photo let through after MAX_TRIES stays let through in the next
+    version, which copies the photos (a retouch round used to start its three tries again)"""
     os.makedirs(out, exist_ok=True)
-    log_path = os.path.join(out, 'stage_log.json')
+    log_path = log_path or os.path.join(out, 'stage_log.json')
     log = json.load(open(log_path, encoding='utf-8')) if os.path.exists(log_path) else {}
     st = status(photos, log)
     json.dump(log, open(log_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
