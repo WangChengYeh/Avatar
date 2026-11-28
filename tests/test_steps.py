@@ -320,3 +320,30 @@ def test_outline_fit_follows_the_level_photos_when_the_tilted_ones_are_wider():
     move = _outward(V, N, T, cams, sdf)
     assert -5.0 < move < -2.5, move                            # toward the level photos' 0.10 (6 : 1 -> -3.6 mm)
     assert abs(_outward(*_post(0.1014), cams, sdf)) < 0.8      # and it settles near (6 x 0.10 + 0.11) / 7
+
+
+def test_tilted_views_only_fill_in_what_no_level_photo_sees():
+    """Gemini avatar_001: the ring 30° up painted the top of the chest half and half with the level photos and left
+    a second neckline and a second strap. Their share is set by how well the best level photo faces the surface"""
+    import whopaints
+    share = whopaints.level_share(np.array([0.0, 0.45, 0.60, 0.75, 1.0]))
+    assert share[0] == 0 and share[1] == 0          # no level photo sees it (or only at a glance): the tilted views
+    assert 0.3 < share[2] < 0.7                     # the hand-over, a share of the colour and not a weight
+    assert share[3] == 1 and share[4] == 1          # a level photo faces it: the tilted views have no say
+    assert np.all(np.diff(whopaints.level_share(np.linspace(0, 1, 101))) >= 0)
+    # on the head the close-ups paint, whatever the level full-body photos see (2.18.0: a full-body view under the lip)
+    assert whopaints.level_share(np.array([0.0, 0.4]), on_head=np.array([1.0, 1.0])).tolist() == [1.0, 1.0]
+    assert 0.4 < whopaints.level_share(np.array([0.0]), on_head=np.array([0.5]))[0] < 0.6
+
+
+def test_a_side_view_does_not_paint_around_the_arm():
+    """seen along the arm, a T-pose arm is a small disc; an AI draws the forearm and hand across the chest or the
+    hip, and what lies beyond the model's own arm was painted on the torso (finger marks on the hips)"""
+    import whopaints
+    marks = np.zeros((200, 200), bool); marks[95:105, 95:105] = True        # the model's arm, end-on (4 px cells)
+    radius = whopaints.ARM_SHADOW * 1050 / 4                                 # 10 cm at a full-body view's scale
+    shadow = whopaints.arm_shadow(marks, radius)
+    assert shadow[100, 100] and shadow[100, 100 + int(radius)] and shadow[100 - int(radius), 100]
+    assert not shadow[100, 100 + int(radius) + 8] and not shadow[40, 40]    # the rest of the torso keeps the photo
+    assert 20 < radius < 35
+    assert not whopaints.arm_shadow(np.zeros((50, 50), bool), radius).any() # no arm in the picture: nothing excluded
