@@ -79,6 +79,7 @@ del N
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera      # orthographic or perspective (c['D']) projection shared by all steps
 import facemask    # the part of the face the frontal close-up owns
+import whopaints   # the tilted rings only fill in; an end-on photo does not paint around the arm
 
 
 def remap(img, col, row):
@@ -168,14 +169,19 @@ for n, c in cams.items():
         print(f'gain {n:14s} BGR {np.round(GAIN[n], 3)}  overlap {ov.sum()}')
 
 acc = np.zeros((len(X), 3), np.float32); wsum = np.zeros(len(X)); wconf = np.zeros(len(X), np.float32)
+# the tilted rings and the top view are blended on their own and only fill in what the level ring cannot see
+acc_t = np.zeros((len(X), 3), np.float32); wsum_t = np.zeros(len(X)); level_best = np.zeros(len(X), np.float32)
 OWN_I, OWN_W, OWN_C = [], [], []      # texels the frontal close-up owns: index, its share (0-1), its colour
 # the hands (T-pose: past the wrists): a view that looks along the arm sees the hand end-on, in front of the head
 # and body, and a hand that is not exactly where the photo's is (the MakeHuman template hand) takes the hair or the
 # clothes behind it (dark / white fingers with the arms down). Only views that see the hand from the side paint it.
 HAND_X = 0.55 * (X[:, 1].max() - X[:, 1].min()) / 1.65
 hand = np.abs(X[:, 0]) > HAND_X
-for n, c in sorted(cams.items()):
+arm = np.abs(X[:, 0]) > whopaints.ARM_X * (X[:, 1].max() - X[:, 1].min()) / 1.65
+for n, c in sorted(cams.items(), key=lambda kv: (kv[1]['kind'] != 'main', kv[0])):     # the level ring first
     kind = c['kind']
+    fills = kind not in ('main', 'head')             # a tilted ring or the top view
+    end_on = abs(camera.axes(c['phi'], c['th'])[2][0]) > 0.8      # looks along the arms
     frontal_body = kind == 'main' and abs((c['phi'] + 180) % 360 - 180) <= 10 and abs(c['th']) <= 10
     img, ed, m = load_view(n)
     H_, W_ = m.shape
@@ -183,13 +189,17 @@ for n, c in sorted(cams.items()):
     cell = 4                                         # fine grid: a coarse one marks mouth corners / under the lips as hidden
     gw, gh = W_ // cell + 1, H_ // cell + 1
     zb = np.full(gw * gh, -1e9)
+    shadow = np.zeros(gw * gh, bool)                 # where this photo's own arm may lie (end-on views)
     for a0 in range(0, len(X), CHUNK):
         Xc = X[a0:a0 + CHUNK]
         col, row = camera.project(Xc, c); depth = camera.depth(Xc, c)
         inb = (col >= 1) & (col < W_ - 2) & (row >= 1) & (row < H_ - 2)
         k = np.clip((row / cell).astype(int), 0, gh - 1) * gw + np.clip((col / cell).astype(int), 0, gw - 1)
         np.maximum.at(zb, k[inb], depth[inb])
+        if end_on and kind != 'head':
+            shadow[k[inb & arm[a0:a0 + CHUNK]]] = True
     zb = cv2.dilate(zb.reshape(gh, gw).astype(np.float32), np.ones((3, 3), np.uint8)).ravel()
+    shadow = whopaints.arm_shadow(shadow.reshape(gh, gw), whopaints.ARM_SHADOW * c['s'] / cell).ravel()
     edge_px = 6 if kind != 'head' else 18
     pw = 12.0 if kind == 'head' else PW
     fm = None
@@ -209,9 +219,11 @@ for n, c in sorted(cams.items()):
         vis = depth >= zb[k] - 0.012
         edf = np.clip((remap(ed, col, row) - 2) / edge_px, 0, 1)
         w = np.clip(ndot, 0, 1) ** pw * vis * inb * edf * VW[kind] * HEAD_PRI.get(n, 1.0)
-        end_on = abs(camera.axes(c['phi'], c['th'])[2][0]) > 0.8
         if end_on:
-            w = w * ~hand[sl]
+            # not the hands (seen end-on), and not the torso around the arm: the photo's own arm, drawn foreshortened
+            # across the chest or the hip, lies there
+            allowed = ~hand[sl] & ~(shadow[k] & ~arm[sl]) if kind != 'head' else ~hand[sl]
+            w = w * allowed
         headw = np.clip((Xc[:, 1] - 1.36) / 0.05, 0, 1)
         if kind == 'head':
             w *= headw                                # close-ups only on the head / upper neck
@@ -233,18 +245,26 @@ for n, c in sorted(cams.items()):
         # confidence uses a gentle power (is this texel seen at all?); blending uses the sharp one (who wins)
         wc = np.clip(ndot, 0, 1) ** 2 * vis * inb * edf
         if end_on:
-            wc = wc * ~hand[sl]
+            wc = wc * allowed
+        if kind == 'main':
+            level_best[sl] = np.maximum(level_best[sl], (np.clip(ndot, 0, 1) * vis * inb * (edf > 0) * (allowed if end_on else 1)).astype(np.float32))
         if kind == 'head':
             wc *= headw
         wconf[sl] += wc
         sel = np.nonzero(w > 1e-12)[0]
         if len(sel):
-            acc[a0 + sel] += (w[sel, None] * remap(img, col[sel], row[sel]) * gain).astype(np.float32)
-        wsum[sl] += w
+            (acc_t if fills else acc)[a0 + sel] += (w[sel, None] * remap(img, col[sel], row[sel]) * gain).astype(np.float32)
+        (wsum_t if fills else wsum)[sl] += w
         used += len(sel)
     print(f'{n:28s} kind {kind:5s} texels used {used:9d}', flush=True)
 
 colr = (acc / np.maximum(wsum, 1e-30)[:, None]).astype(np.float32); del acc
+# the tilted views' share: all of it where no level photo (or close-up) saw the surface, none where one faces it
+share = whopaints.level_share(level_best, np.clip((X[:, 1] - 1.36) / 0.05, 0, 1)).astype(np.float32)
+share = np.where(wsum_t > 1e-30, np.where(wsum > 1e-30, share, 0.0), 1.0).astype(np.float32)[:, None]
+colr = share * colr + (1 - share) * (acc_t / np.maximum(wsum_t, 1e-30)[:, None]).astype(np.float32)
+print('tilted views fill in %.1f%% of the texels (share > 0.5)' % (100 * float((share < 0.5).mean())), flush=True)
+wsum = wsum + wsum_t; del acc_t, wsum_t, share
 if OWN_I:
     oi = np.concatenate(OWN_I); ow = np.concatenate(OWN_W)[:, None]; oc = np.concatenate(OWN_C)
     ow = np.where(wsum[oi, None] > 1e-30, ow, 1.0).astype(np.float32)         # nothing else saw it: all frontal

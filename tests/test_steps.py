@@ -264,3 +264,86 @@ def test_head_grows_out_to_a_bun_the_hull_lost():
         col, row = camera.project(X, c)
         sd = sdf[n][np.clip(np.round(row).astype(int), 0, size - 1), np.clip(np.round(col).astype(int), 0, size - 1)] / c['s']
         assert sd.max() < 0.006, f'{n}: {1000 * sd.max():.1f} mm outside the outline'
+
+
+def _post(radius, n=96, levels=41):
+    """an upright round post (vertices, outward normals, triangles), 0.4 m to 1.4 m"""
+    a = np.linspace(0, 2 * np.pi, n, endpoint=False); y = np.linspace(0.4, 1.4, levels)
+    N = np.stack([np.sin(a), np.zeros(n), np.cos(a)], 1)
+    V = np.concatenate([np.c_[radius * N[:, 0], np.full(n, h), radius * N[:, 2]] for h in y])
+    T = []
+    for j in range(levels - 1):
+        for i in range(n):
+            p, q = j * n + i, j * n + (i + 1) % n
+            T += [(p, q, p + n), (q, q + n, p + n)]
+    return V, np.tile(N, (levels, 1)), np.array(T)
+
+
+def _post_photos(level_radius, tilted_radius, size=1024, s=800.0):
+    """cameras and outlines of a post seen by a level ring and a ring 30° up; the two rings may disagree on its width"""
+    import silfit
+    cams, sdf = {}, {}
+    for kind, th, radius in (('main', 0.0, level_radius), ('el30', 30.0, tilted_radius)):
+        V, _, T = _post(radius)
+        for phi in range(0, 360, 45):
+            n = f'{kind}_{phi:03d}deg'
+            cams[n] = dict(phi=float(phi), th=th, s=s, cu=size / 2, cv=size / 2 + s * 0.9 * np.cos(np.radians(th)), kind=kind)
+            col, row = camera.project(V, cams[n])
+            m = np.zeros((size, size), np.uint8)
+            cv2.fillPoly(m, list(np.round(np.stack([col, row], 1)[T]).astype(np.int32)), 1)
+            sdf[n] = silfit.signed(m)
+    return cams, sdf
+
+
+def _outward(V, N, T, cams, sdf):
+    """mean move of the vertices in the middle of the post, along their normals, mm"""
+    import silfit
+    move, has = silfit.moves(V, N, T, cams, sdf)
+    mid = has & (V[:, 1] > 0.7) & (V[:, 1] < 1.1)
+    assert mid.sum() > 500
+    return 1000 * float((move[mid] * N[mid]).sum(1).mean())
+
+
+def test_outline_fit_leaves_a_body_that_matches_its_photos_alone():
+    """vertices near the rim lie a little inside the model's outline; taking them to be on it pushed a body that
+    already matched out by 2-3 mm per side (luna-v1: 7 mm wider than the photos, now 3)"""
+    cams, sdf = _post_photos(0.10, 0.10)
+    V, N, T = _post(0.10)
+    assert abs(_outward(V, N, T, cams, sdf)) < 0.6
+
+
+def test_outline_fit_follows_the_level_photos_when_the_tilted_ones_are_wider():
+    """Gemini avatar_001: the ring 30° up drew the torso 1 cm wider per side than the level ring, and an even average
+    left the body wider than every level photo. The level ring has six times the say"""
+    cams, sdf = _post_photos(0.10, 0.11)
+    V, N, T = _post(0.105)                                     # halfway: an even average would not move it
+    move = _outward(V, N, T, cams, sdf)
+    assert -5.0 < move < -2.5, move                            # toward the level photos' 0.10 (6 : 1 -> -3.6 mm)
+    assert abs(_outward(*_post(0.1014), cams, sdf)) < 0.8      # and it settles near (6 x 0.10 + 0.11) / 7
+
+
+def test_tilted_views_only_fill_in_what_no_level_photo_sees():
+    """Gemini avatar_001: the ring 30° up painted the top of the chest half and half with the level photos and left
+    a second neckline and a second strap. Their share is set by how well the best level photo faces the surface"""
+    import whopaints
+    share = whopaints.level_share(np.array([0.0, 0.45, 0.60, 0.75, 1.0]))
+    assert share[0] == 0 and share[1] == 0          # no level photo sees it (or only at a glance): the tilted views
+    assert 0.3 < share[2] < 0.7                     # the hand-over, a share of the colour and not a weight
+    assert share[3] == 1 and share[4] == 1          # a level photo faces it: the tilted views have no say
+    assert np.all(np.diff(whopaints.level_share(np.linspace(0, 1, 101))) >= 0)
+    # on the head the close-ups paint, whatever the level full-body photos see (2.18.0: a full-body view under the lip)
+    assert whopaints.level_share(np.array([0.0, 0.4]), on_head=np.array([1.0, 1.0])).tolist() == [1.0, 1.0]
+    assert 0.4 < whopaints.level_share(np.array([0.0]), on_head=np.array([0.5]))[0] < 0.6
+
+
+def test_a_side_view_does_not_paint_around_the_arm():
+    """seen along the arm, a T-pose arm is a small disc; an AI draws the forearm and hand across the chest or the
+    hip, and what lies beyond the model's own arm was painted on the torso (finger marks on the hips)"""
+    import whopaints
+    marks = np.zeros((200, 200), bool); marks[95:105, 95:105] = True        # the model's arm, end-on (4 px cells)
+    radius = whopaints.ARM_SHADOW * 1050 / 4                                 # 10 cm at a full-body view's scale
+    shadow = whopaints.arm_shadow(marks, radius)
+    assert shadow[100, 100] and shadow[100, 100 + int(radius)] and shadow[100 - int(radius), 100]
+    assert not shadow[100, 100 + int(radius) + 8] and not shadow[40, 40]    # the rest of the torso keeps the photo
+    assert 20 < radius < 35
+    assert not whopaints.arm_shadow(np.zeros((50, 50), bool), radius).any() # no arm in the picture: nothing excluded

@@ -186,38 +186,22 @@ for it, lam in enumerate((40, 20, 12, 8, 6, 6)):
 # generic body, so the fit above still misses the photos' outline by 1-2 cm here and there (luna-v1: 8.5 % after
 # the fit). Fit the outline itself: in every full-body view, a vertex on the model's rim that lands off the photo's
 # outline moves along its normal (in the image plane) by that distance; the moves of all views are combined by
-# the same smooth solve as above. Face, hands and feet keep their shape; only near-outline misses count (an
+# the same smooth solve as above (the level ring counting for more: silfit.py). Face, hands and feet keep their shape; only near-outline misses count (an
 # occluded rim lands deep inside the photo silhouette and is ignored).
 SIL_ITERS = 4
 if SIL_ITERS and os.path.exists(os.path.join(WORK, 'cams33.json')):
     import json as _json, cv2
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import camera
+    import silfit
     cams_ = {n: c for n, c in _json.load(open(os.path.join(WORK, 'cams33.json'))).items()
              if c.get('kind') in ('main', 'el30', 'low20')}
-    sdfs = {}
-    for n in cams_:
-        m_ = (cv2.imread(os.path.join(WORK, f'mask_{n}.png'), 0) > 0).astype(np.uint8)
-        sdfs[n] = (cv2.distanceTransform(1 - m_, cv2.DIST_L2, 5) - cv2.distanceTransform(m_, cv2.DIST_L2, 5)).astype(np.float32)
+    sdfs = {n: silfit.signed(cv2.imread(os.path.join(WORK, f'mask_{n}.png'), 0)) for n in cams_}
+    tri_ = np.array([(f[0], f[k], f[k + 1]) for f in ([int(v) for v in f] for f in faces) for k in range(1, len(f) - 1)])
+    tri_ = loc[tri_[body[tri_].all(1)]]                         # the body's own surface, in X's numbering
     free = base_w > 0
     for it in range(SIL_ITERS):
-        nrm = vnormals(X)
-        acc_ = np.zeros_like(X); cnt_ = np.zeros(len(X))
-        for n, c in cams_.items():
-            r_, u_, f_ = camera.axes(c['phi'], c['th'])
-            nf = nrm @ f_
-            rim = free & (np.abs(nf) < 0.25)
-            col, row = camera.project(X[rim], c)
-            sd = cv2.remap(sdfs[n], col.astype(np.float32).reshape(1, -1), row.astype(np.float32).reshape(1, -1),
-                           cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).ravel()
-            near_ = np.abs(sd) < 20
-            ip = nrm[rim] - nf[rim, None] * f_                 # outward direction in the image plane
-            ip /= np.linalg.norm(ip, axis=1, keepdims=True) + 1e-9
-            ids_ = np.flatnonzero(rim)[near_]
-            acc_[ids_] += ip[near_] * (-sd[near_] / c['s'])[:, None]
-            cnt_[ids_] += 1
-        has = cnt_ > 0
-        T_ = np.zeros_like(X); T_[has] = acc_[has] / cnt_[has, None]
+        # the level ring has the larger say and every vertex is measured against the model's own outline: silfit.py
+        T_, has = silfit.moves(X, vnormals(X), tri_, cams_, sdfs, free)
         Wd = sp.diags(np.where(has, 1.0, 0.0) + 1e-4)
         solve_ = factorized((Wd + 4.0 * LtL).tocsc())
         Dd = np.stack([solve_(Wd @ T_[:, k]) for k in range(3)], 1)
