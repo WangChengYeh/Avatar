@@ -224,42 +224,10 @@ def arm_mask(photos, name, step=0.004):
     front, top = (cv2.imread(os.path.join(photos, f + '.jpg')) for f in (FULL[0], 'top'))
     if im is None or front is None or top is None:
         return None
-    mf, mt = ct.segment(front)[0].astype(bool), ct.segment(top)[0].astype(bool)
-    H, W = mf.shape
-    rows = np.flatnonzero(mf.any(1))
-    s = (rows[-1] - rows[0]) / ct.SPEC_HEIGHT                       # px per m, front view
-    tc, fc = np.flatnonzero(mt.any(0)), np.flatnonzero(mf.any(0))
-    if not len(tc) or not len(fc):
+    arms = ct.rebuilt_arms(ct.segment(front)[0], ct.segment(top)[0], step)      # the check measures against the same
+    if not arms:
         return None
-    st = (tc[-1] - tc[0]) / ((fc[-1] - fc[0]) / s)                  # px per m, top view (same arm span)
-    tcx = (tc[-1] + tc[0]) / 2
-    band = mt[:, int(tcx - 0.10 * st):int(tcx + 0.10 * st)].any(1)
-    tr = np.flatnonzero(band)
-    trc = (tr[0] + tr[-1]) / 2                                     # the torso's depth centre (front toward the bottom)
-    arm_x = 0.20 * ct.SPEC_HEIGHT / 1.65
-    P = []
-    for x in np.arange(-1.0, 1.0, step):
-        if abs(x) < arm_x:
-            continue
-        c, ctp = int(round(W / 2 + s * x)), int(round(tcx + st * x))
-        if not (0 <= c < W and 0 <= ctp < mt.shape[1]) or not mf[:, c].any() or not mt[:, ctp].any():
-            continue
-        r = np.flatnonzero(mf[:, c])
-        y0, y1 = (H / 2 - r[-1]) / s, (H / 2 - r[0]) / s           # relative to the body centre
-        if y1 - y0 > 0.25:                                         # a body column, not an arm
-            continue
-        zr = np.flatnonzero(mt[:, ctp])
-        zc, zh = ((zr[0] + zr[-1]) / 2 - trc) / st, (zr[-1] - zr[0]) / 2 / st
-        for t in np.linspace(0, 2 * np.pi, 48, endpoint=False):
-            P.append((x, (y0 + y1) / 2 + (y1 - y0) / 2 * np.sin(t), zc + zh * np.cos(t)))
-    if not P:
-        return None
-    P = np.array(P)
-    r_, u_ = ct._spec_axes(a, ct.RING_TILT[ring])
-    col = np.round(W / 2 + s * (P @ r_)).astype(int); row = np.round(H / 2 - s * (P @ u_)).astype(int)
-    ok = (col >= 0) & (col < W) & (row >= 0) & (row < H)
-    arm = np.zeros((H, W), np.uint8); arm[row[ok], col[ok]] = 1
-    return cv2.morphologyEx(arm, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8)) > 0
+    return ct.arms_seen(arms[0], arms[1], a, ct.RING_TILT[ring], ct.segment(front)[0].shape)
 
 
 def make(photos, out, leaves):

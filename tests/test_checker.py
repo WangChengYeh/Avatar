@@ -548,6 +548,22 @@ def test_tilted_arms_drawn_off(broken):
     assert [l.split()[1] for l in arms] == ['el30_315deg'], arms
 
 
+def test_tilted_arms_are_measured_against_the_arms_the_sheet_draws(broken):
+    """1.51.0: the arm item and the retouch sheet's orange picture use the same arms (front height, top depth, as
+    arms33 rebuilds them). Before, the item measured against the level ring's hull: ChatGPT R77 (#117) moved
+    el30_315deg's arms onto the orange picture and the item got worse (45 -> 48 %)"""
+    import ai_request as ar, check_turnaround as ct
+    front = ct.segment(cv2.imread(str(broken / '01_000deg_front.jpg')))[0]
+    top = ct.segment(cv2.imread(str(broken / 'top.jpg')))[0]
+    P, s = ct.rebuilt_arms(front, top)
+    for name, (a, th) in {'el30_315deg': (315, 30.0), 'low20_045deg': (45, -20.0)}.items():
+        m = ct.segment(cv2.imread(str(broken / (name + '.jpg'))))[0]
+        assert (ar.arm_mask(str(broken), name) == ct.arms_seen(P, s, a, th, m.shape)).all()
+        assert ct.arm_missing(m, P, s, a, th) < ct.ARM_MISS_PASS                 # perfect photos: 0-22 %
+    assert ct.arm_missing(np.zeros_like(m), P, s, 45, -20.0) == 1.0
+    assert ct.rebuilt_arms(front, np.zeros_like(top)) is None
+
+
 def test_arm_reference_shows_where_the_arms_belong(broken):
     """AI 修圖單 for 斜角照手臂: the arm model (front + top views, as arms33 builds it) lies on the arms of a perfect
     tilted view, and off them once the arms are drawn 6 cm too high (R47 el30_315deg)"""
