@@ -1,0 +1,26 @@
+<figure class="viz-root diagram">
+<svg viewBox="0 0 600 262" role="img" aria-label="正面照的輪廓左右翻過來，就是背面照的輪廓：正面在左邊的馬尾，背面出現在右邊">
+<defs><marker id="dg11c-fix" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-arrhead-fix" d="M 0 0 L 10 5 L 0 10 z"/></marker></defs>
+<g>
+<rect class="dg-body" x="60" y="80" width="180" height="14"/>
+<polygon class="dg-body" points="125,75 175,75 170,150 130,150"/>
+<rect class="dg-body" x="130" y="150" width="16" height="75"/><rect class="dg-body" x="154" y="150" width="16" height="75"/>
+<ellipse class="dg-body" cx="122" cy="60" rx="10" ry="17"/>
+<circle class="dg-body" cx="150" cy="50" r="22"/>
+</g>
+<g>
+<rect class="dg-new" x="360" y="80" width="180" height="14"/>
+<polygon class="dg-new" points="425,75 475,75 470,150 430,150"/>
+<rect class="dg-new" x="430" y="150" width="16" height="75"/><rect class="dg-new" x="454" y="150" width="16" height="75"/>
+<ellipse class="dg-new" cx="478" cy="60" rx="10" ry="17"/>
+<circle class="dg-new" cx="450" cy="50" r="22"/>
+</g>
+<line class="dg-move" x1="262" y1="130" x2="336" y2="130" marker-end="url(#dg11c-fix)"/>
+<text x="300" y="118" text-anchor="middle" class="dg-c-fix">左右翻轉</text>
+<text x="96" y="40" text-anchor="middle" class="dg-s">馬尾在左</text>
+<text x="506" y="40" text-anchor="middle" class="dg-s">馬尾在右</text>
+<text x="150" y="250" text-anchor="middle" class="dg-s">正面照（已經畫好）</text>
+<text x="450" y="250" text-anchor="middle" class="dg-c-fix">背面照的輪廓：不用猜，是算出來的</text>
+</svg>
+<figcaption><strong>圖 4</strong>　一個站著不動的人，從正前方和正後方看，輪廓互為左右相反（相機沒有近大遠小時，這是準確的，不是近似）。所以正面照畫好之後，背面照的輪廓就已經定了：把正面的輪廓左右翻過來（綠色虛線）。AI 要做的只是在線裡面畫出背面的樣子。左側面與右側面、左前與右後也是同樣的關係。</figcaption>
+</figure>

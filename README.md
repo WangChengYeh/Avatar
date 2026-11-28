@@ -104,7 +104,7 @@ node scripts/compare_turnaround.mjs --photos ./photos \
 
 ## 文件
 
-- [技術報告](https://wangchengyeh.github.io/Avatar/) · 十個難題各一篇：問題、理論、方法、量測、還沒解決的部分（原始檔在 `docs/papers/`）
+- [技術報告](https://wangchengyeh.github.io/Avatar/) · 每個難題一篇（目前 11 篇）：原先的做法、遇到的問題、新的做法、結果、還沒解決的部分（原始檔在 `docs/papers/`）
 - [交接清單](docs/Handoff.md) · 還沒做完的事（每個新的 Claude session 先讀）
 - [重要檔案清單](docs/File-List.md) · 要讀哪些文件、程式入口、每一輪產生的檔案、各 avatar 目前的狀態與交接清單
 - [執行者 runbook](docs/Agent-Runbook.md) · ChatGPT／Gemini 反覆跑 `body3d/next_step.py`、照它說的做，只有 DONE 才停（等 Claude 時跑 `--wait`，程式自己等）；結果用 Google Drive 連結器放到雲端硬碟 `avatar/`
