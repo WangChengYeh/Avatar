@@ -211,18 +211,21 @@ def draw_step(ws, n, photos, me):
         me])
 
 
-def run_cmd(photos, out, name, template):
+def run_cmd(photos, out, name, template, reuse=None):
     t = f' --template {template}' if template not in (None, 'auto') else ''
     q = shlex.quote
-    return f'{q(sys.executable)} {q(os.path.join(REPO, "body3d", "run_all.py"))} {q(photos)} {q(out)} --name {q(name)}{t}'
+    # the same photos under changed code: the steps of the last version whose code did not change are reused
+    r = f' --reuse {q(reuse)}' if reuse and os.path.exists(os.path.join(reuse, 'work', 'checkpoint.json')) else ''
+    return f'{q(sys.executable)} {q(os.path.join(REPO, "body3d", "run_all.py"))} {q(photos)} {q(out)} --name {q(name)}{t}{r}'
 
 
-def next_version_steps(ws, n, photos, name, template, why=''):
-    """copy this round's photos into a new version v(n) and run it there (a rerun never overwrites a version)"""
+def next_version_steps(ws, n, photos, name, template, why='', reuse=None):
+    """copy this round's photos into a new version v(n) and run it there (a rerun never overwrites a version).
+    reuse: the output folder of the version these photos were run in last"""
     new = vdir(ws, n)
     q = shlex.quote                                    # paths may have spaces
     return [f'mkdir -p {q(new + "/photos")} && cp {q(photos)}/*.jpg {q(new + "/photos")}/' + (f'   # {why}' if why else ''),
-            run_cmd(f'{new}/photos', f'{new}/output', name, template)]
+            run_cmd(f'{new}/photos', f'{new}/output', name, template, reuse)]
 
 
 def auto_publish(ws, state):
@@ -416,7 +419,7 @@ def decide(ws, avatar, agent, name, template, state):
         if st in ('CLOSED', 'MERGED'):
             state['waiting'] = None
             return dict(state='RUN', why=f'{kind} #{num} 已解決（{st}）：拿新的 SOP／程式從頭重跑', steps=[
-                f'cd {shlex.quote(REPO)} && git pull origin main'] + next_version_steps(ws, cn + 1, photos, name, template) + [me])
+                f'cd {shlex.quote(REPO)} && git pull origin main'] + next_version_steps(ws, cn + 1, photos, name, template, reuse=out) + [me])
         return dict(state='WAITING', why=f'等 Claude 處理 {kind} #{num}（目前 {st or "查不到狀態：檢查 gh 是否登入"}）', claude=True, steps=[
             f'{me} --wait   # 程式自己等：每分鐘檢查一次 GitHub，Claude 的修正一合併就回來告訴你下一步；'
             '等不到也會在沙盒逾時之前回來，再跑一次同一個指令繼續等'])
@@ -440,7 +443,7 @@ def decide(ws, avatar, agent, name, template, state):
         if idle > STALE_RUN:
             return dict(state='RUN', why=f'{os.path.basename(cur)} 的重建被中斷了（progress.json 已經 {round(idle / 60)} 分鐘沒有更新，'
                                          '沒有東西在跑）：用同一組照片在新的版本從頭重跑',
-                        steps=next_version_steps(ws, cn + 1, photos, name, template) + [me])
+                        steps=next_version_steps(ws, cn + 1, photos, name, template, reuse=out) + [me])
         return dict(state='WAITING', why=f'{os.path.basename(cur)} 還在跑', steps=[f'等它跑完，再跑：{me}'])
     # results made by older code are not results: rerun the same photos with the code of this checkout
     made_by = (gates.get('code') or progress.get('code') or {})
@@ -448,13 +451,17 @@ def decide(ws, avatar, agent, name, template, state):
         sys.path.insert(0, HERE)
         import run_all
         changed = made_by['hash'] != run_all.code_hash()
+        # code changed, but not in any step this run got to (it stopped at gate 1 and the change is in the bake; or
+        # only a file no step runs): the result stands, nothing is rerun (run_all.step_fingerprints)
+        if changed and run_all.still_valid(out, photos):
+            changed = False
     else:
         changed = code_changed_since(made_by.get('commit'))
     if changed or not (made_by.get('hash') or made_by.get('commit')):
         why = (f'{os.path.basename(cur)} 是舊的程式跑的（commit {str(made_by.get("commit"))[:7]}，之後 body3d/ 改過）'
                if changed else f'{os.path.basename(cur)} 沒有記錄是哪一版程式跑的')
-        return dict(state='RUN', why=why + '：用目前的程式、同一組照片重跑',
-                    steps=next_version_steps(ws, cn + 1, photos, name, template) + [me])
+        return dict(state='RUN', why=why + '：用目前的程式、同一組照片重跑（程式沒有變的步驟會沿用上一版的，從第一個有變的步驟開始）',
+                    steps=next_version_steps(ws, cn + 1, photos, name, template, reuse=out) + [me])
     if gates.get('deliverable'):
         return dict(state='DONE', why=f'{os.path.basename(cur)}：四道關卡全部 0 FAIL，四包都是好的', steps=[
             '照 docs/SOP.md#可以交付了嗎 做交付檢查：逐項看需複核（WARN）記在 Issue；在 Yoga2 匯入 GLB 截圖（站姿、抬手）',
@@ -463,7 +470,7 @@ def decide(ws, avatar, agent, name, template, state):
     if not any(v['FAIL'] for v in g_.values()) and progress.get('state') != 'stopped':
         # nothing failed but not deliverable: the four gates did not all run (e.g. --only / --from): run it all
         return dict(state='RUN', why=f'{os.path.basename(cur)} 沒有跑完四道關卡（沒有 FAIL，但也還不能交付）：從頭完整跑',
-                    steps=next_version_steps(ws, cn + 1, photos, name, template) + [me])
+                    steps=next_version_steps(ws, cn + 1, photos, name, template, reuse=out) + [me])
     # the same FAIL item, no progress -> escalate (the executor does not decide this). A retry makes progress when it
     # fails fewer items or gets to a later gate: a small redraw that fixes some photos keeps going (R52: ChatGPT
     # escalated after fixing 5 of 7). Only runs of the same code count: after an update the new SOP gets its own
