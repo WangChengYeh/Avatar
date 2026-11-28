@@ -104,6 +104,8 @@ def load_view(n):
         smudge = cv2.morphologyEx(smudge, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
         print('top view smudge pixels removed:', int((smudge & m).sum()))
         m = m & (1 - smudge)
+    if cams[n]['kind'] == 'head':
+        m = facemask.solid(m, im, cams[n]['s'])        # earrings and wisps give no colour and count as outside
     m2 = cv2.erode(m, np.ones((5, 5), np.uint8))
     _, lb = cv2.distanceTransformWithLabels(1 - m2, cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL)
     zy, zx = np.nonzero(m2 == 1); lut = np.zeros(lb.max() + 1, np.int64); lut[lb[zy, zx]] = zy * W_ + zx

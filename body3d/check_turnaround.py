@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 check_turnaround.py — 檢查一組人物旋轉圖（turnaround）是否適合做 3D 重建
-版本 1.49.0（2026-11-28）
+版本 1.50.0（2026-11-28）
 
 版本紀錄:
+  1.50.0 「正面／斜面一致性」判 FAIL 時多印一行「→」：要重畫的是那張斜面特寫，以及照什麼畫（五官的高度與彼此的距離、
+         臉相對頭髮的大小和正面特寫一致）。這一項原本沒有建議，診斷也沒有規則（列為未分類）。門檻不變。
   1.49.0 第 10i 項「全視角外殼覆蓋」寫出少在哪個部位（頭、手臂的高度、軀幹、腿、腳，佔人物面積的 %），少的主要是腳時改叫
          人修腳並點名照片；新增第 10j 項「雙腳的位置」（只報 WARN）：正面、背面、左右側面四張水平照決定的腳，每張全身照的腳
          超出它多少（完美照片 ≤ 2.6%，> 4% 提醒）。ChatGPT R63–R72 十輪停在覆蓋率 94%：訊息叫它修斜角照的相機距離與對準，
@@ -307,7 +309,7 @@ import argparse, csv, hashlib, json, os, re, sys
 from itertools import combinations
 from pathlib import Path
 
-__version__ = '1.49.0'
+__version__ = '1.50.0'
 import numpy as np
 import cv2
 
@@ -2453,6 +2455,14 @@ def report_face_depth(frontal, scale, depth_change):
               f'最大絕對位移 {np.max(np.abs(depths)):.1f} mm（{len(depths)} 點）')
 
 
+def front_oblique_advice():
+    """what to do when the frontal close-up's features do not land on a 3/4 close-up's (median > 2 % of the photo
+    height after the face relief): that close-up draws another face. Until 1.50.0 this FAIL had no advice"""
+    return ('這張斜面特寫的五官位置和正面特寫湊不成同一張臉（常見：AI 把斜面特寫的臉畫得比正面大、長，或五官高度不同）；'
+            '重畫這張：照同角度全身圖頭部的 4 倍放大，眼睛、鼻子、嘴巴的高度和彼此的距離與正面特寫一致，'
+            '臉相對頭髮的大小與正面特寫一致')
+
+
 def report_face_reconstruction(work, cameras, landmarks, photo_height):
     """Compare the same visible landmarks before and after face3d."""
     if len(landmarks) < 468 or cameras[FRONT].get('D'):
@@ -2516,6 +2526,8 @@ def report_face_reconstruction(work, cameras, landmarks, photo_height):
               f'（{initial_median_px:.1f} → {final_median_px:.1f} px），'
               f'P90 {np.percentile(initial_mm, 90):.1f} → {np.percentile(final_mm, 90):.1f} mm'
               f'（兩階段共同可見 {count}/468 點）')
+        if level == FAIL:
+            print(f'  → {front_oblique_advice()}')
     if assessed:
         report_face_depth(frontal, front_cam['s'], depth_change)
     return failed

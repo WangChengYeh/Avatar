@@ -34,3 +34,45 @@ def owner_mask(lmk, shape, pad_px):
     to_feat = cv2.distanceTransform(1 - feat, cv2.DIST_L2, 5)
     f = inside / np.maximum(inside + to_feat, 1e-6)
     return (f * f * (3 - 2 * f)).astype(np.float32)
+
+
+THIN = 0.008                        # m: outline features thinner than this are not the head (wisps, earring threads)
+PALE_CHROMA, PALE_L = 12, 150       # Lab: light and colourless
+PALE_REACH = 0.007                  # m from the background: where a pale patch counts as hanging off the outline
+
+
+HANG = 0.012                        # what hangs off the head by a neck thinner than this is not the head (m)
+HANG_BACK = 0.002                   # the opening rounds tips off (nose, chin, lips): this much is given back (m)
+
+
+def trunk(mask, scale):
+    """the head's outline without what hangs off it by a thin neck: drop earrings, loose strands of hair, eyelashes.
+    As part of the outline they are carved into the head: the frontal close-up of Gemini avatar_001 v015 was 157 mm
+    wide at the jaw with its earrings and 131 mm without, and the finished jaw was as wide as the cheekbones.
+    Ears, nose and chin stay: they join the head along their long side. mask: uint8 0 / 1; scale: px per m"""
+    m = (mask > 0).astype(np.uint8)
+    k = 2 * int(round(HANG / 2 * scale)) + 1
+    b = 2 * int(round(HANG_BACK * scale)) + 1
+    core = cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return m & cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (b, b)))
+
+
+def solid(mask, image, scale):
+    """the head of a close-up without what hangs off its outline: pale, colourless patches next to the background
+    (earrings, the matte's white fringe) and anything thinner than THIN. Baked, the frontal close-up's earrings landed
+    on the jaw as white patches (Gemini avatar_001 v018). Teeth and the whites of the eyes are not next to the
+    background and stay. mask: uint8 0 / 1; scale: px per m"""
+    m = (mask > 0).astype(np.uint8)
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB).astype(np.float32)
+    pale = ((np.hypot(lab[..., 1] - 128, lab[..., 2] - 128) < PALE_CHROMA) & (lab[..., 0] > PALE_L) & (m > 0)).astype(np.uint8)
+    r = 2 * int(round(PALE_REACH * scale)) + 1
+    near = cv2.dilate(1 - m, np.ones((r, r), np.uint8))
+    n, lbl, stats, _ = cv2.connectedComponentsWithStats(cv2.morphologyEx(pale, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8)))
+    hang = np.zeros_like(m)
+    for i in range(1, n):
+        comp = lbl == i
+        if stats[i, cv2.CC_STAT_AREA] > 60 and near[comp].mean() > 0.5:
+            hang[comp] = 1
+    m = m & (1 - cv2.dilate(hang, np.ones((7, 7), np.uint8)))
+    k = 2 * int(round(THIN / 2 * scale)) + 1
+    return cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
