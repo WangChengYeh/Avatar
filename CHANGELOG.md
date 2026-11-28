@@ -4,6 +4,28 @@
 
 以下數字來自各版本的測試或特定輸入，保留當時的測試條件與限制。
 
+## MakeHuman 模板成為預設（body3d 2.31.0）
+
+人在 2026-11-28 問：MakeHuman 模板應該是標準做法了，文件要不要改。查的結果：程式與所有文件都還寫「預設外殼流程，MakeHuman 選用」，執行者的 `next_step.py` 也預設外殼。
+- **先確認它在現在的程式上還站得住**（MakeHuman 上次完整驗證是 2.18–2.21）。同一版程式（2.30.0），兩種模板各跑三組照片：
+
+  | 照片 | 外殼流程 | MakeHuman 模板 |
+  | --- | --- | --- |
+  | luna（完美照片） | 0 FAIL／0 WARN，最終剪影差 5.0% | 0 FAIL／0 WARN，6.0% |
+  | synth（完美照片） | 0 FAIL／0 WARN，4.4% | 0 FAIL、第 2 關 1 WARN（右臉頰 P90 21.0／20，已知），5.7% |
+  | Gemini avatar_001 v015 | 0 FAIL；第 2 關 10 WARN、第 4 關 2 WARN；9.1% | 0 FAIL；第 2 關 9 WARN、第 4 關 3 WARN；9.6% |
+
+  兩種都可交付。MakeHuman 的剪影差多 0.5–1.3 個百分點（通用體型拉到外殼上），換來手指、自然的肩膀、乾淨的佈線與 52 根骨頭。頭、臉、貼圖兩種相同。
+- **修改**：
+  - `run_all.py --template` 多一個 `auto`，並成為預設：Blender 有 MPFB 擴充就用 `makehuman`，沒有就用 `hull`，開頭印「模板：…（原因）」。沒有 MPFB 時不失敗：執行者的環境不一定裝得了。指定 `--template makehuman` 而沒有 MPFB 仍然失敗。
+  - 接續舊的輸出資料夾（`--from`、`--only`）時沿用它原本的模板（`work/template.txt`），不會做到一半換模板。只跑 `uv` 之前的步驟時不去問 Blender（那些步驟兩種模板相同）。
+  - `gates.json` 多一欄 `template`：實際用了哪一個。
+  - `next_step.py --template` 預設改成 `auto`（不再往 `run_all` 的指令裡加旗標）。
+  - 端到端測試裡原本靠預設走外殼流程的三個，明確寫 `--template hull`；MakeHuman 的端到端測試不變；新增 `pick_template` 的單元測試。
+- **驗證**：luna 用預設（不寫 `--template`）從頭跑：開頭印「模板：makehuman（Blender 有 MPFB 擴充）」，四道關卡 0 FAIL／0 WARN，`gates.json` 的 `template` 是 `makehuman`。
+- **文件**：README、SOP、流程與驗收（對照表換成上面這一版的數字）、檔案清單、第 8 篇、交接清單。
+- **還不知道的**：Gemini 的環境有沒有 MPFB（它沒有跑過 MakeHuman）。沒有的話它會照外殼流程跑，`gates.json` 看得出來。
+
 ## 耳環不算頭的輪廓；斜面特寫對不上時說出重畫哪一張（body3d 2.30.0、check_turnaround 1.50.0）
 
 Gemini avatar_001 v018 四道關卡 0 FAIL、DONE，人看了說「輸入是美女，輸出變醜」。把 GLB 用照片的相機渲染、和輸入並排複核（Claude 的責任，見 `CLAUDE.md`）：下巴和顴骨一樣寬、側面的臉凸出一塊、髮髻是尖錐。這一版處理第一項，並記下另外兩項查到哪裡。

@@ -153,7 +153,7 @@ def code_changed_since(commit):
 
 
 def run_cmd(photos, out, name, template):
-    t = f' --template {template}' if template != 'hull' else ''
+    t = f' --template {template}' if template != 'auto' else ''
     q = shlex.quote
     return f'{q(sys.executable)} {q(os.path.join(REPO, "body3d", "run_all.py"))} {q(photos)} {q(out)} --name {q(name)}{t}'
 
@@ -431,7 +431,8 @@ def main(argv=None):
     ap.add_argument('--avatar', help='預設：資料夾名稱（avatar_NNN）')
     ap.add_argument('--agent', help='預設：上一層資料夾名稱（chatgpt／gemini）')
     ap.add_argument('--name', help='GLB 名稱，預設：avatar 名稱')
-    ap.add_argument('--template', default='hull', choices=['hull', 'makehuman'])
+    ap.add_argument('--template', default='auto', choices=['auto', 'makehuman', 'hull'],
+                    help='預設 auto：run_all 在 Blender 有 MPFB 時用 MakeHuman 模板，沒有就用外殼')
     ap.add_argument('--waiting-issue', type=int); ap.add_argument('--waiting-pr', type=int)
     ap.add_argument('--wait', type=float, nargs='?', const=0, default=None, metavar='分鐘',
                     help='WAITING（等 Claude）時不馬上結束：每分鐘檢查一次，最多等這麼久就回來；不給數字就自己學沙盒的時限')

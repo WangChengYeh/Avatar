@@ -1,9 +1,10 @@
 """run_all.py 的流程控制；完整端到端測試需要 --photos（或環境變數 BODY3D_PHOTOS）"""
 import os
+import sys
 import numpy as np
 import pytest
 import verify_glb as vg
-from conftest import run_py
+from conftest import PKG, run_py
 
 
 def test_version():
@@ -38,7 +39,7 @@ def test_end_to_end(request, tmp_path):
     if not photos:
         pytest.skip('沒有給 --photos（33 張照片資料夾）')
     out = tmp_path / 'e2e'
-    rc, log = run_py('run_all.py', photos, out, '--force', '--name', 'body', timeout=7200)
+    rc, log = run_py('run_all.py', photos, out, '--force', '--name', 'body', '--template', 'hull', timeout=7200)
     assert rc == 0, log[-3000:]
     import fit_report
     rows = [r for r in fit_report.fit(str(out / 'work')) if r['kind'] == 'main']
@@ -89,7 +90,7 @@ def test_camera_benchmark_perspective(persp_set, tmp_path):
 
 def test_blender_script_error_fails_the_step(synth_set, tmp_path):
     """審查第 1 項：全新輸出資料夾只跑 uv（沒有網格）→ Blender 腳本出錯，CLI 要回傳非零並指出步驟"""
-    rc, out = run_py('run_all.py', synth_set, tmp_path / 'fresh', '--only', 'uv')
+    rc, out = run_py('run_all.py', synth_set, tmp_path / 'fresh', '--only', 'uv', '--template', 'hull')
     assert rc != 0 and '停在步驟 uv' in out
 
 
@@ -152,7 +153,7 @@ def test_synthetic_end_to_end_needs_no_force(synth_set, tmp_path):
     """#28: perfect photos run through all 18 steps without --force: the photo check, the pre-bake head check
     (spec angles, thresholds calibrated on perfect photos) and the final fit all pass"""
     out = tmp_path / 'e2e'
-    rc, log = run_py('run_all.py', synth_set, out, '--name', 'body', timeout=7200)
+    rc, log = run_py('run_all.py', synth_set, out, '--name', 'body', '--template', 'hull', timeout=7200)
     assert rc == 0, log[-3000:]
     text = open(out / 'run_all.log', errors='replace').read()
     prebake = text.split('--head-overlap-work', 1)[1].split('bake33.py', 1)[0]
@@ -161,7 +162,25 @@ def test_synthetic_end_to_end_needs_no_force(synth_set, tmp_path):
 
 def test_makehuman_template_option():
     rc, out = run_py('run_all.py', '--help')
-    assert rc == 0 and '--template' in out and 'makehuman' in out
+    assert rc == 0 and '--template' in out and 'makehuman' in out and 'auto' in out
+
+
+def test_template_auto_is_makehuman_when_blender_has_the_extension(tmp_path):
+    """2.31.0: the MakeHuman template is the default where it can run (Blender with MPFB); without MPFB the run
+    still works with the hull and says so. A resumed run keeps the template its folder was built with"""
+    sys.path.insert(0, PKG)
+    import run_all
+    work = tmp_path / 'work'; work.mkdir()
+    yes, no = (lambda blender: True), (lambda blender: False)
+    assert run_all.pick_template('auto', 'blender', str(work), False, probe=yes)[0] == 'makehuman'
+    t, why = run_all.pick_template('auto', 'blender', str(work), False, probe=no)
+    assert t == 'hull' and 'MPFB' in why
+    assert run_all.pick_template('hull', 'blender', str(work), False, probe=yes) == ('hull', '')
+    assert run_all.pick_template('makehuman', 'blender', str(work), False, probe=no) == ('makehuman', '')
+    (work / 'template.txt').write_text('hull\n')
+    assert run_all.pick_template('auto', 'blender', str(work), True, probe=yes)[0] == 'hull'        # resuming
+    assert run_all.pick_template('auto', 'blender', str(work), False, probe=yes)[0] == 'makehuman'  # from the start
+    assert run_all.has_mpfb(None) is False and run_all.has_mpfb(str(tmp_path / 'no-such-blender')) is False
 
 
 @pytest.mark.slow

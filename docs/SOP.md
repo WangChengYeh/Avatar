@@ -250,7 +250,7 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 
 ### 已知限制
 
-- MakeHuman 模板（`--template makehuman`）：身體、手指、骨架來自 MakeHuman，頭來自外殼（body3d 2.18 起；之前用 MakeHuman 的通用臉，0°–45° 之間有接縫，R31）。兩組完美照片四道關卡 0 FAIL；四道關卡都 0 FAIL 時可交付。預設仍是外殼流程。
+- 模板：預設 `auto`（body3d 2.31.0 起）。Blender 有 MPFB 擴充時用 MakeHuman 模板：身體、手指、骨架來自 MakeHuman，頭來自外殼（2.18 起；之前用 MakeHuman 的通用臉，0°–45° 之間有接縫，R31）。沒有 MPFB 時用外殼流程（22 根骨頭、手是一塊），`run_all` 開頭會印出原因。兩種模板四道關卡都 0 FAIL 時都可交付；臉、頭髮、貼圖兩者相同，差在身體的佈線、手指與肩膀。執行者的環境裝 MPFB：`blender --command extension install -s -e mpfb`（要能連到 extensions.blender.org；裝不了就照外殼流程跑，不用停）。
 - 檢查還沒涵蓋照片之間的中間角度（例如 0° 與 45° 之間）與擺姿勢後的貼圖：R31 的臉部接縫是在 App 裡才看到的，現在靠烘焙前的臉頰亮度、五官投影與相鄰頭部特寫一致間接抓。
 - 檢查還沒涵蓋網格自我穿插；Yoga2 看到斑點或摺痕時，先用 Blender 實際渲染確認（`verify_glb --renders` 的頭部圖用點去畫，會冒出假的小點）。
 - Yoga2 的站姿、抬手截圖還沒自動化：由 AI 用瀏覽器開 Yoga2 匯入 GLB 後截圖。
