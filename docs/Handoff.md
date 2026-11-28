@@ -14,6 +14,7 @@
 
 | 項目 | 下一步 | 在哪裡 |
 | --- | --- | --- |
+| **三個 PR 等人說合併（2026-11-28）** | **#121**（check_turnaround 1.51.0：腳畫短了也量得到、斜角照手臂和修圖單同一個基準；ChatGPT 在 #117 等這個，先合）→ **#120**（body3d 2.30.0：耳環不算頭的輪廓，Gemini v018 的下巴）→ **#122**（body3d 2.31.0：MakeHuman 模板成為預設；疊在 #120 上）。各 PR 的交接事項寫在各自分支的這張表裡，合併後才會出現在這裡；合併有衝突時由 Claude 解（三個都改了 CHANGELOG、這張表與第 2 篇）。合併 #121 後請 ChatGPT「繼續」，回來先讀它在 #117 的回報 | PR #120、#121、#122；issue #117、#84 |
 | **Gemini avatar_001 v018：四關 0 FAIL、DONE，複核不通過（人說：輸入是美女，輸出變醜）** | 把 GLB 用照片的相機渲染、和輸入並排：五官位置相同，但臉變寬（嘴的高度膚色寬度 75 → 98 mm，寬 31%；完美照片的模型寬 4–9%）、臉頰到下巴沒有收窄、耳朵只剩邊緣一條、鬢角髮絲沒有、髮髻和後腦連成尖錐。原因：臉頰與耳朵之間的凹處雕不出來，被朝前的平面補起來，貼上側面的皮膚。四道關卡沒有一項比成品的臉和輸入像不像。**下一步（照順序）**：① 把「成品像不像輸入」做成第 4 關的檢查（原型：正面特寫與渲染，從眼下到嘴的每一列量膚色寬度；`scratchpad` 的 facewidth.py，還沒進 repo），讓這種成品不再 DONE；② 修頭部側面的形狀（臉部輪廓的深度現在固定為 0，可改用特徵點的深度；耳朵）與貼圖；③ 髮髻 | issue #84、`steps/bl_client_render.py`、`face33.py`、`headsil33.py`、`bake33.py` |
 | **臉頰上的接縫沒有關卡會擋** | 「像兩層」已處理：2.27.0 臉有起伏，2.28.0 正面特寫只擁有五官、往輪廓平滑淡出（臉頰上的線消失）。但現有的檢查都量不到這條線（頭部貼圖條紋 0、貼圖色差中位數不變），這次靠渲染圖與遮罩的單元測試驗收。剩下：臉頰上很淡的明暗（兩張特寫亮度不同）；耳朵與鬢角髮絲沒有重建（正面看臉變寬） | `steps/facemask.py`、`bake33.py`、技術報告第 6 篇 |
 | **Gemini v012 第 3 關 FAIL：擺姿勢網格連續性**（6 條三角形邊超過 8 cm 和原長 4 倍，body3d 2.22.0，外殼流程） | 照片過了第 1、2 關，是程式的問題：從雲端硬碟拿 v012 的照片重現，查骨架權重（`rig.py`、`joints.py`）與 `verify_glb.py` 的門檻 | `avatar/gemini/avatar_001/v012/`、`verify_glb.py` |
@@ -55,7 +56,7 @@ https://wangchengyeh.github.io/Avatar/（`docs/papers/`）。規則見[專案迴
 ## 怎麼拿到東西
 
 - 照片與結果包：雲端硬碟 `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`，用 Google Drive 連結器讀（連結器在 session 開始時載入，剛設定好的要開新 session）。
-- 問題與討論：GitHub issue（目前開著的是 #65、#79、#84、#103、#113）；用 label `agent:<名字>` 篩選誰做的。
+- 問題與討論：GitHub issue（目前開著的是 #65、#79、#84、#103、#117；#113 已關）；用 label `agent:<名字>` 篩選誰做的。
 - 跑流程：本機 Blender 要裝 MPFB 擴充才能跑 `--template makehuman`；Python 套件照 `requirements.txt`。
 - 技術報告（每個難題一篇，理論與量測）：https://wangchengyeh.github.io/Avatar/，原始檔在 `docs/papers/`，版面在 `docs/_layouts/`、`docs/_includes/chart.html`、`docs/assets/paper.css`。GitHub Pages 從 main 的 `/docs` 建置。
 - 專案總覽（每個 avatar、每一版、四關 FAIL／WARN／PASS、最終結果圖）：`dashboard/` 的 Google Apps Script，部署在使用者的 Google 帳號，直接讀雲端硬碟（安裝步驟見 `dashboard/README.md`）。
