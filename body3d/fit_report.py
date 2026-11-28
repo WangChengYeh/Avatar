@@ -114,6 +114,8 @@ def main():
                 print('分成：' + '、'.join(parts['parts']))
                 for line in part_compare.lines(parts):
                     print(line)
+                if parts.get('first'):               # not everything at once: the few that differ most
+                    print('  → 這一輪先修（差最多的幾個）：' + '、'.join(parts['first']) + '；修完重跑，再看其餘的')
                 nf += sum(r['level'] == 'FAIL' for r in parts['views']); nw += sum(r['level'] == 'WARN' for r in parts['views'])
                 npass += sum(r['level'] == 'PASS' for r in parts['views'])
         print(f'\n總結: {nf} 個 FAIL, {nw} 個 WARN, {npass} 個 PASS，共 {nf + nw + npass} 項')

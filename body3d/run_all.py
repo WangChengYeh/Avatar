@@ -406,7 +406,7 @@ def main(argv=None):
                  + mesh + parts, out, log, ok_codes=(0, 1))
         tally('4 最終驗收')
         txt = open(log, errors='replace').read().split('\n$ ')[-1]
-        print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]', '總結'))))
+        print('   ' + '\n   '.join(l for l in txt.splitlines() if l.startswith(('[PASS]', '[WARN]', '[FAIL]', '總結', '  →'))))
         if rc:                                       # the worst views go on the AI retouch request (R54 escalated without one)
             diagnose(4)
         if rc and not go_on:

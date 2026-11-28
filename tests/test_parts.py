@@ -85,3 +85,21 @@ def test_parts_get_names_and_the_report_says_which_one():
                            parts={'頭髮': [30.0, 22.0, 9.2], '皮膚': [60.0, 61.0, 1.0]})])
     line, = pc.lines(res)
     assert line.startswith('[FAIL] head_090deg 分塊比對: 頭髮 9.2%、皮膚 1.0%') and '「頭髮」' in line and '比照片小' in line
+
+
+def test_a_head_is_two_parts_and_the_worst_views_are_marked_first():
+    """a close-up is split into its dark and its light part only (hair, skin): with more colours the light in the
+    hair became a part of its own or joined a garment, and the numbers moved with the grouping (Gemini avatar_001:
+    16 % for a "garment" above the shoulders). And not everything at once: the few views that differ most, each
+    against its own limit, are marked as the ones to fix this round"""
+    a = head()
+    cen, fam = pc.palette([a], colours=2)
+    assert len(cen) == 2 and cen[0, 0] < cen[1, 0] and list(fam) == [0, 1]             # the darker one first: the hair
+    L = pc.parts(a[0], a[1], cen, fam)
+    assert set(np.unique(L)) == {0, 1, 2}
+    res = dict(views=[
+        dict(view='head_315deg', kind='head', level='FAIL', worst='皮膚', first=True, parts={'皮膚': [50.0, 52.0, 9.4]}),
+        dict(view='head_045deg', kind='head', level='FAIL', worst='皮膚', first=False, parts={'皮膚': [50.0, 52.0, 8.5]}),
+        dict(view='head_090deg', kind='head', level='WARN', worst='皮膚', first=False, parts={'皮膚': [50.0, 51.0, 5.2]})])
+    first, later, warn = pc.lines(res)
+    assert '【這一輪先修】' in first and '【這一輪先修】的那幾個' in later and '這一輪' not in warn

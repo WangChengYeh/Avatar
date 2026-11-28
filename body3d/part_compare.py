@@ -6,15 +6,19 @@ colour) is not in it. Gemini avatar_001 v018 passed all four gates and did not l
 as the cheekbones, a bun turned into a cone, a face standing out of its profile.
 
 What: the finished GLB is drawn with the registered camera of every level full-body photo and every head close-up
-(its own texture, no lighting). The photos' colours are grouped into the few things the figure is made of (hair,
-skin, each garment: shades of one colour are one thing), and every photo and its drawing are split into these
-parts. For each part: the area that lies in one picture and not, within a few pixels, in the other, as a share of
-the figure in that photo. A part that is the wrong shape, in the wrong place or the wrong colour shows up as that
-part's number, in that view.
+(its own texture, no lighting). The photos' colours are grouped into the few things the figure is made of, and every
+photo and its drawing are split into these parts. A full-body photo: hair, skin, each garment (shades of one colour
+are one thing). A head close-up: two parts only, the dark one and the light one, hair and skin; with more, the
+light in the hair came out as a part of its own or joined a garment of a similar colour, and the numbers moved
+with the grouping. For each part: the area that lies in one picture and not, within a few pixels, in the other, as
+a share of the figure in that photo. A part that is the wrong shape, in the wrong place or the wrong colour shows
+up as that part's number, in that view.
+
+Not everything at once: the report marks the few parts that differ most (FIRST) as the ones to fix this round.
 
 Calibrated on 2026-11-28 (body3d 2.29.0, both templates), largest part in any view:
-    perfect photos (luna, synth)   full-body 0.7-1.1 %    head close-ups 2.6-3.1 %
-    Gemini avatar_001 v015 / v018  full-body 5.0-6.0 %    head close-ups 9.2-10.1 %
+    perfect photos (luna, synth)   full-body 0.5-1.1 %    head close-ups 2.5-3.0 %
+    Gemini avatar_001 v015 / v018  full-body 6.0-6.3 %    head close-ups 9.5-9.7 % (45 and 315 deg; 4-8 % elsewhere)
 usage: python part_compare.py WORK PHOTOS MODEL.glb [--out parts_compare.jpg]"""
 import json
 import os
@@ -33,6 +37,7 @@ COLOURS = 7                                  # colour clusters before shades are
 SAME_HUE, SAME_LIGHT = 7.0, 60.0             # Lab a / b and L: closer than this in every pair = shades of one thing
 MIN_PART = 0.02                              # smaller than this share of the figure in both pictures: not reported
 TOLERANCE = 9                                # px at 1024: a part's edge may sit 4 px off
+FIRST = 3                                    # the parts that differ most are the ones to fix this round
 HEAD_FLOOR = 1.40                            # m: a close-up is compared above the shoulders (1.65 m figure)
 SIZE = 1024
 
@@ -103,8 +108,9 @@ def families(centres):
     return fam
 
 
-def palette(pictures, seed=3):
-    """the figure's colours: (cluster centres, family per cluster). pictures: [(BGR image, mask)]"""
+def palette(pictures, seed=3, colours=COLOURS):
+    """the figure's colours: (cluster centres, family per cluster). pictures: [(BGR image, mask)].
+    colours = 2: a head, its dark and its light part (hair, skin), darker first, no joining"""
     rng = np.random.default_rng(seed); X = []
     for im, m in pictures:
         m = cv2.erode(m.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
@@ -113,8 +119,11 @@ def palette(pictures, seed=3):
             X.append(f[rng.choice(len(f), min(len(f), 15000), replace=False)])
     X = np.vstack(X).astype(np.float32)
     cv2.setRNGSeed(seed)
-    _, _, cen = cv2.kmeans(X, min(COLOURS, len(X)), None, (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 60, 0.2),
+    _, _, cen = cv2.kmeans(X, min(colours, len(X)), None, (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 60, 0.2),
                            5, cv2.KMEANS_PP_CENTERS)
+    if colours == 2:
+        cen = cen[np.argsort(cen[:, 0])]
+        return cen, np.arange(len(cen))
     return cen, families(cen)
 
 
@@ -197,40 +206,63 @@ def compare(work, photos, glb, picture=None):
         shots[n] = (ph, pm, rim, rm)
     if not shots:
         return dict(parts=[], views=[], level='PASS')
-    cen, fam = palette([(s[0], s[1]) for s in shots.values()])
-    lab = {n: (parts(s[0], s[1], cen, fam), parts(s[2], s[3], cen, fam)) for n, s in shots.items()}
-    pick = lambda kind, tag: next((lab[n][0] for n in shots if cams[n].get('kind') == kind and tag in n), None)
-    nm = names(cen, fam, pick('head', '_000deg'), pick('head', '_180deg'), pick('main', '_000deg'))
+    kind = lambda n: 'head' if cams[n].get('kind') == 'head' else 'main'
+    pal, lab, nm = {}, {}, {}
+    for k in ('main', 'head'):
+        mine = [n for n in shots if kind(n) == k]
+        if not mine:
+            continue
+        pal[k] = palette([(shots[n][0], shots[n][1]) for n in mine], colours=2 if k == 'head' else COLOURS)
+        for n in mine:
+            lab[n] = (parts(shots[n][0], shots[n][1], *pal[k]), parts(shots[n][2], shots[n][3], *pal[k]))
+    pick = lambda tag: next((lab[n][0] for n in shots if kind(n) == 'main' and tag in n), None)
+    if 'main' in pal:                                  # the skin and the hair of the full-body photos: where the
+        front = pick('_000deg'); back = pick('_180deg')    # head is (the top 13 % of the figure)
+        top = lambda L: None if L is None else np.where(np.arange(L.shape[0])[:, None] < np.nonzero(L.any(1))[0][0] + 0.13 * np.ptp(np.nonzero(L.any(1))[0]), L, 0)
+        nm['main'] = names(pal['main'][0], pal['main'][1], top(front), top(back), front)
+    if 'head' in pal:
+        nm['head'] = ['頭髮', '皮膚'][:len(pal['head'][0])]
     rows = []
     for n, (Lp, Lr) in lab.items():
-        head = cams[n].get('kind') == 'head'
+        head = kind(n) == 'head'
         tot = max(1, int((Lp > 0).sum())); row = {}
-        for k in range(len(nm)):
+        for k, word in enumerate(nm[kind(n)]):
             a, b = Lp == k + 1, Lr == k + 1
             if a.sum() < MIN_PART * tot and b.sum() < MIN_PART * tot:
                 continue
-            row[nm[k]] = (100 * a.sum() / tot, 100 * b.sum() / tot, 100 * differs(a, b) / tot)
+            row[word] = (100 * a.sum() / tot, 100 * b.sum() / tot, 100 * differs(a, b) / tot)
         worst = max(row.items(), key=lambda kv: kv[1][2]) if row else ('', (0, 0, 0))
         lo, hi = (HEAD_PASS, HEAD_FAIL) if head else (LEVEL_PASS, LEVEL_FAIL)
         level = 'FAIL' if worst[1][2] > 100 * hi else 'WARN' if worst[1][2] > 100 * lo else 'PASS'
         rows.append(dict(view=n, kind='head' if head else 'main', level=level, worst=worst[0],
                          parts={k: [round(float(x), 2) for x in v] for k, v in row.items()}))
+    # what to fix this round: the few that differ most, measured against their own limit (a close-up's parts are
+    # larger shares of a smaller figure)
+    over = sorted(((r['parts'][r['worst']][2] / (100 * (HEAD_FAIL if r['kind'] == 'head' else LEVEL_FAIL)), r['view'])
+                   for r in rows if r['level'] == 'FAIL'), reverse=True)
+    first = [v for _, v in over[:FIRST]]
+    for r in rows:
+        r['first'] = r['view'] in first
     level = 'FAIL' if any(r['level'] == 'FAIL' for r in rows) else 'WARN' if any(r['level'] == 'WARN' for r in rows) else 'PASS'
     if picture:
-        draw(picture, rows, shots, lab, cen, fam)
-    return dict(parts=nm, views=rows, level=level)
+        draw(picture, rows, shots, lab, pal, kind)
+    return dict(parts=sorted({w for v in nm.values() for w in v}), views=rows, level=level, first=first)
 
 
-def draw(path, rows, shots, lab, cen, fam, most=6):
-    """the views that differ most: photo, its parts, the model, its parts; what differs painted red on the parts"""
-    n = fam.max() + 1
-    fc = np.array([cen[fam == i].mean(0) for i in range(n)])
-    bgr = cv2.cvtColor(np.clip(np.stack([fc[:, 0] * 2, fc[:, 1], fc[:, 2]], -1), 0, 255).astype(np.uint8)[None], cv2.COLOR_LAB2BGR)[0]
-    pal = np.vstack([[255, 255, 255], bgr]).astype(np.uint8)
-    order = sorted(rows, key=lambda r: -max([v[2] for v in r['parts'].values()] or [0]))[:most]
+def draw(path, rows, shots, lab, pals, kind, most=6):
+    """the views to fix first, then the ones that differ most: photo, its parts, the model, its parts; what differs
+    painted red on the parts"""
+    swatch = {}
+    for k, (cen, fam) in pals.items():
+        fc = np.array([cen[fam == i].mean(0) for i in range(fam.max() + 1)])
+        bgr = cv2.cvtColor(np.clip(np.stack([fc[:, 0] * 2, fc[:, 1], fc[:, 2]], -1), 0, 255).astype(np.uint8)[None], cv2.COLOR_LAB2BGR)[0]
+        swatch[k] = np.vstack([[255, 255, 255], bgr]).astype(np.uint8)
+    limit = lambda r: 100 * (HEAD_FAIL if r['kind'] == 'head' else LEVEL_FAIL)
+    order = sorted(rows, key=lambda r: (not r.get('first'), -max([v[2] for v in r['parts'].values()] or [0]) / limit(r)))[:most]
     tiles = []
     for r in order:
         ph, pm, rim, rm = shots[r['view']]; Lp, Lr = lab[r['view']]
+        pal = swatch[kind(r['view'])]; n = len(pal) - 1
         ys, xs = np.nonzero(pm | rm)
         y0, y1, x0, x1 = max(ys.min() - 20, 0), min(ys.max() + 20, SIZE), max(xs.min() - 20, 0), min(xs.max() + 20, SIZE)
         k = np.ones((TOLERANCE, TOLERANCE), np.uint8); bad = np.zeros(pm.shape, np.uint8)
@@ -263,8 +295,13 @@ def lines(res):
         if r['level'] != 'PASS':
             p, m_ = r['parts'][r['worst']][:2]
             how = '成品的這一塊比照片大' if m_ > p * 1.15 else '成品的這一塊比照片小' if m_ < p * 0.87 else '大小相近，形狀或位置不同'
-            msg += (f' → 成品在這個角度的「{r["worst"]}」和照片對不上（照片佔人物的 {p:.0f}%、成品 {m_:.0f}%：{how}）。'
-                    '看 parts_compare.jpg 紅色的地方')
+            msg += (f' → 成品在這個角度的「{r["worst"]}」和照片對不上（照片佔人物的 {p:.0f}%、成品 {m_:.0f}%：{how}）。')
+            if r.get('first'):
+                msg += '【這一輪先修】差最多的幾個之一：看 parts_compare.jpg 最上面幾列紅色的地方'
+            elif r['level'] == 'FAIL':
+                msg += '這一輪先修標了【這一輪先修】的那幾個，重跑後再看這一張'
+            else:
+                msg += '看 parts_compare.jpg 紅色的地方' 
         out.append(msg)
     return out
 
@@ -277,4 +314,6 @@ if __name__ == '__main__':
     res = compare(a.work, a.photos, a.glb, a.out)
     print('分成：' + '、'.join(res['parts']))
     print('\n'.join(lines(res)))
+    if res.get('first'):
+        print('這一輪先修：' + '、'.join(res['first']))
     sys.exit(1 if res['level'] == 'FAIL' else 0)
