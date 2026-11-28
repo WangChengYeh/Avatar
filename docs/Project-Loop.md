@@ -33,7 +33,7 @@ next_step 產生的 issue 已經帶好標題前綴、label 與第一行。人在
 
 **執行者一輪的實際操作**
 
-1. 跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它印的指令做（UPDATE／START／RUN／RETOUCH／CODE），做完再跑一次。
+1. 跑 `python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>`，照它印的指令做（UPDATE／DRAW／RUN／RETOUCH／CODE），做完再跑一次。
 2. 每一版跑完：照 `next_step.md` 的「雲端硬碟」用連結器放檔。
 3. 走到 ESCALATE：用 `gh issue create`（或 GitHub 連結器，標題與內文在 `issue_title.txt`、`issue.md`）發 issue，`--waiting-issue N` 登記；WAITING 時跑 `next_step.py … --wait`，程式自己每分鐘檢查 GitHub、在沙盒逾時之前回來，還沒等到就再跑一次（[runbook](Agent-Runbook.md)）。
 4. Claude 合併修正後，下一次 next_step 給 UPDATE：pull、再跑一次 next_step（重建或檢查的程式有變才需要重跑）；跑完照 `next_step.md` 的「回報」在 issue 留言。

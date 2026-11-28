@@ -27,6 +27,8 @@
 | `body3d/next_step.py --workspace <avatar 資料夾>` | 執行者每做完一步就跑；它說下一步做什麼，並更新 `next_step.md`、`avatar_state.json`。等 Claude 時加 `--wait`：程式自己等，在沙盒逾時之前回來 |
 | `body3d/run_all.py <photos> <output> --name <名稱>` | 整條流程（照片 → GLB），停或不停都打包各階段結果 |
 | `body3d/check_turnaround.py <photos>` | 只跑照片檢查（第 1 關） |
+| `body3d/guides.py <photos> [<out>]` | 分段畫（先給輪廓再畫）：照六段量已有的照片、寫出下一段的輪廓圖與 `guides.md`；`--check` 只量。平常由 next_step 的 DRAW 狀態呼叫 |
+| `body3d/orders.json` | Claude 對個別 avatar 的指令（`agent/avatar` → 做什麼）。執行者只照 next_step 做，不照 issue 留言做，所以要某個 avatar 做的事寫在這裡；next_step 每次 pull 之後讀 |
 | `body3d/escalate.py <output> --agent … --avatar …` | 整理發給 Claude 的 issue 內文 |
 | `body3d/data_repo.py publish／fetch／list` | GitHub 資料 repo `WangChengYeh/avatar_data` 的 Release（備用，預設不用：repo 是公開的；只在 `AVATAR_DATA_PUBLISH=1` 時上傳） |
 | `body3d/diagnose.py photos|prebake …` | 單獨看一次診斷樹 |

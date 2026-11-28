@@ -174,7 +174,8 @@ def code_version():
                 hash=code_hash())
 
 
-CONTROL_FILES = ('next_step.py', 'escalate.py', 'data_repo.py')    # decide what to do next; make no result
+# decide what to do next or what to draw; make no result of a run
+CONTROL_FILES = ('next_step.py', 'escalate.py', 'data_repo.py', 'guides.py', 'orders.json')
 
 
 def code_hash(root=HERE, control=False):
