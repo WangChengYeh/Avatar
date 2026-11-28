@@ -210,3 +210,42 @@ def test_the_33_are_counted_by_name(synth_set, tmp_path):
     shutil.copyfile(os.path.join(photos, g.FULL[0] + '.jpg'), os.path.join(photos, 'extra.jpg'))   # 33 files, 32 of the spec
     r = ns.decide(str(ws), 'avatar_009', 'Gemini', 'avatar_009', None, {})
     assert r['state'] == 'DRAW' and '第 5 段' in r['why'] and 'top' in r['steps'][0]
+
+
+def test_a_photo_of_another_size_is_named_not_a_crash(synth_set, tmp_path):
+    """the lines and the flipped outlines are in the front photo's pixels"""
+    photos = some(synth_set, tmp_path / 'photos')
+    p = os.path.join(photos, g.FULL[45] + '.jpg'); im = cv2.imread(p)
+    cv2.imwrite(p, cv2.resize(im, (im.shape[1] // 2, im.shape[0] // 2)))
+    st = g.make(photos, str(tmp_path / 'guides'))
+    bad = [r for r in st['results'] if r['level'] == 'FAIL']
+    assert st['stage'] == 2 and st['redo'] == [g.FULL[45]] and [r['item'] for r in bad] == ['大小'] and '一樣大' in bad[0]['msg']
+
+
+def test_only_the_guides_of_the_stage_to_draw_are_in_the_folder(synth_set, tmp_path):
+    photos = some(synth_set, tmp_path / 'photos', [g.FULL[0]]); out = str(tmp_path / 'guides')
+    g.make(photos, out)
+    assert sum(f.endswith('_guide.png') for f in os.listdir(out)) == 4
+    some(synth_set, photos, [g.FULL[a] for a in (180, 45, 90, 135)])
+    st = g.make(photos, out)
+    left = sorted(f for f in os.listdir(out) if f.endswith('_guide.png'))
+    assert st['stage'] == 3 and left == sorted(st['files'].values()) and len(left) == 3     # stage 2's are gone
+
+
+def test_a_photo_saved_under_another_name_is_not_asked_for_again(synth_set, tmp_path):
+    ws = tmp_path / 'avatar' / 'gemini' / 'avatar_009'
+    photos = some(synth_set, str(ws / 'v001' / 'photos'), [g.FULL[a] for a in (0, 45, 90, 135)])
+    cv2.imwrite(os.path.join(photos, g.FULL[180] + '.png'), cv2.imread(os.path.join(str(synth_set), g.FULL[180] + '.jpg')))
+    r = ns.decide(str(ws), 'avatar_009', 'Gemini', 'avatar_009', None, {})
+    assert r['state'] == 'DRAW' and f'{g.FULL[180]}.png → {g.FULL[180]}.jpg' in r['why'] and '不用重畫' in r['why']
+    assert '改檔名' in open(ws / 'v001' / 'guides' / 'guides.md', encoding='utf-8').read()
+
+
+def test_when_the_measuring_breaks_the_executor_is_told_to_ask_claude(synth_set, tmp_path, monkeypatch):
+    ws = tmp_path / 'avatar' / 'gemini' / 'avatar_009'
+    photos = some(synth_set, str(ws / 'v001' / 'photos'), [g.FULL[0]])
+    monkeypatch.setattr(g, 'make', lambda *a, **k: (_ for _ in ()).throw(ValueError('operands could not be broadcast')))
+    r = ns.decide(str(ws), 'avatar_009', 'Gemini', 'avatar_009', None, {})
+    body = open(ws / 'issue.md', encoding='utf-8').read()
+    assert r['state'] == 'ESCALATE' and '不要重畫' in r['why'] and 'gh issue create' in r['steps'][0] and '--waiting-issue' in r['steps'][-1]
+    assert 'operands could not be broadcast' in body and '由 **Gemini** 發' in body and g.FULL[0] in body

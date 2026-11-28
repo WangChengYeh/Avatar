@@ -6,7 +6,7 @@ title: 先畫再量，還是先給輪廓再畫
 subtitle: 流程的理論：三十三張照片的毛病都是畫完才量出來的。能不能把「量」的內容，在畫之前就變成輪廓交給 AI？
 summary: 原本的流程是 AI 先畫完 33 張、程式再量，不合格就重畫，一個人物可以繞幾十輪。本篇整理這個迴圈踩過的三顆雷，說明哪些檢查可以在畫之前就變成「準確的輪廓」，哪些只能當「上限」，以及做出來的分六段畫法。畫的結果還在等。
 date_text: 2026-11-28
-version: guides 1.0.1 · body3d 2.37.0 · check_turnaround 1.51.0
+version: guides 1.0.2 · body3d 2.37.0 · check_turnaround 1.51.0
 state: open
 status: 分六段畫的程式已做好，兩個人物改成分段畫；畫的結果還沒有回來。
 abstract: >
