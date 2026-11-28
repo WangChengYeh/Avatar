@@ -1,24 +1,25 @@
-"""Gate 4, part by part: does the finished model look like the photos, piece by piece?
+"""Gate 4: where does the finished model differ from the photos, by region of the body?
 
 Why: the final acceptance compared outlines of the whole figure in the full-body photos. The head is a few percent
 of that outline and what lies inside an outline (where the hair ends and the face begins, a patch of the wrong
 colour) is not in it. Gemini avatar_001 v018 passed all four gates and did not look like its photos: a jaw as wide
 as the cheekbones, a bun turned into a cone, a face standing out of its profile.
 
-What: the finished GLB is drawn with the registered camera of every level full-body photo and every head close-up
-(its own texture, no lighting). The photos' colours are grouped into the few things the figure is made of, and every
-photo and its drawing are split into these parts. A full-body photo: hair, skin, each garment (shades of one colour
-are one thing). A head close-up: two parts only, the dark one and the light one, hair and skin; with more, the
-light in the hair came out as a part of its own or joined a garment of a similar colour, and the numbers moved
-with the grouping. For each part: the area that lies in one picture and not, within a few pixels, in the other, as
-a share of the figure in that photo. A part that is the wrong shape, in the wrong place or the wrong colour shows
-up as that part's number, in that view.
+What (the user's order: the difference over the whole body first, then split by joint):
+1. The finished GLB is drawn with the registered camera of every level full-body photo and every head close-up
+   (its own texture, no lighting).
+2. The difference over the whole figure. Photo and drawing are each split into the few things the figure is made of
+   (a full-body photo: hair, skin, each garment, shades of one colour being one thing; a close-up: hair and skin);
+   a pixel differs where one of these lies in one picture and not, within a few pixels, in the other. So a wrong
+   outline, a boundary in the wrong place and a patch of the wrong colour all count.
+3. The split by joint. Every piece of the model's surface belongs to the bone of its own skeleton it lies nearest
+   to: head (with the neck), torso, upper arms, forearms, hands, thighs, shins, feet. Drawn with the same camera
+   this gives every pixel of the figure a region; the difference is counted per region.
+Not everything at once: the report marks the few views that differ most (FIRST) as the ones to fix this round.
 
-Not everything at once: the report marks the few parts that differ most (FIRST) as the ones to fix this round.
-
-Calibrated on 2026-11-28 (body3d 2.29.0, both templates), largest part in any view:
-    perfect photos (luna, synth)   full-body 0.5-1.1 %    head close-ups 2.5-3.0 %
-    Gemini avatar_001 v015 / v018  full-body 6.0-6.3 %    head close-ups 9.5-9.7 % (45 and 315 deg; 4-8 % elsewhere)
+Calibrated on 2026-11-28 (body3d 2.34.0, both templates), the largest region in any view:
+    perfect photos (luna, synth)   full-body 0.4-0.9 % of the figure   head close-ups 3-4 % of the head
+    Gemini avatar_001 v015         full-body 4.0-4.7 %                 head close-ups 7-14 %
 usage: python part_compare.py WORK PHOTOS MODEL.glb [--out parts_compare.jpg]"""
 import json
 import os
@@ -31,11 +32,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'steps'))
 import camera
 
-LEVEL_PASS, LEVEL_FAIL = 0.025, 0.04         # a part's share of the figure, full-body photo
-HEAD_PASS, HEAD_FAIL = 0.05, 0.08            # head close-up (the head and neck are the figure)
+# What differs inside one region of the body. Full-body photo: as a share of the whole figure, so a hand (1 % of
+# the figure) that is half wrong does not outweigh a torso that is a tenth wrong. Head close-up: the head region
+# alone, as a share of the head (the sliver of shoulders in the frame is not judged).
+LEVEL_PASS, LEVEL_FAIL = 0.015, 0.025
+HEAD_PASS, HEAD_FAIL = 0.06, 0.09
+PERFECT = {'main': 0.9, 'head': 4.0}         # the largest value on perfect photos, both templates (%), for the report
 COLOURS = 7                                  # colour clusters before shades are joined
 SAME_HUE, SAME_LIGHT = 7.0, 60.0             # Lab a / b and L: closer than this in every pair = shades of one thing
 MIN_PART = 0.02                              # smaller than this share of the figure in both pictures: not reported
+MIN_REGION = 0.008                           # a region of the body smaller than this share of the figure: not judged
 TOLERANCE = 9                                # px at 1024: a part's edge may sit 4 px off
 FIRST = 3                                    # the parts that differ most are the ones to fix this round
 HEAD_FLOOR = 1.40                            # m: a close-up is compared above the shoulders (1.65 m figure)
@@ -61,6 +67,79 @@ def load_glb(path):
     if not Vs:
         raise ValueError(f'{path}: no textured mesh')
     return np.vstack(Vs), np.vstack(Fs), np.vstack(Cs)
+
+
+# the regions of the body, from the model's own skeleton: every piece of the surface belongs to the bone it lies
+# nearest to (distance over the limb's usual radius, so the side of the chest is the torso, not the upper arm)
+REGIONS = (
+    ('頭', 0.13, (('Neck', 'Head'), ('Head', 'HeadTop_End'))),      # with the neck: the head joint sits above the jaw
+    ('軀幹', 0.16, (('Hips', 'Spine'), ('Spine', 'Spine1'), ('Spine1', 'Spine2'), ('Spine2', 'Neck'),
+                  ('LeftShoulder', 'LeftArm'), ('RightShoulder', 'RightArm'), ('Hips', 'LeftUpLeg'), ('Hips', 'RightUpLeg'))),
+    ('左上臂', 0.055, (('LeftArm', 'LeftForeArm'),)), ('左前臂', 0.045, (('LeftForeArm', 'LeftHand'),)),
+    ('左手', 0.05, (('LeftHand', 'LeftHandEnd'), ('LeftHand', 'LeftHandMiddle4'), ('LeftHand', 'LeftHandMiddle3'))),
+    ('右上臂', 0.055, (('RightArm', 'RightForeArm'),)), ('右前臂', 0.045, (('RightForeArm', 'RightHand'),)),
+    ('右手', 0.05, (('RightHand', 'RightHandEnd'), ('RightHand', 'RightHandMiddle4'), ('RightHand', 'RightHandMiddle3'))),
+    ('左大腿', 0.09, (('LeftUpLeg', 'LeftLeg'),)), ('左小腿', 0.06, (('LeftLeg', 'LeftFoot'),)),
+    ('左腳', 0.06, (('LeftFoot', 'LeftToeBase'), ('LeftToeBase', 'LeftToeEnd'), ('LeftToeBase', 'LeftToe_End'))),
+    ('右大腿', 0.09, (('RightUpLeg', 'RightLeg'),)), ('右小腿', 0.06, (('RightLeg', 'RightFoot'),)),
+    ('右腳', 0.06, (('RightFoot', 'RightToeBase'), ('RightToeBase', 'RightToeEnd'), ('RightToeBase', 'RightToe_End'))),
+)
+
+
+def glb_joints(path):
+    """{bone name: position} of the skeleton in the file, in the model's frame (rest pose)"""
+    import struct
+    with open(path, 'rb') as f:
+        magic, _, _ = struct.unpack('<4sII', f.read(12))
+        if magic != b'glTF':
+            raise ValueError(f'{path}: not a GLB')
+        n, kind = struct.unpack('<I4s', f.read(8))
+        doc = json.loads(f.read(n))
+    nodes = doc.get('nodes', [])
+
+    def local(nd):
+        if 'matrix' in nd:
+            return np.array(nd['matrix'], float).reshape(4, 4).T
+        M = np.eye(4)
+        x, y, z, w = nd.get('rotation', (0, 0, 0, 1))
+        R = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                      [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                      [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+        M[:3, :3] = R * np.array(nd.get('scale', (1, 1, 1)), float)[None]
+        M[:3, 3] = nd.get('translation', (0, 0, 0))
+        return M
+    world = {}
+
+    def walk(i, parent):
+        world[i] = parent @ local(nodes[i])
+        for c in nodes[i].get('children', []):
+            walk(c, world[i])
+    kids = {c for nd in nodes for c in nd.get('children', [])}
+    for i in range(len(nodes)):
+        if i not in kids:
+            walk(i, np.eye(4))
+    joints = {j for sk in doc.get('skins', []) for j in sk.get('joints', [])}
+    return {nodes[i].get('name', str(i)).split(':')[-1]: world[i][:3, 3] for i in joints}
+
+
+def face_regions(V, F, joints):
+    """the region (index into REGIONS) of every face: the bone it lies nearest to; None without a skeleton"""
+    segs, owner, rad = [], [], []
+    for r, (_, radius, pairs) in enumerate(REGIONS):
+        for a, b in pairs:
+            if a in joints and b in joints:
+                segs.append((joints[a], joints[b])); owner.append(r); rad.append(radius)
+    if 'Head' in joints and 'HeadTop_End' not in joints:      # no head-top bone: the head reaches up from its joint
+        segs.append((joints['Head'], joints['Head'] + np.array([0, 0.18, 0.0]))); owner.append(0); rad.append(REGIONS[0][1])
+    if len({*owner}) < 6:
+        return None
+    P = V[F].mean(1); best = np.full(len(P), np.inf); out = np.zeros(len(P), int)
+    for (a, b), o, r in zip(segs, owner, rad):
+        ab = b - a; t = np.clip(((P - a) @ ab) / max(ab @ ab, 1e-12), 0, 1)
+        d = np.linalg.norm(P - (a + t[:, None] * ab), axis=1) / r
+        m = d < best
+        best[m] = d[m]; out[m] = o
+    return out
 
 
 def render(V, F, C, cam, size=SIZE, full=2048):
@@ -136,6 +215,26 @@ def parts(im, mask, cen, fam):
     return L
 
 
+def unmatched(a, b, tol=TOLERANCE):
+    """mask: pixels of a part that lie farther than tol / 2 px from the same part in the other picture, both ways"""
+    k = np.ones((tol, tol), np.uint8)
+    return (a & (cv2.dilate(b.astype(np.uint8), k) == 0)) | (b & (cv2.dilate(a.astype(np.uint8), k) == 0))
+
+
+def region_map(V, F, region, cam, photo, model, full):
+    """every pixel of the figure (photo or model) -> the region of the body it belongs to, 1.. (0 = background).
+    The model's regions are drawn with the camera; a pixel only the photo has takes the nearest region"""
+    fig = photo | model
+    if region is None:
+        return fig.astype(np.uint8)
+    lut = np.stack([np.arange(1, len(REGIONS) + 1)] * 3, 1).astype(np.uint8)
+    im, mk = render(V, F, lut[region], cam, photo.shape[0], full)
+    R = np.where(mk, im[..., 0], 0).astype(np.uint8)
+    _, lb = cv2.distanceTransformWithLabels((R == 0).astype(np.uint8), cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL)
+    ys, xs = np.nonzero(R); src = np.zeros(lb.max() + 1, np.uint8); src[lb[ys, xs]] = R[ys, xs]
+    return np.where(fig, np.where(R > 0, R, src[lb]), 0).astype(np.uint8)
+
+
 def differs(a, b, tol=TOLERANCE):
     """pixels of a part that lie farther than tol / 2 px from the same part in the other picture, both ways"""
     k = np.ones((tol, tol), np.uint8)
@@ -207,7 +306,7 @@ def compare(work, photos, glb, picture=None):
     if not shots:
         return dict(parts=[], views=[], level='PASS')
     kind = lambda n: 'head' if cams[n].get('kind') == 'head' else 'main'
-    pal, lab, nm = {}, {}, {}
+    pal, lab, nm, diffmaps = {}, {}, {}, {}
     for k in ('main', 'head'):
         mine = [n for n in shots if kind(n) == k]
         if not mine:
@@ -222,93 +321,117 @@ def compare(work, photos, glb, picture=None):
         nm['main'] = names(pal['main'][0], pal['main'][1], top(front), top(back), front)
     if 'head' in pal:
         nm['head'] = ['頭髮', '皮膚'][:len(pal['head'][0])]
+    try:
+        region = face_regions(V, F, glb_joints(glb))
+    except Exception:                                  # a model without a readable skeleton: one region, the figure
+        region = None
     rows = []
     for n, (Lp, Lr) in lab.items():
         head = kind(n) == 'head'
-        tot = max(1, int((Lp > 0).sum())); row = {}
+        tot = max(1, int((Lp > 0).sum()))
+        # 1. the difference over the whole figure: where a part lies in one picture and not in the other
+        bad = np.zeros(Lp.shape, bool); by_part = {}
         for k, word in enumerate(nm[kind(n)]):
             a, b = Lp == k + 1, Lr == k + 1
             if a.sum() < MIN_PART * tot and b.sum() < MIN_PART * tot:
                 continue
-            row[word] = (100 * a.sum() / tot, 100 * b.sum() / tot, 100 * differs(a, b) / tot)
-        worst = max(row.items(), key=lambda kv: kv[1][2]) if row else ('', (0, 0, 0))
+            d = unmatched(a, b)
+            bad |= d; by_part[word] = d
+        bad = cv2.morphologyEx(bad.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)) > 0
+        # 2. split by the regions of the body the model's joints give
+        full = cv2.imread(os.path.join(work, f'mask_{n}.png'), 0).shape[0]
+        R = region_map(V, F, region, cams[n], Lp > 0, shots[n][3], full)
+        row = {}
+        for r in range(1, int(R.max()) + 1):
+            area = int((R == r).sum())
+            if area < MIN_REGION * tot:
+                continue
+            d = bad & (R == r)
+            main = max(by_part, key=lambda w: int((by_part[w] & d).sum())) if by_part and d.any() else ''
+            # (the region's share of the figure, the share of the region that differs, the part that differs most,
+            #  that difference as a share of the figure)
+            row[REGIONS[r - 1][0] if region is not None else '全身'] = (100 * area / tot, 100 * d.sum() / area, main,
+                                                                    100 * d.sum() / tot)
+        judged = {k: (v[1] if head else v[3]) for k, v in row.items() if not head or k in ('頭', '全身')}
+        worst = max(judged.items(), key=lambda kv: kv[1]) if judged else ('', 0.0)
         lo, hi = (HEAD_PASS, HEAD_FAIL) if head else (LEVEL_PASS, LEVEL_FAIL)
-        level = 'FAIL' if worst[1][2] > 100 * hi else 'WARN' if worst[1][2] > 100 * lo else 'PASS'
-        rows.append(dict(view=n, kind='head' if head else 'main', level=level, worst=worst[0],
-                         parts={k: [round(float(x), 2) for x in v] for k, v in row.items()}))
+        level = 'FAIL' if worst[1] > 100 * hi else 'WARN' if worst[1] > 100 * lo else 'PASS'
+        rows.append(dict(view=n, kind='head' if head else 'main', level=level, worst=worst[0], value=round(float(worst[1]), 2),
+                         differs=round(100 * bad.sum() / tot, 2),
+                         regions={k: [round(float(v[0]), 1), round(float(v[1]), 1), v[2], round(float(v[3]), 2)]
+                                  for k, v in row.items()}))
+        diffmaps[n] = (bad, R)
     # what to fix this round: the few that differ most, measured against their own limit (a close-up's parts are
     # larger shares of a smaller figure)
-    over = sorted(((r['parts'][r['worst']][2] / (100 * (HEAD_FAIL if r['kind'] == 'head' else LEVEL_FAIL)), r['view'])
+    over = sorted(((r['value'] / (100 * (HEAD_FAIL if r['kind'] == 'head' else LEVEL_FAIL)), r['view'])
                    for r in rows if r['level'] == 'FAIL'), reverse=True)
     first = [v for _, v in over[:FIRST]]
     for r in rows:
         r['first'] = r['view'] in first
     level = 'FAIL' if any(r['level'] == 'FAIL' for r in rows) else 'WARN' if any(r['level'] == 'WARN' for r in rows) else 'PASS'
     if picture:
-        draw(picture, rows, shots, lab, pal, kind)
+        draw(picture, rows, shots, lab, pal, kind, diffmaps)
     return dict(parts=sorted({w for v in nm.values() for w in v}), views=rows, level=level, first=first)
 
 
-def draw(path, rows, shots, lab, pals, kind, most=6):
-    """the views to fix first, then the ones that differ most: photo, its parts, the model, its parts; what differs
-    painted red on the parts"""
-    swatch = {}
-    for k, (cen, fam) in pals.items():
-        fc = np.array([cen[fam == i].mean(0) for i in range(fam.max() + 1)])
-        bgr = cv2.cvtColor(np.clip(np.stack([fc[:, 0] * 2, fc[:, 1], fc[:, 2]], -1), 0, 255).astype(np.uint8)[None], cv2.COLOR_LAB2BGR)[0]
-        swatch[k] = np.vstack([[255, 255, 255], bgr]).astype(np.uint8)
+def draw(path, rows, shots, lab, pals, kind, diffmaps, most=6):
+    """the views to fix first, then the ones that differ most: photo, the model, and where they differ (red) over
+    the regions of the body (their borders in grey)"""
     limit = lambda r: 100 * (HEAD_FAIL if r['kind'] == 'head' else LEVEL_FAIL)
-    order = sorted(rows, key=lambda r: (not r.get('first'), -max([v[2] for v in r['parts'].values()] or [0]) / limit(r)))[:most]
+    order = sorted(rows, key=lambda r: (not r.get('first'), -r['value'] / limit(r)))[:most]
     tiles = []
     for r in order:
-        ph, pm, rim, rm = shots[r['view']]; Lp, Lr = lab[r['view']]
-        pal = swatch[kind(r['view'])]; n = len(pal) - 1
+        ph, pm, rim, rm = shots[r['view']]; bad, R = diffmaps[r['view']]
         ys, xs = np.nonzero(pm | rm)
         y0, y1, x0, x1 = max(ys.min() - 20, 0), min(ys.max() + 20, SIZE), max(xs.min() - 20, 0), min(xs.max() + 20, SIZE)
-        k = np.ones((TOLERANCE, TOLERANCE), np.uint8); bad = np.zeros(pm.shape, np.uint8)
-        for q in range(1, n + 1):
-            a, b = (Lp == q).astype(np.uint8), (Lr == q).astype(np.uint8)
-            bad |= (a & (cv2.dilate(b, k) == 0)) | (b & (cv2.dilate(a, k) == 0))
-        bad = cv2.morphologyEx(bad, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)) > 0     # specks say nothing
+        edge = cv2.morphologyEx(R, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)) > 0
         cells = []
-        for pic, marked in ((ph, False), (pal[Lp], True), (rim, False), (pal[Lr], True)):
-            c = pic.copy()
-            if marked:
-                c[bad & (c.sum(2) < 765)] = (40, 40, 230)          # where this picture has a part the other has not
-            c = c[y0:y1, x0:x1]; s = 380 / max(c.shape[:2])
-            c = cv2.resize(c, (max(1, int(c.shape[1] * s)), max(1, int(c.shape[0] * s))))
-            pad = np.full((380, 380, 3), 255, np.uint8); pad[:c.shape[0], :c.shape[1]] = c
-            cells.append(pad)
-        tiles.append(np.hstack(cells))
+        for pic in (ph, rim):
+            cells.append(pic); marked = (0.45 * pic + 140).clip(0, 255).astype(np.uint8)
+            marked[~(pm | rm)] = 255; marked[edge] = (150, 150, 150); marked[bad] = (40, 40, 230)
+            cells.append(marked)
+        out = []
+        for c in (cells[0], cells[2], cells[1]):          # photo, model, the difference by region
+            c = c[y0:y1, x0:x1]; f = 420 / max(c.shape[:2])
+            c = cv2.resize(c, (max(1, int(c.shape[1] * f)), max(1, int(c.shape[0] * f))))
+            pad = np.full((420, 420, 3), 255, np.uint8); pad[:c.shape[0], :c.shape[1]] = c
+            out.append(pad)
+        tiles.append(np.hstack(out))
     cv2.imwrite(path, np.vstack(tiles), [cv2.IMWRITE_JPEG_QUALITY, 88])
 
 
 def lines(res):
-    """the report lines of the acceptance: one per view"""
+    """the report lines of the acceptance: one per view; the regions of the body, most different first"""
     out = []
     for r in res['views']:
         head = r['kind'] == 'head'
         lo, hi = (HEAD_PASS, HEAD_FAIL) if head else (LEVEL_PASS, LEVEL_FAIL)
-        txt = '、'.join(f'{k} {v[2]:.1f}%' for k, v in sorted(r['parts'].items(), key=lambda kv: -kv[1][2])) or '沒有可比的部分'
-        msg = (f'[{r["level"]}] {r["view"]} 分塊比對: {txt}（{"頭部特寫" if head else "全身圖"}每一塊應 ≤ {100 * lo:g}%，'
-               f'> {100 * hi:g}% 判 FAIL；完美照片 ≤ {"3.1" if head else "1.1"}%）')
+        if head:
+            reg = [(k, v) for k, v in r['regions'].items() if k in ('頭', '全身')]
+            txt = '、'.join(f'{k} {v[1]:.0f}%' for k, v in reg) or '沒有可比的區域'
+            rule = f'頭部特寫：頭這一區對不上的比例應 ≤ {100 * lo:g}%，> {100 * hi:g}% 判 FAIL；完美照片 ≤ {PERFECT["head"]:g}%'
+        else:
+            reg = sorted(r['regions'].items(), key=lambda kv: -kv[1][3])
+            txt = '、'.join(f'{k} {v[3]:.1f}%（該區的 {v[1]:.0f}%）' for k, v in reg[:4] if v[3] >= 0.1) or '各區都對得上'
+            rule = (f'全身圖：每一區對不上的面積佔整個人物的比例應 ≤ {100 * lo:g}%，> {100 * hi:g}% 判 FAIL；'
+                    f'完美照片 ≤ {PERFECT["main"]:g}%')
+        msg = f'[{r["level"]}] {r["view"]} 分區差異: {txt}（整個人物有 {r["differs"]:.1f}% 對不上；{rule}）'
         if r['level'] != 'PASS':
-            p, m_ = r['parts'][r['worst']][:2]
-            how = '成品的這一塊比照片大' if m_ > p * 1.15 else '成品的這一塊比照片小' if m_ < p * 0.87 else '大小相近，形狀或位置不同'
-            msg += (f' → 成品在這個角度的「{r["worst"]}」和照片對不上（照片佔人物的 {p:.0f}%、成品 {m_:.0f}%：{how}）。')
+            main = r['regions'][r['worst']][2]
+            msg += f' → 成品在這個角度的「{r["worst"]}」和照片對不上' + (f'，主要是{main}' if main else '') + '。'
             if r.get('first'):
                 msg += '【這一輪先修】差最多的幾個之一：看 parts_compare.jpg 最上面幾列紅色的地方'
             elif r['level'] == 'FAIL':
                 msg += '這一輪先修標了【這一輪先修】的那幾個，重跑後再看這一張'
             else:
-                msg += '看 parts_compare.jpg 紅色的地方' 
+                msg += '看 parts_compare.jpg 紅色的地方'
         out.append(msg)
     return out
 
 
 if __name__ == '__main__':
     import argparse
-    ap = argparse.ArgumentParser(description='成品與原圖分塊比對')
+    ap = argparse.ArgumentParser(description='成品與原圖的差異，依關節分區')
     ap.add_argument('work'); ap.add_argument('photos'); ap.add_argument('glb'); ap.add_argument('--out')
     a = ap.parse_args()
     res = compare(a.work, a.photos, a.glb, a.out)

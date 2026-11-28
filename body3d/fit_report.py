@@ -80,9 +80,9 @@ def main():
     ap.add_argument('--accept', action='store_true',
                     help='最終驗收：全身剪影平均不一致 ≤ 8%% PASS、> 10%% FAIL（結束碼 1），單張 > 12%% WARN')
     ap.add_argument('--json', help='另存每張結果與驗收結論')
-    ap.add_argument('--glb', help='成品 GLB（無光照）：和 --photos 一起給，驗收時加做「分塊比對」（part_compare.py）')
+    ap.add_argument('--glb', help='成品 GLB（無光照）：和 --photos 一起給，驗收時加做「全身差異依關節分區」（part_compare.py）')
     ap.add_argument('--photos', help='原始照片的資料夾')
-    ap.add_argument('--parts-picture', help='分塊比對的對照圖（最差的幾個角度）存到這裡')
+    ap.add_argument('--parts-picture', help='差異對照圖（最差的幾個角度）存到這裡')
     a = ap.parse_args()
     if a.accept:
         a.region = 'body'
@@ -104,14 +104,13 @@ def main():
         parts = None
         if a.glb and a.photos:                       # the same model, part by part: hair, skin, each garment
             import part_compare
-            print('\n成品與原圖分塊比對（照片與成品各自分成頭髮、皮膚、每件衣物；每一塊對不上的面積佔人物的 %）')
+            print('\n成品與原圖的差異，依關節分區（先對整個人物做差異，再看差異落在頭、軀幹、上臂、前臂、手、大腿、小腿、腳的哪一區）')
             try:
                 parts = part_compare.compare(a.work, a.photos, a.glb, a.parts_picture)
             except Exception as error:               # a model the comparison cannot read is a finding, not a pass
-                print(f'[WARN] 分塊比對: 沒有做成（{error}）')
+                print(f'[WARN] 分區差異: 沒有做成（{error}）')
                 nw += 1
             else:
-                print('分成：' + '、'.join(parts['parts']))
                 for line in part_compare.lines(parts):
                     print(line)
                 if parts.get('first'):               # not everything at once: the few that differ most

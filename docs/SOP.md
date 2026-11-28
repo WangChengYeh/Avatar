@@ -223,7 +223,7 @@ python body3d/deliver.py stage1 ./photos ./output-0601
 | 1 照片檢查 | `check_turnaround.py PHOTOS` | 33 張照片本身：檔名、解析度、構圖、角度、相機距離、對準點、透視、光線、耳朵、臉部比例、頭部朝向、特寫與全身的臉部位置；24 張全身圖一起雕出的外殼（覆蓋、身體切割、斜角照手臂、斜角照是外殼形狀） |
 | 2 烘焙前檢查 | `check_turnaround.py PHOTOS --head-overlap-work WORK` | 重建後的相機與網格：頭部特寫相機角度與對準點、網格落地、全身與特寫的五官位置、頭部重疊區與臉頰亮度、相鄰頭部特寫是否一致 |
 | 3 GLB 驗證 | `verify_glb.py OUT/*.glb` | GLB 結構、骨架與蒙皮、身高、無光照材質、頭部貼圖條紋（unlit／lit 兩個檔各驗一次） |
-| 4 最終驗收 | `fit_report.py WORK --accept --glb … --photos …` | ① 成品網格投影回 24 張全身原圖的剪影不一致：平均 ≤ 8% PASS、> 10% FAIL；單張 > 12% WARN。② 分塊比對（body3d 2.35.0 起）：成品 GLB 用照片的相機畫出來，和 8 張水平全身圖、8 張頭部特寫各自分成頭髮、皮膚、每件衣物，一塊一塊比；每一塊對不上的面積佔人物的比例，全身圖 ≤ 2.5% PASS、> 4% FAIL，頭部特寫 ≤ 5% PASS、> 8% FAIL。對照圖 `parts_compare.jpg` |
+| 4 最終驗收 | `fit_report.py WORK --accept --glb … --photos …` | ① 成品網格投影回 24 張全身原圖的剪影不一致：平均 ≤ 8% PASS、> 10% FAIL；單張 > 12% WARN。② 全身差異依關節分區（body3d 2.35.0 起）：成品 GLB 用照片的相機畫出來，和 8 張水平全身圖、8 張頭部特寫比，先找出整個人物哪裡對不上，再依模型的關節分成頭、軀幹、上臂、前臂、手、大腿、小腿、腳。全身圖每一區對不上的面積佔人物 ≤ 1.5% PASS、> 2.5% FAIL；頭部特寫的頭 ≤ 6% PASS、> 9% FAIL。差最多的 3 個角度標【這一輪先修】。對照圖 `parts_compare.jpg` |
 
 每道關卡最後都印：`總結: N 個 FAIL, N 個 WARN, N 個 PASS，共 N 項`。各項門檻見[流程與驗收](Workflow-and-Validation.md)。
 

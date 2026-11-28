@@ -28,7 +28,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
   16 unlit     材質標為 KHR_materials_unlit（glb_unlit.py）
   17 verify    verify_glb.py 驗證兩個 GLB（有 FAIL 時結束碼 1）
   18 fit       最終驗收：成品網格以最終相機投影回 24 張全身原圖，剪影平均不一致 > 10% 判 FAIL（fit_report.py --accept）；
-               再把成品 GLB 和 8 張水平全身圖、8 張頭部特寫分塊比對（頭髮、皮膚、每件衣物；part_compare.py）
+               再把成品 GLB 和 8 張水平全身圖、8 張頭部特寫做差異，依關節分區（part_compare.py）
 
 輸出（OUT_DIR）:
     {name}_rigged.glb        無光照材質（照片已含光影，建議用這個）
@@ -78,6 +78,12 @@ def pick_template(asked, blender, work, resuming, probe=has_mpfb):
         t = open(note).read().strip()
         if t in ('makehuman', 'hull'):
             return t, '接續這個輸出資料夾原本用的模板'
+    if resuming and os.path.exists(os.path.join(work, 'uvmesh.npz')):
+        # a folder built before 2.34.0 has no note: its files say which template it was (the MakeHuman path leaves
+        # body_mh.ply). Without this a hull folder resumed on a machine with MPFB was taken for MakeHuman and the
+        # last step looked for a mesh that was never made
+        t = 'makehuman' if os.path.exists(os.path.join(work, 'body_mh.ply')) else 'hull'
+        return t, '接續這個輸出資料夾原本用的模板（依資料夾裡的檔案判斷）'
     if probe(blender):
         return 'makehuman', 'Blender 有 MPFB 擴充'
     return 'hull', ('Blender 沒有 MPFB 擴充（MakeHuman for Blender）。裝法：blender --command extension install -s -e mpfb；'
@@ -455,7 +461,7 @@ def main(argv=None):
         if rc:                                       # the worst views go on the AI retouch request (R54 escalated without one)
             diagnose(4)
         if rc and not go_on:
-            raise RuntimeError('成品和原圖對不上（剪影或分塊比對，見 fit_report.json、parts_compare.jpg）')
+            raise RuntimeError('成品和原圖對不上（剪影或依關節分區的差異，見 fit_report.json、parts_compare.jpg）')
         if rc:
             print('     成品和原圖對不上，--force 繼續：成果標 _FAIL')
 
