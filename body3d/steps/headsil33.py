@@ -8,7 +8,9 @@ that extra volume, and the finished head shows a smeared face and jaw running in
 
 What: in every head close-up, a rim vertex (surface seen edge-on) that projects outside the photo's head mask moves
 inward along its in-plane normal by that distance; the moves are spread smoothly over the surface (Laplacian solve)
-and faded out below the chin. Only inward moves: the hull is an upper bound, and the masks include the hair.
+and faded out below the chin. Since 2.33.0 also outward: a vertex on the mesh's own outline moves out to the photo's
+outline where that lies outside (BODY3D_HEAD_GROW=0 for the old, inward-only trimming). The hull is an upper bound
+only for photos that agree; drawn photos carve small things away (a bun, the tip of the nose).
 The untrimmed mesh is kept as body33s_hull.ply, so a rerun starts from it.
 
 The outlines are taken without what hangs off the head by a thin neck (facemask.trunk: earrings, loose strands).
@@ -47,9 +49,29 @@ def outlines(cams):
     return sdf
 
 
-def trim(V, F, cams, sdf, tag='headsil33', iters=ITERS):
-    """vertices V (N, 3) moved inside the close-ups' outlines; returns the new vertices"""
+EDGE = 3                     # px at half size: a rim vertex this close to the mesh's own outline is on the silhouette
+GROW_ITERS = 8
+
+
+def own_outline(X, F, c, shape):
+    """distance (px at half size) from inside the mesh's silhouette to its edge, seen by camera c; 0 outside"""
+    col, row = camera.project(X, c)
+    P = np.round(np.stack([col, row], 1)[F] * 2).astype(np.int32)           # half size, 2 fractional bits
+    sil = np.zeros((shape[0] // 2, shape[1] // 2), np.uint8)
+    for t in P:
+        cv2.fillConvexPoly(sil, t, 1, shift=2)
+    return cv2.distanceTransform(sil, cv2.DIST_L2, 5)
+
+
+def trim(V, F, cams, sdf, tag='headsil33', iters=ITERS, grow=False):
+    """vertices V (N, 3) moved inside the close-ups' outlines; returns the new vertices.
+    grow: also the other way. Where a close-up's outline lies outside the mesh's own outline, the vertices on that
+    outline move out to it. The hull is what every full-body photo agrees on: with photos that are drawn, not taken,
+    a small thing (a bun, the tip of the nose) that a few photos place differently is carved away, and moving only
+    inward never brings it back (Gemini avatar_001 v015: the close-ups reach 2.5-5.7 % of the head past the mesh).
+    Only vertices on the mesh's silhouette grow: a rim inside it (an ear in front of the hair) is not at the outline"""
     X = np.asarray(V, float).copy(); F = np.asarray(F)
+    headF = F[(X[F][:, :, 1] > Y0 - 0.06).any(1)] if grow else None
     zone = np.clip((X[:, 1] - Y0) / (Y1 - Y0), 0, 1) * np.clip((XMAX - np.abs(X[:, 0])) / 0.03, 0, 1)
     free = zone > 0
     E = trimesh.Trimesh(X, F, process=False).edges_unique
@@ -59,6 +81,7 @@ def trim(V, F, cams, sdf, tag='headsil33', iters=ITERS):
     for it in range(iters):
         nrm = trimesh.Trimesh(X, F, process=False).vertex_normals
         acc = np.zeros_like(X); cnt = np.zeros(len(X))
+        gacc = np.zeros_like(X); gcnt = np.zeros(len(X))
         for n, c in cams.items():
             r_, u_, f_ = camera.axes(c['phi'], c['th'])
             nf = nrm @ f_
@@ -74,20 +97,36 @@ def trim(V, F, cams, sdf, tag='headsil33', iters=ITERS):
             ids = np.flatnonzero(rim)[hit]
             acc[ids] -= ip[hit] * sd[hit, None]          # signed: a view that sees the rim inside its outline holds it
             cnt[ids] += 1                                # (two close-ups that disagree meet halfway, R: Gemini 090/270)
+            if grow:                                     # the rim vertices that are on the mesh's own outline here
+                din = own_outline(X, headF, c, sdf[n].shape)
+                e = cv2.remap(din, (col / 2).astype(np.float32).reshape(1, -1), (row / 2).astype(np.float32).reshape(1, -1),
+                              cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).ravel()
+                edge = hit & (e <= EDGE)
+                gi = np.flatnonzero(rim)[edge]
+                gacc[gi] -= ip[edge] * sd[edge, None]
+                gcnt[gi] += 1
         T = np.zeros_like(X); has = cnt > 0
         T[has] = acc[has] / cnt[has, None]
         out_ = has & ((T * nrm).sum(1) < -TOL)            # net move inward: the head is too full here
         T[out_] *= (1 - TOL / np.linalg.norm(T[out_], axis=1))[:, None]
         T[~out_] = 0
         has = out_
+        grown = 0
+        if grow:                                         # where no close-up wants it in and those at its outline want it out
+            G = np.zeros_like(X); g = (gcnt > 0) & ~out_
+            G[g] = gacc[g] / gcnt[g, None]
+            g &= (G * nrm).sum(1) > TOL
+            T[g] = G[g] * (1 - TOL / np.linalg.norm(G[g], axis=1))[:, None]
+            has = has | g; grown = int(g.sum())
         if not has.any():
             break
         Wd = sp.diags(np.where(has, 1.0, 0.0) + 1e-4)
         solve = factorized((Wd + SMOOTH * LtL).tocsc())
         D = np.stack([solve(Wd @ T[:, k]) for k in range(3)], 1) * zone[:, None]
         X += D
-        print('%s %d: %d rim vertices outside the close-ups, mean miss %.1f mm, max move %.1f mm'
-              % (tag, it, has.sum(), 1000 * np.linalg.norm(T[has], axis=1).mean(), 1000 * np.linalg.norm(D, axis=1).max()))
+        print('%s %d: %d rim vertices outside the close-ups%s, mean miss %.1f mm, max move %.1f mm'
+              % (tag, it, has.sum() - grown, ', %d inside them on the outline' % grown if grow else '',
+                 1000 * np.linalg.norm(T[has], axis=1).mean(), 1000 * np.linalg.norm(D, axis=1).max()))
     return X
 
 
@@ -104,7 +143,8 @@ if __name__ == '__main__':
     cams = head_cams()
     if not cams:
         mesh.export('body33s.ply'); print('headsil33: no head cameras, mesh unchanged'); sys.exit(0)
-    X = trim(mesh.vertices, mesh.faces, cams, outlines(cams))
+    grow = os.environ.get('BODY3D_HEAD_GROW', '1') != '0'
+    X = trim(mesh.vertices, mesh.faces, cams, outlines(cams), iters=GROW_ITERS if grow else ITERS, grow=grow)
     moved = np.linalg.norm(X - mesh.vertices, axis=1)
     print('headsil33: head trimmed, %d vertices moved > 1 mm, max %.1f mm' % ((moved > 0.001).sum(), 1000 * moved.max()))
     trimesh.Trimesh(X, np.asarray(mesh.faces), process=False).export('body33s.ply')
