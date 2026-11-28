@@ -236,3 +236,31 @@ def test_close_up_gives_no_colour_where_an_earring_hangs():
     assert out[teeth > 0].all(), 'the teeth were taken for an earring'
     inner = cv2.erode(head, np.ones((61, 61), np.uint8)) > 0
     assert out[inner].all(), 'skin inside the head was dropped'
+
+
+def test_head_grows_out_to_a_bun_the_hull_lost():
+    """headsil33, 2.33.0: where the close-ups' outlines lie outside the mesh, the mesh grows out to them. Gemini
+    avatar_001 v015: the full-body photos carved the bun into a cone and the head could only be trimmed further.
+    A ball whose close-ups all show a bun behind it"""
+    import headsil33
+    V, F = _ball_head()
+    cams, _ = _ball_cams()
+    bun = np.array([0, 1.55, -0.095]); size, sdf = 512, {}
+    for n, c in cams.items():
+        m = np.zeros((size, size), np.uint8)
+        cv2.circle(m, (size // 2, size // 2), int(0.09 * c['s']), 1, -1)
+        col, row = camera.project(bun[None], c)
+        cv2.circle(m, (int(round(col[0])), int(round(row[0]))), int(0.045 * c['s']), 1, -1)
+        sdf[n] = (cv2.distanceTransform(1 - m, cv2.DIST_L2, 5) - cv2.distanceTransform(m, cv2.DIST_L2, 5)).astype(np.float32)
+    back = lambda X: (-X[:, 2].min() - 0.09) * 1000                             # mm behind the ball
+    assert back(V) < 0.5
+    same = headsil33.trim(V, F, cams, sdf, tag='test')                          # trimming alone cannot bring it back
+    assert back(same) < 0.5
+    X = headsil33.trim(V, F, cams, sdf, tag='test', iters=headsil33.GROW_ITERS, grow=True)
+    assert back(X) > 25, f'the bun reaches {back(X):.0f} mm behind the head; the close-ups show 50'
+    front = V[:, 2] > 0.03
+    assert np.linalg.norm(X - V, axis=1)[front].max() < 0.006, 'the face moved with the bun (more than a tenth of it)'
+    for n, c in cams.items():                                                   # and nothing grew past an outline
+        col, row = camera.project(X, c)
+        sd = sdf[n][np.clip(np.round(row).astype(int), 0, size - 1), np.clip(np.round(col).astype(int), 0, size - 1)] / c['s']
+        assert sd.max() < 0.006, f'{n}: {1000 * sd.max():.1f} mm outside the outline'

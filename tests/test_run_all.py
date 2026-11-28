@@ -166,7 +166,7 @@ def test_makehuman_template_option():
 
 
 def test_template_auto_is_makehuman_when_blender_has_the_extension(tmp_path):
-    """2.31.0: the MakeHuman template is the default where it can run (Blender with MPFB); without MPFB the run
+    """2.34.0: the MakeHuman template is the default where it can run (Blender with MPFB); without MPFB the run
     still works with the hull and says so. A resumed run keeps the template its folder was built with"""
     sys.path.insert(0, PKG)
     import run_all

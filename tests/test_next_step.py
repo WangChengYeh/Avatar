@@ -334,7 +334,7 @@ def test_old_publish_failure_is_dropped_when_not_publishing(tmp_path, monkeypatc
 
 
 def test_next_step_says_which_template_the_version_was_built_with(tmp_path):
-    """2.31.0: every run records the template it used and whether Blender has the MakeHuman extension (gates.json,
+    """2.34.0: every run records the template it used and whether Blender has the MakeHuman extension (gates.json,
     the result packs, the dashboard); next_step.md tells the executor, with how to install it when it is missing"""
     ws = tmp_path / 'avatar' / 'gemini' / 'avatar_001'
     v = version(ws, 1, G0, deliverable=True)

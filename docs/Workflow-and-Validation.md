@@ -76,7 +76,7 @@ python body3d/run_all.py ./photos ./output --only uv
 
 ### MakeHuman 模板（預設；`--template auto`）
 
-剪影外殼的網格沒有關節拓樸、手指，骨架權重是自動算的，手臂放下時肩膀會變形。所以 body3d 2.31.0 起預設用 MakeHuman 模板：`--template auto` 會問 Blender 有沒有 MPFB 擴充，有就用 `makehuman`，沒有就用 `hull`（外殼流程）並印出原因；接續舊的輸出資料夾（`--from`、`--only`）時沿用它原本的模板（`work/template.txt`）。MakeHuman 模板從第 11 步起改用 MakeHuman 人體：
+剪影外殼的網格沒有關節拓樸、手指，骨架權重是自動算的，手臂放下時肩膀會變形。所以 body3d 2.34.0 起預設用 MakeHuman 模板：`--template auto` 會問 Blender 有沒有 MPFB 擴充，有就用 `makehuman`，沒有就用 `hull`（外殼流程）並印出原因；接續舊的輸出資料夾（`--from`、`--only`）時沿用它原本的模板（`work/template.txt`）。MakeHuman 模板從第 11 步起改用 MakeHuman 人體：
 
 1. `mh33.py` 在 `body33s.ply` 上量手腕、膝蓋、腳踝的中心，`mh_prep.py`（Blender）建立女性 MakeHuman 人體與 Mixamo 骨架（52 根骨頭，含手指），把四肢擺到這些點。
 2. `mh_fit.py` 把模板擬合到照片：
