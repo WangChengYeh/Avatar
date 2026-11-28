@@ -10,7 +10,7 @@
 python body3d/next_step.py --workspace ~/avatar/<chatgpt|gemini>/<avatar_NNN>
 ```
 
-工作區在你自己的機器上（agent 與 avatar 名稱從路徑來，不用另外給）。每個版本做完，**用 Google Drive 連結器把結果放到雲端硬碟** `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`：`next_step.md` 最後一段「雲端硬碟」會列出要放的檔（四個階段的結果包、`gates.json`、`next_step.md`）和位置。Claude 也用連結器從那裡讀。GitHub repo 是公開的，照片不放 GitHub、不附在 issue：
+工作區在你自己的機器上（agent 與 avatar 名稱從路徑來，不用另外給）。每個版本做完，**用 Google Drive 連結器把結果放到雲端硬碟** `avatar/<chatgpt|gemini>/<avatar_NNN>/vNNN/`：`next_step.md` 最後一段「雲端硬碟」會列出要放的檔（四個階段的結果包、`gates.json`、`next_step.md`）和位置。Claude 也用連結器從那裡讀。GitHub repo 是公開的，照片不放 GitHub、不附在 issue，**雲端硬碟的連結也不貼**（issue、PR、留言裡只寫路徑，Claude 用連結器依路徑找）：
 
 ```
 ~/avatar/
