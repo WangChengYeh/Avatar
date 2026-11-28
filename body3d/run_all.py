@@ -43,7 +43,7 @@ run_all.py — 33 張 T-pose 環繞照片 → 附骨架、有貼圖的 GLB（整
 """
 import argparse, json, os, shutil, subprocess, sys, time
 
-__version__ = '2.37.0'
+__version__ = '2.38.0'
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOFIX_ROUNDS = 3                 # photo-stage fix-and-check rounds (autofix.py)
 STEPS_DIR = os.path.join(HERE, 'steps')
@@ -196,6 +196,148 @@ def code_hash(root=HERE, control=False):
     return h.hexdigest()[:16]
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Rerun from the first step whose code changed (docs/SOP.md#改了程式之後從哪一步重跑).
+# Every change under body3d/ used to rerun all 18 steps for every avatar: 27 commits touched body3d/ in two days, most
+# of them in the late steps (2.35.0 the last step only), and one run takes 5 minutes here and up to 24 in an
+# executor's sandbox. Each step now has a fingerprint: the photos, the options, the code it runs and everything
+# before it. A new version reuses the steps of the last one whose fingerprints are the same.
+
+# the scripts each step runs; what they import or call (found in their source) counts too
+STEP_SCRIPTS = {
+    'check': ['check_turnaround.py'], 'cams': ['steps/cams33.py'], 'refine': ['steps/refine33.py'],
+    'arms': ['steps/arms33.py'], 'round': ['steps/round33.py'], 'legs': ['steps/legs33.py'], 'mesh': ['steps/mesh33s.py'],
+    'headreg': ['steps/headreg33.py', 'steps/headsil33.py'], 'face': ['steps/face_landmarks.py'],
+    'face3d': ['steps/face33.py'], 'uv': ['steps/bl_uv33s.py', 'steps/mh33.py'],
+    'bake': ['check_turnaround.py', 'steps/bake33.py'],
+    'export': ['steps/bl_export.py', 'steps/mh_export.py', 'steps/bl_client_render.py'],
+    'joints': ['steps/joints.py'], 'rig': ['steps/rig.py'], 'unlit': ['steps/glb_unlit.py'],
+    'verify': ['verify_glb.py'], 'fit': ['fit_report.py'],
+}
+# a run can be taken up again at these steps and give what a run from the start gives. Measured (luna, MakeHuman
+# template, 2026-11-28): two runs from the start are the same byte for byte, the GLBs included; a copy of the first
+# run taken up at each of these steps ends with every file the same again (work/*.npy / .json / .ply / .png, the
+# GLBs, gates.json, fit_report.json). 'refine' leaves another work/ring_consistency.json and is not in the list;
+# arms / round / legs / mesh / joints / rig / unlit were not tried: a change there goes back to the safe step before.
+SAFE_FROM = ('check', 'cams', 'headreg', 'face', 'face3d', 'uv', 'bake', 'export', 'verify', 'fit')
+SAFE_TEMPLATES = ('makehuman',)          # measured with this template only; the hull flow starts over
+
+
+def _code_files(root=HERE):
+    """every .py / .json under body3d/ by its path from there"""
+    out = {}
+    for d, dirs, files in os.walk(root):
+        dirs[:] = sorted(x for x in dirs if x != '__pycache__')
+        for f in files:
+            if f.endswith(('.py', '.json')):
+                p = os.path.join(d, f)
+                out[os.path.relpath(p, root).replace(os.sep, '/')] = p
+    return out
+
+
+def step_closure(step, root=HERE, _files=None):
+    """the code files a step runs: its scripts and, followed through their source, every module they import and
+    every other script they name (a Blender script started with subprocess is named, not imported)"""
+    import re
+    files = _files or _code_files(root)
+    by_name = {}
+    for rel in files:
+        by_name.setdefault(os.path.basename(rel), []).append(rel)
+    seen, todo = set(), [s for s in STEP_SCRIPTS[step] if s in files]
+    while todo:
+        rel = todo.pop()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        src = open(files[rel], encoding='utf-8', errors='replace').read()
+        names = {m.split('.')[0] + '.py' for m in re.findall(r'^\s*(?:import|from)\s+([\w.]+)', src, re.M)}
+        names |= {os.path.basename(m) for m in re.findall(r'[\'"]([\w./]+\.py)[\'"]', src)}
+        names |= {m + '.py' for m in re.findall(r'^\s*import\s+([\w, ]+)$', src, re.M) for m in re.split(r'[, ]+', m) if m}
+        for n in names:
+            todo += [r for r in by_name.get(n, []) if r not in seen]
+    return seen
+
+
+def step_fingerprints(photos, opts, root=HERE):
+    """{step: fingerprint} for a run of these photos with these options by the code under root. A step's fingerprint
+    covers the photos, the options, the code no step owns (run_all.py itself without its version line, the reports,
+    the diagnosis: a change there reruns everything), and the code of this step and of every step before it.
+    CONTROL_FILES make no result and are left out"""
+    import hashlib
+    files = _code_files(root)
+    sha = lambda b: hashlib.sha256(b).hexdigest()
+    read = lambda rel: open(files[rel], 'rb').read()
+    closures = {s: step_closure(s, root, files) for s in STEPS}
+    owned = set().union(*closures.values())
+    h = hashlib.sha256(json.dumps(opts, sort_keys=True, ensure_ascii=False).encode())
+    for f in sorted(os.listdir(photos) if os.path.isdir(photos) else []):
+        if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+            h.update(f.encode()); h.update(sha(open(os.path.join(photos, f), 'rb').read()).encode())
+    for rel in sorted(files):
+        if rel in owned or ('/' not in rel and rel in CONTROL_FILES):
+            continue
+        body = read(rel)
+        if rel == 'run_all.py':                      # the version line changes with every release and makes no result
+            body = b'\n'.join(l for l in body.split(b'\n') if not l.startswith(b'__version__'))
+        h.update(rel.encode()); h.update(sha(body).encode())
+    out, done = {}, set()
+    for s in STEPS:
+        for rel in sorted(closures[s] - done):
+            h.update(rel.encode()); h.update(sha(read(rel)).encode())
+        done |= closures[s]
+        out[s] = h.copy().hexdigest()[:16]
+    return out
+
+
+def load_checkpoint(out):
+    try:
+        return json.load(open(os.path.join(out, 'work', 'checkpoint.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+
+
+def first_changed(prev_out, photos, root=HERE):
+    """the first step of the run in prev_out that the code now, with these photos, would do differently:
+    (step or None when every step it ran is the same, the steps it ran and finished in order); ('check', []) when the
+    run left no record"""
+    ck = load_checkpoint(prev_out)
+    if not ck or not ck.get('steps'):
+        return 'check', []
+    now = step_fingerprints(photos, ck['opts'], root)
+    ran = [s for s in STEPS if s in ck['steps']]
+    done = []
+    for s in ran:
+        if ck['steps'][s].get('fp') != now[s]:
+            return s, done
+        if ck['steps'][s].get('status') == 'done':
+            done.append(s)
+    return None, done
+
+
+def still_valid(prev_out, photos, root=HERE):
+    """the result in prev_out is what the code now would make of these photos: no step it ran (the one it stopped in
+    included) has other code. A change after the step a run stopped in changes nothing for it"""
+    step, _ = first_changed(prev_out, photos, root)
+    return step is None
+
+
+def resume_point(prev_out, photos, root=HERE):
+    """where a new version can take the run in prev_out up again: the last step of SAFE_FROM that is not after the
+    first changed step and whose earlier steps all finished; 'check' = from the start; None = nothing to run, every
+    step ran, finished and is the same"""
+    step, done = first_changed(prev_out, photos, root)
+    if step is None and len(done) == len(STEPS):
+        return None
+    if ((load_checkpoint(prev_out) or {}).get('opts') or {}).get('template') not in SAFE_TEMPLATES:
+        return 'check'
+    limit = STEPS.index(step) if step is not None else len(done)      # an unfinished run: go on where it stopped
+    limit = min(limit, len(done))
+    for s in reversed(STEPS[:limit + 1]):
+        if s in SAFE_FROM and STEPS.index(s) <= limit:
+            return s
+    return 'check'
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=f'body3d run_all {__version__}')
     ap.add_argument('img_dir'); ap.add_argument('out_dir')
@@ -205,6 +347,8 @@ def main(argv=None):
     ap.add_argument('--no-autofix', action='store_true', help='照片檢查未通過時不自動修正')
     ap.add_argument('--from', dest='start', choices=STEPS, default='check')
     ap.add_argument('--only', choices=STEPS)
+    ap.add_argument('--reuse', metavar='上一版的輸出資料夾',
+                    help='同一組照片換了程式重跑：沿用上一版裡程式沒有變的那幾步，從第一個有變的步驟開始（輸出資料夾要是新的）')
     ap.add_argument('--pose', choices=['tpose', 'apose'], default='tpose')
     ap.add_argument('--template', choices=['makehuman', 'hull', 'auto'], default=None,
                     help='預設是 makehuman：把 MakeHuman 人體擬合到外殼，用它的拓樸、Mixamo 骨架（52 根，含手指）與權重，'
@@ -215,6 +359,23 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     img = os.path.abspath(a.img_dir); out = os.path.abspath(a.out_dir)
+    photos0 = img                                    # the photos as given: what the fingerprints are of
+    reused_from, nothing_to_run = None, False
+    if a.reuse and a.start == 'check' and not a.only:
+        prev = os.path.abspath(a.reuse)
+        po = (load_checkpoint(prev) or {}).get('opts') or {}
+        same = (po and not (os.path.isdir(out) and os.listdir(out))            # a new, empty output folder
+                and (po.get('name'), po.get('pose'), po.get('force'), po.get('no_autofix'))
+                == (a.name, a.pose, bool(a.force), bool(a.no_autofix))
+                and a.template in (None, 'auto', po.get('template')))
+        at = resume_point(prev, photos0) if same else 'check'
+        if at != 'check':
+            shutil.copytree(prev, out, dirs_exist_ok=True)
+            reused_from = prev
+            if at is None:
+                nothing_to_run = True
+            else:
+                a.start = at
     if (a.start != 'check' or a.only) and a.only != 'check' and os.path.exists(os.path.join(out, 'autofix.json')):
         img = json.load(open(os.path.join(out, 'autofix.json')))['photos']     # resume with the fixed photos
     work = os.path.join(out, 'work'); os.makedirs(work, exist_ok=True)
@@ -222,7 +383,7 @@ def main(argv=None):
     py = sys.executable
     S = lambda f: os.path.join(STEPS_DIR, f)
     blender = find_blender(a.blender)
-    todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
+    todo = [] if nothing_to_run else [a.only] if a.only else STEPS[STEPS.index(a.start):]
     made_with = dict(template='hull', mpfb=None, mpfb_install=None)      # recorded with every run (gates.json)
     if any(STEPS.index(step) >= STEPS.index('uv') for step in todo):      # the steps before 'uv' are the same for both
         a.template, why, info = pick_template(a.template, blender, work, a.start != 'check' or bool(a.only))
@@ -232,6 +393,13 @@ def main(argv=None):
               + f'；這台機器的 Blender {"有" if info["mpfb"] else "沒有"} MakeHuman 擴充（MPFB）')
         open(os.path.join(work, 'template.txt'), 'w').write(a.template + '\n')
         made_with = dict(template=a.template, **info)
+    elif nothing_to_run:                                                  # every step reused: as the last run recorded
+        try:
+            pg = json.load(open(os.path.join(out, 'gates.json'), encoding='utf-8'))
+        except (OSError, ValueError):
+            pg = {}
+        made_with = {k: pg.get(k) for k in ('template', 'mpfb', 'mpfb_install')}
+        a.template = made_with['template'] or 'hull'
     else:
         a.template = 'hull'                                               # not used by these steps
         made_with['template'] = None
@@ -249,6 +417,70 @@ def main(argv=None):
     go_on = a.force
     packed = set()                 # stages whose result is zipped already
     diagnosis = []                 # leaves of the diagnosis tree for the FAILs (diagnose.py, docs/Diagnosis-Tree.md)
+
+    # --- one record per step (work/checkpoint.json): its fingerprint, what it left, where the log stood -----------
+    opts = dict(name=a.name, pose=a.pose, template=a.template, force=bool(a.force), no_autofix=bool(a.no_autofix))
+    fps = step_fingerprints(photos0, opts)
+    ck = load_checkpoint(out) or {}
+    ck.setdefault('steps', {})
+
+    def snapshot():
+        """{file under the output folder: (size, time)}; work/ and the page are left out"""
+        snap = {}
+        for d, dirs, files in os.walk(out):
+            if d == out:
+                dirs[:] = [x for x in dirs if x not in ('work', 'client')]
+            for f in files:
+                rel = os.path.relpath(os.path.join(d, f), out)
+                if rel not in ('progress.json', 'run_all.log'):
+                    st_ = os.stat(os.path.join(d, f))
+                    snap[rel] = (st_.st_size, st_.st_mtime_ns)
+        return snap
+
+    def checkpoint(step, status, before, more=False):
+        """record a step; more: add what was written since to the files of a step already recorded"""
+        after = snapshot()
+        new = sorted(r for r, v in after.items() if before.get(r) != v)
+        if more:
+            if step in ck['steps']:
+                ck['steps'][step]['files'] = sorted(set(ck['steps'][step]['files']) | set(new))
+        else:
+            # a copy: the lists go on growing in the later steps, and this is how they stood after this one
+            state = json.loads(json.dumps(dict(gates={k: list(v) for k, v in gates.items()}, fails=fails,
+                                               diagnosis=diagnosis, packed=sorted(packed)), ensure_ascii=False))
+            ck['steps'][step] = dict(fp=fps[step], status=status, files=new, state=state,
+                                     log_end=os.path.getsize(log) if os.path.exists(log) else 0)
+        ck['opts'] = opts
+        json.dump(ck, open(os.path.join(work, 'checkpoint.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        return after
+
+    # taken up at a later step (--from, --reuse): the gates, the diagnosis and the log as the step before left them,
+    # and nothing of what the later steps wrote last time (their packs, models and reports are not this run's)
+    reused = []
+    if (a.start != 'check' and not a.only) or nothing_to_run:
+        before_start = STEPS if nothing_to_run else STEPS[:STEPS.index(a.start)]
+        last = before_start[-1]
+        rec = ck['steps'].get(last)
+        if rec and rec.get('status') == 'done':
+            gates.update({k: tuple(v) for k, v in rec['state']['gates'].items()})
+            fails.update(rec['state']['fails']); diagnosis[:] = rec['state']['diagnosis']; packed.update(rec['state']['packed'])
+            if os.path.exists(log):
+                with open(log, 'r+b') as f:
+                    f.truncate(rec['log_end'])
+            for s in STEPS[len(before_start):]:
+                for rel in (ck['steps'].pop(s, None) or {}).get('files', []):
+                    if os.path.isfile(os.path.join(out, rel)):
+                        os.remove(os.path.join(out, rel))
+            if not nothing_to_run:
+                shutil.rmtree(os.path.join(out, 'client'), ignore_errors=True)
+            dj = os.path.join(out, 'diagnosis.json')
+            if diagnosis:
+                json.dump(diagnosis, open(dj, 'w'), ensure_ascii=False, indent=1)
+            elif os.path.exists(dj):
+                os.remove(dj)
+            reused = [s for s in before_start if s in ck['steps']]
+            print(f'沿用 {reused_from or out} 的前 {len(reused)} 步（照片和這幾步的程式都沒有變）'
+                  + ('，沒有要重跑的步驟' if nothing_to_run else f'，從 {a.start} 開始'))
 
     def diagnose(gate):
         """walk the diagnosis tree for this gate's FAILs; print the leaves and keep them for the zip and the page"""
@@ -543,22 +775,28 @@ def main(argv=None):
             'joints': skip('MakeHuman 骨架（mh33.py 已擬合關節）'),
             'rig': skip('MakeHuman Mixamo 骨架與權重（52 根骨頭，含手指）'),
         })
-    todo = [a.only] if a.only else STEPS[STEPS.index(a.start):]
+    todo = [] if nothing_to_run else [a.only] if a.only else STEPS[STEPS.index(a.start):]
     print(f'body3d {__version__}  照片: {img}  輸出: {out}  Blender: {blender or "(找不到)"}')
     t0 = time.time()
     code = code_version()                            # next_step reruns an output made by older code
-    progress.update(started=t0, state='running', code=code,
-                    steps=[dict(name=s, status='pending', seconds=None) for s in todo])
+    progress.update(started=t0, state='running', code=code, reused_from=reused_from, reused=reused if reused_from else [],
+                    steps=([dict(name=s, status='done', seconds=0.0, reused=True) for s in reused] if reused_from else [])
+                    + [dict(name=s, status='pending', seconds=None) for s in todo])
+    n0 = len(progress['steps']) - len(todo)
+    snap = snapshot()
     try:
         for i, s in enumerate(todo):
             print(f'[{STEPS.index(s) + 1:2d}/{len(STEPS)}] {s}', flush=True)
-            st = progress['steps'][i]; st['status'] = 'running'; ts = time.time()
+            st = progress['steps'][n0 + i]; st['status'] = 'running'; ts = time.time()
             save_progress(); client_report(quick=True)
+            before = snap
             actions[s]()
             st['status'] = 'done'; st['seconds'] = round(time.time() - ts, 1)
             save_progress()
+            snap = checkpoint(s, 'done', before)
     except RuntimeError as e:
         st['status'] = 'failed'; st['seconds'] = round(time.time() - ts, 1)
+        checkpoint(s, 'failed', before)
         progress.update(state='stopped', stopped_at=s, reason=str(e).split('\n')[0], finished=time.time())
         save_progress()
         gate_table()
@@ -573,6 +811,7 @@ def main(argv=None):
             if n not in packed or n == here:
                 stage_zip(n, stopped=(s, str(e).split('\n')[0]) if n == here else None)
         client_report(quick=True)                    # the page links the zips packed just now
+        checkpoint(s, 'failed', before, more=True)   # the _FAIL packs and the requests belong to this step
         print(f'\n停在步驟 {s}: {e}', file=sys.stderr)
         return 1
     progress.update(state='done', finished=time.time())
@@ -582,6 +821,8 @@ def main(argv=None):
     if 'fit' in todo:                                # stage 4 result: the photo / model comparison and the numbers
         stage_zip(4)
         client_report(quick=True)                    # the page links the stage 4 zip too
+    if todo:
+        checkpoint(todo[-1], 'done', snap, more=True)   # gates.json and the last pack belong to the last step
     print(f'\n完成（{(time.time() - t0) / 60:.1f} 分鐘）')
     if 'unlit' in todo or 'verify' in todo:
         print(f'  {unlit}\n  {lit}')

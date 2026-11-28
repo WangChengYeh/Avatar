@@ -149,7 +149,7 @@ def test_fit_step_is_last():
 
 
 @pytest.mark.slow
-def test_synthetic_end_to_end_needs_no_force(synth_set, tmp_path):
+def test_synthetic_end_to_end_needs_no_force(synth_set, tmp_path, monkeypatch):
     """#28: perfect photos run through all 18 steps without --force: the photo check, the pre-bake head check
     (spec angles, thresholds calibrated on perfect photos) and the final fit all pass"""
     out = tmp_path / 'e2e'
@@ -158,6 +158,28 @@ def test_synthetic_end_to_end_needs_no_force(synth_set, tmp_path):
     text = open(out / 'run_all.log', errors='replace').read()
     prebake = text.split('--head-overlap-work', 1)[1].split('bake33.py', 1)[0]
     assert '[FAIL]' not in prebake, [l for l in prebake.splitlines() if '[FAIL]' in l]
+    # --- 2.38.0: the same photos under changed code reuse the steps whose code did not change (docs/SOP.md) ---
+    import json
+    import run_all
+    load = lambda d, f: json.load(open(d / f, encoding='utf-8'))
+    # nothing changed: a new version runs no step and is the same result
+    again = tmp_path / 'again'
+    rc, log2 = run_py('run_all.py', synth_set, again, '--name', 'body', '--template', 'hull', '--reuse', out)
+    assert rc == 0 and '沒有要重跑的步驟' in log2, log2[-2000:]
+    assert load(again, 'gates.json')['gates'] == load(out, 'gates.json')['gates'] and load(again, 'gates.json')['deliverable']
+    assert load(again, 'fit_report.json') == load(out, 'fit_report.json')
+    assert open(again / 'body_rigged.glb', 'rb').read() == open(out / 'body_rigged.glb', 'rb').read()
+    # the last step's code changed: only that step runs, the three gates before it stand, the result is the same
+    ck = load(out / 'work', 'checkpoint.json'); ck['steps']['fit']['fp'] = 'made by other code'
+    json.dump(ck, open(out / 'work' / 'checkpoint.json', 'w', encoding='utf-8'))
+    monkeypatch.setattr(run_all, 'SAFE_TEMPLATES', ('makehuman', 'hull'))       # measured with MakeHuman; the last step reads only
+    fit_only = tmp_path / 'fit_only'
+    assert run_all.main([str(synth_set), str(fit_only), '--name', 'body', '--template', 'hull', '--reuse', str(out)]) == 0
+    prog = load(fit_only, 'progress.json')
+    assert [s['name'] for s in prog['steps'] if not s.get('reused')] == ['fit'] and len(prog['reused']) == 17
+    assert load(fit_only, 'gates.json')['gates'] == load(out, 'gates.json')['gates'] and load(fit_only, 'gates.json')['deliverable']
+    assert load(fit_only, 'fit_report.json') == load(out, 'fit_report.json')
+    assert sorted(os.listdir(fit_only / 'deliver')) == sorted(os.listdir(out / 'deliver'))
 
 
 def test_makehuman_template_option():
