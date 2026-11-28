@@ -123,9 +123,35 @@ def _level_masks(photos):
     return good
 
 
+_FEET_CUT = {}
+
+
+def _tilted_masks(photos):
+    extra = {}
+    for ring in ct.RING_TILT:
+        for a in range(0, 360, 45):
+            im = cv2.imread(os.path.join(photos, f'{ring}_{a:03d}deg.jpg'))
+            if im is not None:
+                extra.setdefault(ring, {})[a] = dict(m=ct.segment(im)[0], name=f'{ring}_{a:03d}deg.jpg')
+    return extra
+
+
+def feet_cut(photos, good=None):
+    """{(ring, angle): (share of the level ring's feet this photo removes, mask of the feet it does not show)} from
+    the all-view hull; worked out once per photo folder"""
+    key = os.path.abspath(photos)
+    if key not in _FEET_CUT:
+        good = good or _level_masks(photos); extra = _tilted_masks(photos); out = {}
+        if len(good) == 8 and extra:
+            ct.all_view_hull(good, extra, feet=out)
+        _FEET_CUT[key] = out
+    return _FEET_CUT[key]
+
+
 def feet_reference(photos, name, good=None):
     """the feet of this full-body photo, enlarged, with the reference feet (orange line: the feet the level front,
-    back and side photos agree on, seen from this photo's angle) and what the photo draws outside them (red)"""
+    back and side photos agree on, seen from this photo's angle), what the photo draws outside them (red) and the
+    feet the other photos show and this one does not (blue: what it carves away)"""
     view = _full_body_view(name)
     im = cv2.imread(os.path.join(photos, name + '.jpg'))
     if view is None or im is None:
@@ -137,10 +163,18 @@ def feet_reference(photos, name, good=None):
     if not T.any():
         return None
     pic = im.copy()
+    ring = re.match(r'(el30|low20)_', name)
+    miss = feet_cut(photos, good).get((ring.group(1) if ring else 'main', view[0]), (0.0, None))[1]
+    if miss is not None and miss.shape == out.shape:
+        miss = (miss > 0) & ~(ct.segment(im)[0] > 0)                 # where the others have a foot and this photo none
+        pic[miss] = (0.35 * pic[miss] + 0.65 * np.array((230, 120, 30))).astype(np.uint8)
+        out = out & ~miss
+    else:
+        miss = np.zeros(out.shape, bool)
     pic[out] = (0.35 * pic[out] + 0.65 * np.array((40, 40, 230))).astype(np.uint8)
     cnt, _ = cv2.findContours(T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     cv2.drawContours(pic, cnt, -1, (0, 140, 255), max(3, im.shape[1] // 600))
-    ys, xs = np.nonzero(T | out.astype(np.uint8))
+    ys, xs = np.nonzero(T | out.astype(np.uint8) | miss.astype(np.uint8))
     half = int(max(np.ptp(xs), np.ptp(ys)) * 0.75) + 60
     cy, cx = int(ys.mean()), int(xs.mean())
     y0, x0 = max(0, min(im.shape[0] - 2 * half, cy - half)), max(0, min(im.shape[1] - 2 * half, cx - half))
@@ -151,12 +185,7 @@ def feet_reference(photos, name, good=None):
 def coverage_overview(photos):
     """the eight level photos with what the all-view hull does not cover in red: where the body is carved away"""
     good = _level_masks(photos)
-    extra = {}
-    for ring in ct.RING_TILT:
-        for a in range(0, 360, 45):
-            im = cv2.imread(os.path.join(photos, f'{ring}_{a:03d}deg.jpg'))
-            if im is not None:
-                extra.setdefault(ring, {})[a] = dict(m=ct.segment(im)[0], name=f'{ring}_{a:03d}deg.jpg')
+    extra = _tilted_masks(photos)
     if len(good) < 8 or not extra:
         return None
     lost = ct.all_view_hull(good, extra)[3]
@@ -279,7 +308,8 @@ def make(photos, out, leaves):
                 cv2.imwrite(os.path.join(dst, 'reference', p + '_腳的位置.jpg'), fref, [cv2.IMWRITE_JPEG_QUALITY, 90])
                 lines.append(f'- **腳的參考圖**：`reference/{p}_腳的位置.jpg`（這張照片的腳，放大）：橘線是正面、背面、左右側面四張水平照決定的腳，'
                              '從這個角度看的範圍，是**上限**：腳要畫在橘線以內（斜角看橘線會比真的腳寬，不要填滿）。紅色是這張的腳超出橘線的'
-                             '部分：把它收回橘線內，通常是腳尖的朝向、兩腳一前一後、或腳底畫得比其他張低。只改腳，小腿以上不要動。')
+                             '部分：把它收回橘線內，通常是腳尖的朝向、兩腳一前一後、或腳底畫得比其他張低。**藍色是別張照片有腳、這張沒有畫到的地方**'
+                             '（腳畫短了、窄了，或整隻腳偏了）：把腳補到藍色的地方，否則一起雕的時候這一塊會被削掉。只改腳，小腿以上不要動。')
         if re.match(r'(el30|low20)_\d{3}deg$', p):
             ref = tilted_reference(photos, p)
             if ref is not None:

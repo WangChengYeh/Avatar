@@ -610,14 +610,62 @@ def test_feet_position_and_where_the_hull_falls_short(broken):
     assert warned == sorted(low), warned
 
 
+def _erase_toes(folder, name, ct, cm=5):
+    """paint out the front `cm` of both feet in a side view (the far foot stands higher in a tilted view)"""
+    f = folder / (name + '.jpg')
+    im = cv2.imread(str(f)); m = ct.segment(im)[0]
+    rows = np.flatnonzero(m.any(1)); bottom = int(rows[-1]); scale = (bottom - rows[0]) / ct.SPEC_HEIGHT
+    top = bottom - int(0.24 * scale)
+    cols = np.flatnonzero(m[top:bottom + 1].any(0)); cut = int(cm / 100 * scale)
+    # seen from her left (90 deg) the toes point to the image's left, from her right to the image's right
+    x0, x1 = (max(cols[0] - 4, 0), cols[0] + cut) if '_090deg' in name else (cols[-1] - cut, cols[-1] + 5)
+    im[top:bottom + 8, x0:x1] = 255
+    cv2.imwrite(str(f), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+
+def test_feet_drawn_short_are_named_although_nothing_lies_outside(broken):
+    """10j, 1.51.0: a foot drawn shorter than the others' lies inside the reference (nothing "outside"), and still
+    carves the feet away. ChatGPT R77 (#117): el30_090deg 1.5 % outside, a PASS, while it removed 5.0 % of the feet.
+    Each photo is given its share of the level ring's feet the all-view hull loses"""
+    import check_turnaround as ct
+    short = ('el30_090deg', 'low20_090deg', 'el30_270deg')   # three photos: the hull forgives two that disagree
+    for name in short:
+        _erase_toes(broken, name, ct)
+    rc, out = check(broken)
+    warned = {l.split()[1]: l for l in lines(out, 'WARN') if '腳的位置' in l}
+    assert set(short) <= set(warned), sorted(warned)
+    for name in short:
+        cut_, over = (float(v) for v in re.search(r'缺 ([\d.]+)%.*?超出 ([\d.]+)%', warned[name]).groups())
+        assert cut_ > 100 * ct.FOOT_CUT_WARN and over < 100 * ct.FOOT_OUT_WARN, warned[name]     # only the new number sees it
+        assert '藍色的地方補上' in warned[name]
+
+
+def test_feet_reference_picture_marks_what_is_missing(broken):
+    """the retouch sheet's picture: blue where the other photos have a foot and this one has none"""
+    import ai_request as ar, check_turnaround as ct
+    ar._FEET_CUT.clear()
+    before = ar.feet_cut(str(broken)).get(('el30', 90), (0, None))[0]
+    assert before < ct.FOOT_CUT_WARN
+    for name in ('el30_090deg', 'low20_090deg', 'el30_270deg'):
+        _erase_toes(broken, name, ct)
+    ar._FEET_CUT.clear()
+    share, miss = ar.feet_cut(str(broken))[('el30', 90)]
+    assert share > ct.FOOT_CUT_WARN and miss.any()
+    pic = ar.feet_reference(str(broken), 'el30_090deg')
+    blue = (pic[..., 0] > 180) & (pic[..., 2] < 110) & (pic[..., 1] > 100) & (pic[..., 1] < 200)
+    assert blue.sum() > 500, 'no blue in the reference picture'
+    ar._FEET_CUT.clear()
+
+
 def test_where_the_hull_falls_short_decides_what_to_redraw():
     """10i: the feet alone (ChatGPT R72, 90°) -> the feet of the photos named, framing left alone; the whole figure
     (a tilted view drawn 6 cm off) -> the tilted views' framing; the arms' edges alone -> the arms"""
     import check_turnaround as ct
-    bad = [('low20_270deg', 0.09), ('el30_315deg', 0.062)]
+    bad = [('low20_270deg', 0.036, 0.09), ('el30_315deg', 0.033, 0.062)]      # (photo, feet it removes, feet outside)
     r72 = dict(zip(('頭', '手臂的高度', '軀幹', '腿', '腳'), (1.2, 0.2, 0.5, 0.5, 3.8)))
     t = ct.hull_short_advice(r72, bad, 'el30_090deg（切掉 2.0%）', '')
     assert '腳 3.8' in t and '少掉的主要是腳' in t and '相機距離與構圖不要動' in t
+    assert 'low20_270deg（缺 3.6%、超出 9%）' in t and '藍色補上、紅色收掉' in t
     assert re.findall(r'(?:el30|low20)_\d{3}deg', t) == ['low20_270deg', 'el30_315deg']       # not the tilted views at 90°
     both = dict(r72, **{'手臂的高度': 2.1, '腳': 1.9})                                          # R72 at 45°: the arms too
     assert '少掉的主要是腳' in ct.hull_short_advice(both, bad) and '手臂的上下緣也少了 2.1%' in ct.hull_short_advice(both, bad)
