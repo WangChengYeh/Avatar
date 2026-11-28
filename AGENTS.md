@@ -14,7 +14,7 @@ python body3d/next_step.py --workspace ~/avatar/chatgpt/<avatar_NNN>
 
 - 程式更新了就一定重跑：每份結果記錄是哪一版程式跑的，舊程式跑的結果 next_step 會叫你用新程式重跑。
 - 不用自己記得去 GitHub 抓新的 SOP：next_step 每次都會先 `git fetch`，main 有新的就給 UPDATE（`git pull`，再跑一次 next_step；重建或檢查的程式有變才需要重跑，它會告訴你）。
-- 你的 avatar 工作區在 `~/avatar/chatgpt/avatar_NNN/`，每一輪一個版本 `vNNN/photos`、`vNNN/output`（docs/Agent-Runbook.md）。每個版本做完，照 `next_step.md` 的「雲端硬碟」用 Google Drive 連結器把結果放到 `avatar/chatgpt/avatar_NNN/vNNN/`。照片不放 GitHub（repo 是公開的）。
+- 你的 avatar 工作區在 `~/avatar/chatgpt/avatar_NNN/`，每一輪一個版本 `vNNN/photos`、`vNNN/output`（docs/Agent-Runbook.md）。每個版本做完，照 `next_step.md` 的「雲端硬碟」用 Google Drive 連結器把結果放到 `avatar/chatgpt/avatar_NNN/vNNN/`。照片不放 GitHub（repo 是公開的）。**issue、PR、留言裡只寫雲端硬碟的路徑（`avatar/…/vNNN/`），不貼雲端硬碟的連結**：repo 是公開的，貼連結等於把照片公開。
 - 角色與升級規則：[docs/Project-Loop.md](docs/Project-Loop.md)。SOP 由 Claude 維護；你不改 SOP、門檻或檢查來讓自己過關。
 - 程式改動開 PR 給 Claude review（`.github/pull_request_template.md`），不直接推 main。
 - 標明是你做的（docs/Project-Loop.md#誰做的）：issue／PR 標題開頭 `[ChatGPT]`、加 label `agent:chatgpt`，內文與留言第一行「> 由 **ChatGPT** 發／回報」，分支 `chatgpt/…`，commit 結尾 `Agent: ChatGPT`。
